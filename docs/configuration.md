@@ -59,7 +59,7 @@ secrets). Setting both forms is an error.
 | `TIDEMARK_METRICS_TOKEN` | — | Optional bearer token required for `/metrics` (*secret*). |
 | `TIDEMARK_SECRET_KEY_FILE` | `<data dir>/secret.key` | AES-256 key that encrypts notification secrets at rest; created on the first start. |
 | `TIDEMARK_ENV_FILE` | `<data dir>/tidemark.env` | Env file read at start-up (when present) before the environment. |
-| `TIDEMARK_NODE_ID` | host name (`tidemark` if unknown) | Unique name of this node (high availability, leases, write-ahead log); 1–64 characters of `A-Z a-z 0-9 . _ -`. |
+| `TIDEMARK_NODE_ID` | host name (`tidemark` if unknown) | Unique name of this node (high availability, leases, write-ahead log); 1–64 characters of `A-Z a-z 0-9 . _ -`, starting with a letter or digit. |
 | `TIDEMARK_META_DRIVER` | `sqlite` | Metadata database: `sqlite` (single node) or `postgres` (required for high availability). |
 | `TIDEMARK_META_DSN` | — | PostgreSQL connection string when the driver is `postgres` (*secret*). |
 | `TIDEMARK_CLICKHOUSE_CLUSTER` | — | ClickHouse cluster name; when set, the schema is created `ON CLUSTER` with replicated tables. |

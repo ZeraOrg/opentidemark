@@ -33,6 +33,7 @@ var skippedDirs = map[string]bool{
 // exemptFiles are licence texts, generated files and data that cannot carry a comment.
 var exemptFiles = map[string]bool{
 	"LICENSE": true, "NOTICE": true, "go.sum": true, "THIRD_PARTY_NOTICES.md": true,
+	"VERSION":                            true, // a bare version number read by tools (SPEC §17.6)
 	"internal/auth/common_passwords.txt": true,
 	"deploy/.env":                        true,
 }

@@ -5,6 +5,7 @@
 .claude
 .dev
 bin
+dist
 deploy/.env
 web/node_modules
 web/dist

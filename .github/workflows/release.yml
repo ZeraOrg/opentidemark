@@ -1,0 +1,285 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Releases (SPEC §17.6). In the main public repository a release is made automatically when ci
+# succeeds for a push to main whose VERSION file names a version without a tag v<VERSION> yet:
+# `make dist` builds the archives and checksums.txt, their build provenance is attested, the
+# multi-arch image is pushed to ghcr.io/zeraorg/tidemark, and finally the tag v<VERSION> and the
+# GitHub release (notes = the CHANGELOG.md section of the version) are created on that commit.
+# When the tag already exists the run ends after its first, cheap step. workflow_dispatch on main
+# runs the same logic again (recovery after a failure).
+# Other repositories: manual draft test builds only (workflow_dispatch): the archives and
+# checksums.txt are attached to a draft release and the image is built for linux/amd64 without
+# a push; no tag, no attestation, nothing is published.
+name: release
+
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash # -eo pipefail
+
+env:
+  IMAGE: ghcr.io/zeraorg/tidemark
+  PUBLIC: ${{ github.repository == 'ZeraOrg/tidemark' }}
+
+jobs:
+  prepare:
+    name: decide
+    # Automatic runs only in the main public repository, after a successful ci run of a push to
+    # its main; manual runs everywhere.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.repository == 'ZeraOrg/tidemark' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      proceed: ${{ steps.decide.outputs.proceed }}
+      version: ${{ steps.decide.outputs.version }}
+      tag: ${{ steps.decide.outputs.tag }}
+      sha: ${{ steps.decide.outputs.sha }}
+      prerelease: ${{ steps.decide.outputs.prerelease }}
+      name: ${{ steps.decide.outputs.name }}
+      created: ${{ steps.decide.outputs.created }}
+      image-tags: ${{ steps.decide.outputs.image-tags }}
+      notes: ${{ steps.notes.outputs.notes }}
+    steps:
+      - name: decide whether to release
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          semver='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$'
+          version="$(gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/VERSION?ref=$SOURCE_SHA")"
+          version="${version//[[:space:]]/}"
+          if [[ ! "$version" =~ $semver ]]; then
+            echo "::error title=release::VERSION of ${SOURCE_SHA::12} must hold a semantic version without a 'v' (got '$version')"
+            exit 1
+          fi
+          tag="v$version"
+          reason=""
+          if [[ "$PUBLIC" == true ]]; then
+            existing="$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$tag" --jq "map(select(.ref == \"refs/tags/$tag\")) | length")"
+            if [[ "$existing" != 0 ]]; then
+              reason="$tag already exists; bump VERSION (and add its CHANGELOG.md section) to release"
+            elif [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$GITHUB_REF" != refs/heads/main ]]; then
+              reason="releases are made from main only (started on $GITHUB_REF)"
+            elif [[ "$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" != "$SOURCE_SHA" ]]; then
+              reason="${SOURCE_SHA::12} is no longer the tip of main; the newer commit releases itself"
+            else
+              ci="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$SOURCE_SHA&event=push&per_page=1" \
+                --jq '.workflow_runs[0] | "\(.status)/\(.conclusion)"')"
+              if [[ "$ci" != completed/success ]]; then
+                reason="ci for ${SOURCE_SHA::12} is $ci; releases wait for a green ci"
+              fi
+            fi
+            name="$tag"
+          else
+            name="$tag (private test build ${SOURCE_SHA::7})"
+          fi
+          prerelease=false
+          [[ "$version" == *-* ]] && prerelease=true
+          tags="$IMAGE:$version"
+          if [[ "$prerelease" == false ]]; then
+            tags+=$'\n'"$IMAGE:${version%.*}"$'\n'"$IMAGE:latest"
+          fi
+          {
+            echo "version=$version"
+            echo "tag=$tag"
+            echo "sha=$SOURCE_SHA"
+            echo "prerelease=$prerelease"
+            echo "name=$name"
+            echo "created=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SOURCE_SHA" --jq .commit.committer.date)"
+            echo "image-tags<<EOF_IMAGE_TAGS"
+            echo "$tags"
+            echo "EOF_IMAGE_TAGS"
+          } >> "$GITHUB_OUTPUT"
+          if [[ -n "$reason" ]]; then
+            echo "::notice title=release::$reason"
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v7
+        if: steps.decide.outputs.proceed == 'true'
+        with:
+          ref: ${{ steps.decide.outputs.sha }}
+          persist-credentials: false
+      - name: release notes from CHANGELOG.md
+        id: notes
+        if: steps.decide.outputs.proceed == 'true'
+        env:
+          VERSION: ${{ steps.decide.outputs.version }}
+        run: |
+          notes="$(scripts/release-notes.sh "$VERSION")" || {
+            echo "::error title=release::CHANGELOG.md has no non-empty section \"## [$VERSION] - <YYYY-MM-DD>\"; add it and push again"
+            exit 1
+          }
+          delimiter="EOF_NOTES_$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+          { echo "notes<<$delimiter"; echo "$notes"; echo "$delimiter"; } >> "$GITHUB_OUTPUT"
+
+  build:
+    name: archives
+    needs: prepare
+    if: needs.prepare.outputs.proceed == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write # build provenance attestation (main public repository)
+      attestations: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: make dist
+        run: scripts/ci-annotate.sh "make dist" -- make dist
+      - name: attest build provenance
+        if: env.PUBLIC == 'true'
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-checksums: dist/checksums.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  image:
+    name: container image
+    needs: [prepare, build]
+    if: needs.prepare.outputs.proceed == 'true'
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: release-image-${{ needs.prepare.outputs.version }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: write # push to ghcr.io (main public repository)
+      id-token: write # image provenance attestation (main public repository)
+      attestations: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: docker/setup-qemu-action@v4
+        if: env.PUBLIC == 'true'
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        if: env.PUBLIC == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: build (and in the main public repository push) the image
+        id: image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: ${{ env.PUBLIC == 'true' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
+          push: ${{ env.PUBLIC == 'true' }}
+          tags: ${{ needs.prepare.outputs.image-tags }}
+          build-args: VERSION=${{ needs.prepare.outputs.version }}
+          labels: |
+            org.opencontainers.image.title=Tidemark
+            org.opencontainers.image.description=Open-source, self-hosted observability for logs, traces and metrics
+            org.opencontainers.image.version=${{ needs.prepare.outputs.version }}
+            org.opencontainers.image.revision=${{ needs.prepare.outputs.sha }}
+            org.opencontainers.image.created=${{ needs.prepare.outputs.created }}
+            org.opencontainers.image.source=https://github.com/ZeraOrg/tidemark
+            org.opencontainers.image.url=https://github.com/ZeraOrg/tidemark
+            org.opencontainers.image.licenses=Apache-2.0
+      - name: explain a failed image push
+        if: failure() && steps.image.outcome == 'failure' && env.PUBLIC == 'true'
+        run: |
+          echo "::error title=image push failed::Pushing $IMAGE failed. The organisation must allow GitHub Actions to create and publish packages (organisation settings, Packages), and an existing package 'tidemark' must grant this repository write access (package settings, Manage Actions access). After the first push the package is private: an owner makes it public once (package settings, Change visibility). Then run this workflow again on main."
+      - name: attest image provenance
+        if: env.PUBLIC == 'true'
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.image.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false # would need the extra artifact-metadata permission
+
+  release:
+    name: GitHub release
+    needs: [prepare, build, image]
+    if: needs.prepare.outputs.proceed == 'true'
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: release-${{ needs.prepare.outputs.version }}
+      cancel-in-progress: false
+    permissions:
+      contents: write # create the tag and the release
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+      SHA: ${{ needs.prepare.outputs.sha }}
+      NAME: ${{ needs.prepare.outputs.name }}
+      PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - name: write the release notes
+        env:
+          NOTES: ${{ needs.prepare.outputs.notes }}
+        run: printf '%s\n' "$NOTES" > "$RUNNER_TEMP/notes.md"
+      - name: create the tag and the release
+        if: env.PUBLIC == 'true'
+        run: |
+          existing="$(gh api "repos/$GH_REPO/git/matching-refs/tags/$TAG" --jq "map(select(.ref == \"refs/tags/$TAG\")) | length")"
+          if [[ "$existing" != 0 ]]; then
+            echo "::notice title=release::$TAG was created meanwhile; nothing to do"
+            exit 0
+          fi
+          url="$(gh release create "$TAG" dist/* --target "$SHA" --title "$NAME" \
+            --notes-file "$RUNNER_TEMP/notes.md" --prerelease="$PRERELEASE")"
+          echo "::notice title=release::published $url"
+          echo "Released [$NAME]($url)" >> "$GITHUB_STEP_SUMMARY"
+      - name: create or refresh the draft test release
+        if: env.PUBLIC != 'true'
+        run: |
+          id="$(gh api --paginate "repos/$GH_REPO/releases?per_page=100" |
+            jq -rn --arg name "$NAME" '[inputs[] | select(.draft and .name == $name) | .id] | first // empty')"
+          if [[ -z "$id" ]]; then
+            id="$(gh api "repos/$GH_REPO/releases" -f tag_name="$TAG" -f target_commitish="$SHA" -f name="$NAME" \
+              -F draft=true -F prerelease="$PRERELEASE" -F body=@"$RUNNER_TEMP/notes.md" --jq .id)"
+          else
+            gh api -X PATCH "repos/$GH_REPO/releases/$id" -f target_commitish="$SHA" -F body=@"$RUNNER_TEMP/notes.md" >/dev/null
+            for asset in $(gh api "repos/$GH_REPO/releases/$id/assets?per_page=100" --jq '.[].id'); do
+              gh api -X DELETE "repos/$GH_REPO/releases/assets/$asset"
+            done
+          fi
+          for file in dist/*; do
+            curl -fsS -o /dev/null -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Content-Type: application/octet-stream" \
+              --data-binary "@$file" "https://uploads.github.com/repos/$GH_REPO/releases/$id/assets?name=$(basename "$file")"
+          done
+          url="$(gh api "repos/$GH_REPO/releases/$id" --jq .html_url)"
+          echo "::notice title=release::draft $NAME: $url"
+          echo "Draft [$NAME]($url)" >> "$GITHUB_STEP_SUMMARY"

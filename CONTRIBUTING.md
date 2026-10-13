@@ -31,7 +31,9 @@ commits cannot be accepted.
 3. The design specification is [SPEC.md](SPEC.md) (code comments refer to it as `SPEC §n`). Update
    it in the same pull request when you change behaviour, APIs, configuration, the query language
    or the UI, and update the user documentation in `docs/`, which is derived from it (tests keep
-   them consistent).
+   them consistent). Add user-visible changes under `## [Unreleased]` in
+   [CHANGELOG.md](CHANGELOG.md); maintainers release by setting `VERSION` and moving those entries
+   into a dated section (SPEC §17.6).
 4. Run `make check` (Linux/macOS) or `.\build.ps1 check` (Windows) and make sure it is green. Run
    `make test-integration` when you touch storage, ingestion, queries, retention or alerting.
 5. Every source file starts with `SPDX-License-Identifier: Apache-2.0` in a comment (enforced by

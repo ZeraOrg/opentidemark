@@ -8,7 +8,7 @@
 > well. Any change to behaviour, APIs, schema, configuration, layout, UI or tooling **must**
 > update this spec in the same commit. Version history is in §21.
 
-**Spec version:** 0.11.1 · **Last updated:** 2026-10-13
+**Spec version:** 0.12.0 · **Last updated:** 2026-10-13
 
 ---
 
@@ -179,7 +179,9 @@ Node **22 LTS** for builds. The built SPA is embedded in the Go binary via `go:e
 ```
 .
 ├── SPEC.md                    # this file (source of truth)
-├── README.md                  # open-source README: features, quick start, docs, building, contributing, licence
+├── README.md                  # open-source README: status, features, quick start (release archive, GHCR image, source), docs, building, releases, contributing, licence
+├── VERSION                    # version of the current/next release, e.g. 0.1.0 (§17.6)
+├── CHANGELOG.md               # user-facing changes, Keep a Changelog format; release notes source (§17.6)
 ├── LICENSE                    # Apache License 2.0, verbatim (§19.1)
 ├── NOTICE                     # Apache-style NOTICE: copyright + third-party pointer (§19.1)
 ├── LICENSING.md               # short licence note: Apache-2.0, notices, contributions, trademarks
@@ -189,7 +191,7 @@ Node **22 LTS** for builds. The built SPA is embedded in the Go binary via `go:e
 ├── Makefile                   # Linux/macOS task runner
 ├── build.ps1                  # Windows task runner (same targets as Makefile)
 ├── .gitattributes             # * text=auto eol=lf ; *.ps1 eol=crlf
-├── .gitignore                 # local tool state, build output, `make dev` state, deploy/.env, *.key
+├── .gitignore                 # local tool state, build output (bin/, dist/, …), `make dev` state, deploy/.env, *.key
 ├── .dockerignore              # keeps .git, local tool state, build output and deploy/.env out of the image context
 ├── .editorconfig
 ├── .golangci.yml
@@ -242,15 +244,15 @@ Node **22 LTS** for builds. The built SPA is embedded in the Go binary via `go:e
 │   ├── install.ps1            # Windows installer (service)
 │   └── tidemark.service       # systemd unit
 ├── Dockerfile                 # multi-stage: node build → go build → distroless nonroot
-├── scripts/                   # with-clickhouse.sh, with-clickhouse-cluster.sh (integration tests, §18), notices.tpl + licence-exceptions.{sh,txt} (§19.1), ci-annotate.sh
-├── examples/                  # client configs: serilog, nlog, python, node, go, java, filebeat, fluent-bit, vector, logstash, otel-collector
+├── scripts/                   # with-clickhouse.sh, with-clickhouse-cluster.sh (integration tests, §18), notices.tpl + licence-exceptions.{sh,txt} (§19.1), ci-annotate.sh, release-notes.sh (§17.6)
+├── examples/                  # (not in the tree yet, §20) client configs: serilog, nlog, python, node, go, java, filebeat, fluent-bit, vector, logstash, otel-collector
 ├── docs/                      # user docs, derived from this spec (§18):
 │   ├── query-language.md      #   TQL reference (§10; its example block = §10.1 verbatim)
 │   ├── ingestion.md           #   protocols, keys, field mapping (§9.1–§9.7)
 │   ├── configuration.md       #   every variable the binary knows, with defaults (§7)
 │   ├── migrate-from-seq.md    #   moving from Seq with `tidemark import` (§9.9)
 │   └── migrate-from-elastic.md #  moving from Elasticsearch/Kibana with `tidemark import` (§9.9)
-└── .github/                   # workflows/ci.yml (Linux + Windows matrix), security.yml, release.yml, web.yml (§17.4); dependabot.yml
+└── .github/                   # workflows/ci.yml (Linux + Windows matrix), security.yml, web.yml (§17.4), release.yml (§17.6); dependabot.yml
 ```
 
 Maintainer-only development tooling (publishing automation, offline dependency snapshots, design
@@ -359,7 +361,7 @@ kebab-case of the suffix). Invalid configuration aborts startup with a clear mes
 | `TIDEMARK_SMTP_HOST` / `_PORT` / `_USERNAME` / `_PASSWORD` / `_FROM` / `_STARTTLS` | — / 587 / — / — / — / `true` | Email notifications |
 | `TIDEMARK_LOG_LEVEL` | `info` | `debug|info|warn|error` |
 | `TIDEMARK_MAX_STREAMS` | `200` | Hard cap on number of streams |
-| `TIDEMARK_NODE_ID` | hostname (`tidemark` if unknown) | Unique node name (HA, leases, WAL); `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$` |
+| `TIDEMARK_NODE_ID` | hostname (`tidemark` if unknown) | Unique node name (HA, leases, WAL); `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`: starts with a letter or digit (`.`, `_` or `-` first is rejected) |
 | `TIDEMARK_META_DRIVER` | `sqlite` | `sqlite` (single node) or `postgres` (required for HA, §17.5) |
 | `TIDEMARK_META_DSN` | — | PostgreSQL DSN when driver is `postgres` (supports `_FILE`) |
 | `TIDEMARK_CLICKHOUSE_CLUSTER` | — | ClickHouse cluster name ⇒ replicated schema `ON CLUSTER` (§17.5); `^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$` |
@@ -2126,6 +2128,15 @@ Normative details:
   `golang:1.26.9-bookworm` (same Go release as the `toolchain` directive, §5) builds with `CGO_ENABLED=0` and copies `LICENSE`, `NOTICE`,
   `THIRD_PARTY_NOTICES.md` to `/licenses/`, runtime `gcr.io/distroless/static-debian12:nonroot`
   (UID 65532, `/data` volume, `TIDEMARK_DATA_DIR=/data`, entrypoint `tidemark`, cmd `serve`).
+  Both build stages run on the build platform (`FROM --platform=$BUILDPLATFORM`) and the Go
+  stage cross-compiles with `GOOS=$TARGETOS GOARCH=$TARGETARCH` (BuildKit's automatic build
+  arguments), so the multi-arch release image (§17.6) needs no emulation for npm or the Go
+  compiler; build argument `VERSION` (default `dev`) is stamped with `-X main.version`.
+- Published image (§17.6): `ghcr.io/zeraorg/tidemark:<version>` (also `<major>.<minor>` and
+  `latest` for releases without a pre-release suffix), `linux/amd64` + `linux/arm64`. Compose
+  uses it when `.env` sets `TM_IMAGE` to it and the stack is started without building
+  (`docker compose pull tidemark`, then `docker compose up -d --no-build`); `install.sh docker` /
+  `install.ps1 -Mode Docker` build the image from the source tree.
 
 ### 17.3 Native installs
 - **Linux:** `sudo install.sh native <binary> [--start]` creates user `tidemark`,
@@ -2147,15 +2158,17 @@ Normative details:
 ### 17.4 Build
 - `make build` / `.\build.ps1 build`: `npm ci && npm run build` in `web/`, then
   `CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$VERSION" ./cmd/tidemark`.
-- Release workflow cross-compiles `linux/amd64`, `linux/arm64`, `windows/amd64` and pushes a
-  multi-arch image to GHCR.
+  `$VERSION` defaults to `git describe --tags --always --dirty` (or `dev`) for development builds;
+  release archives take it from the `VERSION` file instead (`dist`, §17.6).
 - `Makefile` and `build.ps1` expose the same targets: `build`, `web` (copies `web/dist` into
-  `internal/web/assets/dist`), `cross` (the three release targets into `bin/`), `test` (`-race` on
+  `internal/web/assets/dist`), `cross` (the three release targets into `bin/`), `dist` (release
+  archives and `checksums.txt` into `dist/`, §17.6), `test` (`-race` on
   Linux/macOS; plain on Windows, where the race detector needs CGO), `test-integration` (Makefile:
   through `scripts/with-clickhouse.sh`, §18; build.ps1 needs `TIDEMARK_TEST_CLICKHOUSE_ADDR`),
   `lint` (gofmt, `go vet` with and without the `integration` tag, golangci-lint for both tags and
   for the other OS), `vuln`, `web-check`, `check` (= lint + test + vuln + web-check), `licences`
-  (Go licence allow-list, §19.1), `notices` (runs `licences` first), `dev`, `clean`, `help`. Every
+  (Go licence allow-list, §19.1), `notices` (runs `licences` first), `dev`, `clean` (also removes
+  `dist/`), `help`. Every
   web step is skipped while `web/package.json` does not exist. `web-check` = `npm ci`, `lint`,
   `format:check`, `typecheck`, `test:coverage`, `build`, `check:csp`, `npm audit --audit-level=high`.
 - `web.yml` (push on `main` and `ui/**` except `ui/screenshots`, PRs; paths `web/**`,
@@ -2188,7 +2201,9 @@ Normative details:
 - Pinned CI versions: actions `actions/checkout@v7`, `actions/setup-go@v7` (reads the `toolchain`
   directive, so CI uses exactly the Go release of §5), `actions/setup-node@v7`,
   `golangci/golangci-lint-action@v9`, `actions/upload-artifact@v7`, `actions/download-artifact@v8`
-  (all on the Node 24 runtime); golangci-lint `v2.14.0`,
+  (all on the Node 24 runtime), and for releases (§17.6) `actions/attest-build-provenance@v4`,
+  `docker/setup-qemu-action@v4`, `docker/setup-buildx-action@v4`, `docker/login-action@v4`,
+  `docker/build-push-action@v7`; golangci-lint `v2.14.0`,
   govulncheck `v1.9.0`, go-licenses `v2.0.1` (Makefile/build.ps1), Trivy `0.75.0`
   (`aquasec/trivy` image). Linux jobs run on `ubuntu-24.04` rather than `ubuntu-latest`, so the
   runner image changes (e.g. the announced move of `ubuntu-latest` to Ubuntu 26) only through a
@@ -2256,6 +2271,103 @@ HA PostgreSQL (`TIDEMARK_META_DRIVER=postgres`). A load balancer (HAProxy/nginx/
   permanently lost node loses only its unflushed WAL (bounded, alerted via self-metrics). With
   quorum inserts, no acknowledged *and flushed* data is lost when one server fails.
 
+### 17.6 Releases & versioning
+
+**Versioning.**
+- `VERSION` (repository root) holds the version of the current or next release as one line:
+  [SemVer 2.0](https://semver.org/spec/v2.0.0.html) without a `v` prefix and without build
+  metadata, `^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$` (e.g. `0.1.0`,
+  `0.2.0-rc.1`). A version with a pre-release suffix is published as a pre-release. Releases are
+  tagged `v<VERSION>`. Before 1.0 a minor version may contain breaking changes to APIs or
+  configuration (the data and upgrade rules of §8.5 always hold); patch versions only fix bugs.
+  `VERSION` is exempt from the SPDX header rule (§19.1).
+- `CHANGELOG.md` follows [Keep a Changelog 1.1](https://keepachangelog.com/en/1.1.0/): a short
+  intro, `## [Unreleased]` first, then one `## [<version>] - <YYYY-MM-DD>` section per release,
+  newest first, with `### Added` / `Changed` / `Deprecated` / `Removed` / `Fixed` / `Security`
+  lists written for users, and link references at the end. Every user-visible change adds its
+  entry under `[Unreleased]` in the same commit.
+- **Making a release:** one commit sets `VERSION` to the new version and moves the
+  `[Unreleased]` entries into a new dated section for it (`[Unreleased]` stays, empty). The
+  release happens automatically once that commit is on `main` of the public repository and `ci`
+  succeeded for it; nothing else is needed. `internal/repotest` (`TestVersionAndChangelog`) fails
+  unless `VERSION` matches the pattern, `CHANGELOG.md` starts with `[Unreleased]`, every release
+  heading is `[<semver>] - <valid date>` and the section of `VERSION` exists and is not empty, so
+  the release workflow cannot fail on a missing section.
+- `scripts/release-notes.sh <version> [<changelog>]` prints the body of that section (leading and
+  trailing blank lines and the link references removed) and fails with a clear message when the
+  section is missing or empty; it is the release notes source.
+
+**Archives (`make dist` / `.\build.ps1 dist`).** Both read the version from `VERSION` only (never
+from git, so the same commit gives the same archives locally and in CI), fail unless it matches
+the pattern, run `web`, recreate `dist/` and build for each of `linux/amd64`, `linux/arm64` and
+`windows/amd64` with `CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=<version>"`
+(`tidemark version` prints `tidemark <version>`), the web UI embedded. Each archive holds one
+directory `tidemark_<version>_<os>_<arch>/` with the binary (`tidemark` / `tidemark.exe`) and the
+files of the shared lists (`DIST_FILES` in the Makefile, `$DistFiles` in build.ps1; kept equal
+and existing by `TestDistFileListsMatch`): `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`,
+`README.md`, `CHANGELOG.md`, `deploy/.env.example`, `deploy/clickhouse/config.d/tidemark.xml`,
+`deploy/clickhouse/users.d/tidemark.xml`, plus for Linux `deploy/install.sh` and
+`deploy/tidemark.service`, for Windows `deploy/install.ps1` (so `sudo ./deploy/install.sh native
+./tidemark` and `.\deploy\install.ps1 -Mode Native -Binary .\tidemark.exe` work from the unpacked
+archive). Linux archives are `tidemark_<version>_linux_<arch>.tar.gz` (file modes kept), the
+Windows archive `tidemark_<version>_windows_amd64.zip`; build.ps1 packs both with the `tar.exe`
+of Windows 10+ (`-a`), the Makefile with `tar -czf` and `zip -qrX`. The staging directories are
+removed; `dist/checksums.txt` lists `<sha256>  <archive>` for every archive (sha256sum format,
+LF line endings). Release archives are built on Linux by the workflow below.
+
+**`.github/workflows/release.yml`** (one file for every repository; the main public repository
+`ZeraOrg/tidemark` is recognised by `github.repository == 'ZeraOrg/tidemark'` in expressions and
+the workflow env `PUBLIC`):
+- Triggers: `workflow_run` of `ci` (`completed`, branch `main`) and `workflow_dispatch`.
+  Workflow permissions `{}`; every job declares its own; `run` steps use `bash` (`-eo pipefail`).
+- Job `prepare` ("decide", `contents: read`, `actions: read`) runs for `workflow_dispatch`, or in
+  the main public repository for a `workflow_run` whose conclusion is `success`, whose event is
+  `push` and whose head repository is this one (pull-request ci runs never release). Its first
+  step uses REST calls only (no checkout): it reads `VERSION` at the source commit
+  (`workflow_run.head_sha`, else `github.sha`) and fails on a non-semver value. In the main public
+  repository it ends with a `::notice::` and `proceed=false` when the tag `v<version>` already
+  exists (the cheap, normal case of every push that does not bump `VERSION`), when a manual run
+  is not on `main`, when the commit is no longer the tip of `main` (the newer commit releases
+  itself) or when the latest `push` ci run for it is not `completed/success`. Outputs: `version`,
+  `tag`, `sha`, `prerelease` (version contains `-`), `name` (`v<version>`; elsewhere
+  `v<version> (private test build <7-hex sha>)`), `created` (commit date), `image-tags`
+  (`ghcr.io/zeraorg/tidemark:<version>`, plus `:<major>.<minor>` and `:latest` unless
+  pre-release) and `notes` (checkout, then `scripts/release-notes.sh`; a missing section fails
+  the run with an error annotation).
+- Job `build` ("archives", `contents: read`, `id-token: write`, `attestations: write`): checkout
+  of the source commit, setup-go (`go-version-file`), setup-node 22 (npm cache), `make dist`
+  through `scripts/ci-annotate.sh`; in the main public repository a build provenance attestation
+  of every archive (`actions/attest-build-provenance`, `subject-checksums: dist/checksums.txt`);
+  uploads `dist/` as artifact `dist` (7 days).
+- Job `image` ("container image", needs `build`; `contents: read`, `packages: write`,
+  `id-token: write`, `attestations: write`; concurrency `release-image-<version>`, no cancel):
+  `docker/build-push-action` with the Dockerfile, build argument `VERSION=<version>`, the
+  `image-tags` and OCI labels `org.opencontainers.image.{title=Tidemark, description, version,
+  revision=<sha>, created, source=url=https://github.com/ZeraOrg/tidemark, licenses=Apache-2.0}`.
+  In the main public repository: QEMU and Buildx set up, login to `ghcr.io` with the workflow
+  token, platforms `linux/amd64,linux/arm64`, push, then a provenance attestation of the image
+  digest pushed to the registry (`push-to-registry: true`, `create-storage-record: false`); a
+  failed build/push adds an error annotation explaining the package prerequisites (organisation
+  allows Actions to create packages, an existing `tidemark` package grants this repository write
+  access, a new package must be made public once). Elsewhere: Buildx only, `linux/amd64`, no
+  push, no login.
+- Job `release` ("GitHub release", needs `build` and `image`; `contents: write`; concurrency
+  `release-<version>`, no cancel): downloads `dist`, writes the notes (passed through an
+  environment variable, never inlined into the script). In the main public repository it checks
+  the tag again (a parallel run may have released meanwhile, then it ends with a notice) and runs
+  `gh release create v<version> dist/* --target <sha> --title v<version> --notes-file …
+  --prerelease=<true|false>`, which uploads the assets before publishing and creates the
+  lightweight tag on the released commit. Elsewhere it looks up a draft release with the same
+  `name` (all pages): absent ⇒ create a draft (`tag_name v<version>`, `target_commitish <sha>`,
+  body = notes; a draft creates no tag); present ⇒ update its target and body and delete its
+  assets; then upload every file of `dist/` to it. The run summary links the release.
+- Because the release job runs last, a failed build or image push leaves no tag behind, so the
+  next successful ci run of `main` (or a manual run) retries the same version.
+
+**Verifying a release (users).** `sha256sum -c checksums.txt` (PowerShell: `Get-FileHash`);
+`gh attestation verify <archive> --repo ZeraOrg/tidemark`; `gh attestation verify
+oci://ghcr.io/zeraorg/tidemark:<version> --repo ZeraOrg/tidemark`.
+
 ## 18. Testing & quality gates
 
 | Layer | Requirement |
@@ -2268,6 +2380,7 @@ HA PostgreSQL (`TIDEMARK_META_DRIVER=postgres`). A load balancer (HAProxy/nginx/
 | Web | `tsc --noEmit`, ESLint (0 warnings), Prettier, Vitest with coverage ≥ 80 % statements/lines/functions and ≥ 70 % branches for `src/tql/**`, `src/lib/**` and `src/api/client.ts` (TQL highlighter, template renderer, builder↔TQL round-trip, client CSRF/errors/offsets, components), production build + static CSP check, `npm audit --audit-level=high`, Playwright smoke against the mock build served with the production CSP (login + default-credentials banner, query, autocomplete, detail, analytics + add to dashboard, signal save, traces, metrics, dashboard create/edit, alerts drawer, streams purge dry run, connection create, settings pages, light theme, keyboard, 390 px); every e2e test fails on a CSP violation or page error and writes design-review screenshots. |
 | Static | `gofmt`, `go vet`, `golangci-lint` (errcheck, govet, staticcheck, gosec, revive, gocritic, bodyclose, contextcheck, nilerr), `govulncheck`. |
 | Docs | `docs/query-language.md`, `docs/ingestion.md` and `docs/configuration.md` are derived from §10, §9 and §7 and updated with them in the same commit. `docs/configuration.md` lists exactly the variables of `internal/config` with their defaults (`TestConfigurationDocMatchesVariables`) and only §7 variables of this file (`internal/repotest`, `TestConfigurationDocMatchesSpec`); the §10.1 examples as above. |
+| Release | `internal/repotest`: `TestVersionAndChangelog` (`VERSION` format, `CHANGELOG.md` shape and a non-empty section for `VERSION`) and `TestDistFileListsMatch` (Makefile and build.ps1 archive file lists equal and existing) (§17.6). `make dist` is run and its archives inspected (contents, `tidemark version`) before changing the release tooling. |
 | Regression | Every bug fix adds a failing test first. No test may be deleted or weakened to make CI pass without a spec-recorded reason. |
 
 Definition of done for any change: spec updated · tests added/updated · `make check` (or
@@ -2326,7 +2439,8 @@ Definition of done for any change: spec updated · tests added/updated · `make 
 - Every source file starts with: `// SPDX-License-Identifier: Apache-2.0`
   (`#` / `--` / `/* */` / `<!-- -->` / `{{/* */}}` comment styles as appropriate) within its first
   5 lines (after a shebang, doctype or XML declaration). Exempt: the untracked `vendor/` snapshot
-  (§17.4), `LICENSE`, `NOTICE`, `go.sum`, generated `THIRD_PARTY_NOTICES.md`, data files that
+  (§17.4), `LICENSE`, `NOTICE`, `go.sum`, generated `THIRD_PARTY_NOTICES.md`, `VERSION` (a bare
+  version number read by tools, §17.6), data files that
   cannot hold comments (JSON, `testdata/`, the common password list, binary assets) and build
   output (`dist/`, `bin/`, and the untracked web outputs `dist-mock/`, `mock-public/`,
   `coverage/`, `test-results/`, `playwright-report/`). Enforced by `internal/repotest` (`TestSPDXHeaders`, `TestLicenseIsApache2`).
@@ -2359,19 +2473,40 @@ Definition of done for any change: spec updated · tests added/updated · `make 
   tree, is specified separately and is never referenced by public files.
 - **Docs:** `docs/query-language.md`, `docs/ingestion.md` and `docs/configuration.md` are the user
   docs derived from §10, §9 and §7 (§18). Code comments cite this file as `SPEC §n`.
-- The public `README.md` is written for an open-source project (features, quick start, docs,
-  building, contributing, licence); `CONTRIBUTING.md` describes the contribution workflow.
+- The public `README.md` is written for an open-source project (status, features, quick start
+  with the install options, docs, building, releases and changelog, contributing, licence) and
+  must stay true: every change that affects a statement in it updates it in the same commit;
+  `CONTRIBUTING.md` describes the contribution workflow.
+- **Releases** are made in the public repository only, by its release workflow (§17.6): tags
+  `v<version>`, GitHub releases with the archives, `checksums.txt` and provenance attestations,
+  and the image `ghcr.io/zeraorg/tidemark`. The maintainers' development repository never
+  publishes releases or images.
 
 ## 20. Milestones & status
 
 | Milestone | Scope | Status |
 |---|---|---|
-| **M0** | Spec, contributor rules, repo scaffolding, CI | ✅ spec / ⏳ scaffolding |
-| **M1** | Logs end-to-end: model, normalize, Seq + ES + native + OTLP logs ingestion, connections & keys, pipeline, ClickHouse schema, TQL (filters + stats), query/histogram/facets/fields/tail API, auth & users, security middleware, explorer UI, compose + native installers | ⏳ |
-| **M2** | OTLP traces & metrics, trace UI, metrics browser, dashboards (+builder, templates, variables), alerting + channels | ⏳ |
-| **M3** | Streams/index management UI (stats, retention, level rules, mappings, indexed fields, purge), audit UI, export | ⏳ |
-| **M3b** | Durability & HA: WAL, PostgreSQL metadata driver, leases, ClickHouse cluster mode, backups/doctor, upgrade tests, importers (Elasticsearch/OpenSearch, Kibana saved searches, Seq API + signals, CLEF files) | ⏳ |
+| **M0** | Spec, contributor rules, repo scaffolding, CI | ✅ done |
+| **M1** | Logs end-to-end: model, normalize, Seq + ES + native + OTLP logs ingestion, connections & keys, pipeline, ClickHouse schema, TQL (filters + stats), query/histogram/facets/fields/tail API, auth & users, security middleware, explorer UI, compose + native installers | ✅ implemented (open items below) |
+| **M2** | OTLP traces & metrics, trace UI, metrics browser, dashboards (+builder, templates, variables), alerting + channels | ✅ implemented (open items below) |
+| **M3** | Streams/index management UI (stats, retention, level rules, mappings, indexed fields, purge), audit UI, export | ✅ implemented (open items below) |
+| **M3b** | Durability & HA: WAL, PostgreSQL metadata driver, leases, ClickHouse cluster mode, backups/doctor, upgrade tests, importers (Elasticsearch/OpenSearch, Kibana saved searches, Seq API + signals, CLEF files) | ✅ implemented (open items below) |
 | **M4** | Loki push, Prometheus remote-write, GELF, OIDC SSO, Helm chart, tiered storage (S3), AI dashboard assistant (§13.4) | 📝 planned |
+
+"Implemented" means the code exists and passes the gates of §18 (unit, golden, fuzz, integration
+against a real ClickHouse, web unit tests and Playwright against the mock build). Known open
+items of M0–M3b:
+
+- **No end-to-end smoke test with real clients or Docker yet:** the ingestion tests use fixture
+  bodies and the integration tests run the binary's code in-process against ClickHouse; nothing
+  yet starts the Docker Compose stack or the released binaries and sends data from real Serilog,
+  NLog, Filebeat, Fluent Bit, Vector, Logstash or OpenTelemetry clients.
+- **`examples/`** (client configurations, §6.1) is not in the tree yet; `docs/ingestion.md`
+  describes the endpoints, keys and headers clients need meanwhile.
+- **Performance target not measured:** G7 (≥ 10k events/s on 4 vCPU / 8 GB) has no benchmark or
+  load test yet.
+- **UI polish:** chart legends belong in the panel header; the autocomplete list must stay
+  anchored to the cursor of the query editor; the result count row on narrow (mobile) screens.
 
 ---
 
@@ -2379,6 +2514,9 @@ Definition of done for any change: spec updated · tests added/updated · `make 
 
 | Version | Date | Change |
 |---|---|---|
+| 0.12.0 | 2026-10-13 | Releases (new §17.6): `VERSION` (0.1.0, SemVer without `v`, SPDX-exempt §19.1) and `CHANGELOG.md` (Keep a Changelog; `[Unreleased]` + dated sections) define releases; `make dist` / `.\build.ps1 dist` build the archives `tidemark_<version>_{linux_amd64,linux_arm64}.tar.gz` / `_windows_amd64.zip` (binary stamped with the version, licence files, README, CHANGELOG, installer files) and `checksums.txt` into `dist/`; `scripts/release-notes.sh`; `.github/workflows/release.yml` releases automatically in the public repository after a green `ci` on `main` when the tag `v<VERSION>` does not exist (provenance attestations, multi-arch image `ghcr.io/zeraorg/tidemark` with `<version>`, `<major>.<minor>`, `latest` and OCI labels, tag + GitHub release from the changelog section, pre-releases marked) and builds draft test releases elsewhere on demand; repository tests `TestVersionAndChangelog`, `TestDistFileListsMatch` (§18). Dockerfile cross-compiles on the build platform for multi-arch images (§17.2); published image usage with Compose (§17.2); `.dockerignore` excludes `dist`; release action versions pinned (§17.4); README content rules and releases in §19.3; §6.1 tree. |
+| 0.11.3 | 2026-10-13 | §20 status brought up to date: M0–M3b implemented, with the known open items listed (no end-to-end smoke test with real clients or Docker, `examples/` not yet in the tree, G7 performance target not measured, UI polish items); M4 stays planned; §6.1 marks `examples/` as not yet present. |
+| 0.11.2 | 2026-10-13 | `TIDEMARK_NODE_ID` must start with a letter or digit (§7): the startup error and `docs/configuration.md` now state that rule (both claimed any of `[A-Za-z0-9._-]` was allowed first), pinned by a regression test. |
 | 0.11.1 | 2026-10-13 | Go module path is `github.com/ZeraOrg/tidemark` (the public repository; GitHub's canonical spelling of the organisation); example image `ghcr.io/zeraorg/tidemark` (§6.1, §17). |
 | 0.11.0 | 2026-10-13 | SPEC.md is public; private development notes split out: the spec is published with the code and may be read by public tests (the §10.1 and §7 doc consistency tests are public, §18); maintainer-only development tooling is specified separately (§6.1, §17.4, §19.3); §16.2 declares `web/src/styles/tokens.css` normative and describes the visual design in prose; §19.3 rewritten as "Public repository and publishing"; changelog rows about maintainer tooling reworded. |
 | 0.10.6 | 2026-10-13 | Maintainer tooling (not part of the public tree): publishing credentials. |

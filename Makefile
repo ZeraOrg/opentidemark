@@ -28,6 +28,15 @@ LDFLAGS := -s -w -X main.version=$(VERSION)
 BIN := bin
 MODULE := github.com/ZeraOrg/tidemark
 CROSS_TARGETS := linux/amd64 linux/arm64 windows/amd64
+# make dist: release archives (SPEC §17.6). The version comes from the VERSION file only, so a
+# local build and the release workflow produce the same archives for a commit. build.ps1 uses
+# the same file lists (internal/repotest keeps them equal).
+DIST := dist
+DIST_VERSION := $(strip $(shell cat VERSION 2>/dev/null))
+SEMVER_RE := ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$$
+DIST_FILES := LICENSE NOTICE THIRD_PARTY_NOTICES.md README.md CHANGELOG.md deploy/.env.example deploy/clickhouse/config.d/tidemark.xml deploy/clickhouse/users.d/tidemark.xml
+DIST_FILES_LINUX := deploy/install.sh deploy/tidemark.service
+DIST_FILES_WINDOWS := deploy/install.ps1
 WEB_ALLOWED_LICENSES := MIT;BSD-2-Clause;BSD-3-Clause;Apache-2.0;ISC;MPL-2.0;0BSD;CC0-1.0;BlueOak-1.0.0;Python-2.0;CC-BY-4.0;OFL-1.1
 
 # make dev: throw-away ClickHouse in Docker on a loopback port (password is for local use only).
@@ -38,7 +47,7 @@ DEV_COMPOSE := docker compose -p tidemark-dev -f deploy/docker-compose.yml -f de
 
 HAS_WEB := $(wildcard web/package.json)
 
-.PHONY: help build web cross test test-integration lint vuln web-check check licences notices dev clean
+.PHONY: help build web cross dist test test-integration lint vuln web-check check licences notices dev clean
 
 help: ## list targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | sed 's/:.*## /\t/'
@@ -62,6 +71,26 @@ cross: web ## cross-compile linux/amd64, linux/arm64 and windows/amd64 into bin/
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch $(GO) build -trimpath -ldflags "$(LDFLAGS)" \
 			-o $(BIN)/tidemark-$$os-$$arch$$ext ./cmd/tidemark; \
 	done
+
+dist: web ## release archives + checksums.txt for the cross targets into dist/ (version from VERSION)
+	@v='$(DIST_VERSION)'; if [[ ! "$$v" =~ $(SEMVER_RE) ]]; then \
+		echo "dist: VERSION must hold a semantic version without a 'v' (got '$$v')" >&2; exit 1; fi
+	rm -rf $(DIST)
+	@mkdir -p $(DIST)
+	@for target in $(CROSS_TARGETS); do \
+		os=$${target%/*}; arch=$${target#*/}; ext=""; extra="$(DIST_FILES_LINUX)"; \
+		if [ "$$os" = windows ]; then ext=.exe; extra="$(DIST_FILES_WINDOWS)"; fi; \
+		name=tidemark_$(DIST_VERSION)_$${os}_$${arch}; stage=$(DIST)/$$name; \
+		echo "dist $$name"; \
+		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch $(GO) build -trimpath \
+			-ldflags "-s -w -X main.version=$(DIST_VERSION)" -o $$stage/tidemark$$ext ./cmd/tidemark; \
+		for f in $(DIST_FILES) $$extra; do mkdir -p "$$stage/$$(dirname "$$f")"; cp -p "$$f" "$$stage/$$f"; done; \
+		if [ "$$os" = windows ]; then (cd $(DIST) && zip -qrX "$$name.zip" "$$name"); \
+		else tar -C $(DIST) -czf "$(DIST)/$$name.tar.gz" "$$name"; fi; \
+		rm -rf "$$stage"; \
+	done
+	@cd $(DIST) && { if command -v sha256sum >/dev/null; then sha256sum tidemark_*; else shasum -a 256 tidemark_*; fi; } > checksums.txt
+	@cat $(DIST)/checksums.txt
 
 test: ## unit tests with the race detector
 	$(GO) test -race ./...
@@ -120,4 +149,4 @@ dev: ## ClickHouse in Docker + tidemark (+ web dev server when web/ exists)
 	$(GO) run -ldflags "-X main.version=$(VERSION)-dev" ./cmd/tidemark serve
 
 clean: ## remove build output (keeps the dev ClickHouse volume)
-	rm -rf $(BIN) internal/web/assets/dist
+	rm -rf $(BIN) $(DIST) internal/web/assets/dist

@@ -1,23 +1,27 @@
 # syntax=docker/dockerfile:1
 # SPDX-License-Identifier: Apache-2.0
 #
-# Multi-stage build (SPEC §6.1, §15.9, §17.4): node builds the web UI (skipped while web/ has no
-# package.json), go builds a static binary, and the runtime is distroless static as nonroot.
+# Multi-stage build (SPEC §6.1, §15.9, §17.2): node builds the web UI (skipped while web/ has no
+# package.json), go cross-compiles a static binary for the target platform, and the runtime is
+# distroless static as nonroot. The build stages run on the build platform, so a multi-arch build
+# (linux/amd64 + linux/arm64, SPEC §17.6) needs no emulation for npm or the Go compiler.
 
-FROM node:22-bookworm-slim AS web
+FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS web
 WORKDIR /src/web
 COPY web/ ./
 RUN if [ -f package.json ]; then npm ci && npm run build; else mkdir -p dist; fi
 
-FROM golang:1.26.9-bookworm AS build
+FROM --platform=$BUILDPLATFORM golang:1.26.9-bookworm AS build
 ARG VERSION=dev
+ARG TARGETOS
+ARG TARGETARCH
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=web /src/web/dist/ /tmp/web-dist/
 RUN if [ -f /tmp/web-dist/index.html ]; then rm -rf internal/web/assets/dist && cp -R /tmp/web-dist internal/web/assets/dist; fi
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/tidemark ./cmd/tidemark \
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/tidemark ./cmd/tidemark \
  && mkdir -p /out/licenses /out/data \
  && cp LICENSE NOTICE THIRD_PARTY_NOTICES.md /out/licenses/
 

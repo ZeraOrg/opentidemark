@@ -10,7 +10,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('help', 'build', 'web', 'cross', 'test', 'test-integration', 'lint', 'vuln', 'web-check', 'check', 'licences', 'notices', 'dev', 'clean')]
+    [ValidateSet('help', 'build', 'web', 'cross', 'dist', 'test', 'test-integration', 'lint', 'vuln', 'web-check', 'check', 'licences', 'notices', 'dev', 'clean')]
     [string]$Target = 'build'
 )
 
@@ -25,6 +25,13 @@ $GoAllowedLicenses = 'Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,MIT,MPL-2.0'
 $LicenseCheckerVersion = '25.0.1'
 $WebAllowedLicenses = 'MIT;BSD-2-Clause;BSD-3-Clause;Apache-2.0;ISC;MPL-2.0;0BSD;CC0-1.0;BlueOak-1.0.0;Python-2.0;CC-BY-4.0;OFL-1.1'
 $CrossTargets = @('linux/amd64', 'linux/arm64', 'windows/amd64')
+# dist: release archives (SPEC §17.6), version from the VERSION file only; same file lists as the
+# Makefile (internal/repotest keeps them equal).
+$DistDir = 'dist'
+$SemVerPattern = '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$'
+$DistFiles = @('LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.md', 'README.md', 'CHANGELOG.md', 'deploy/.env.example', 'deploy/clickhouse/config.d/tidemark.xml', 'deploy/clickhouse/users.d/tidemark.xml')
+$DistFilesLinux = @('deploy/install.sh', 'deploy/tidemark.service')
+$DistFilesWindows = @('deploy/install.ps1')
 $DevDir = '.dev'
 $DevClickHousePort = if ($env:DEV_CLICKHOUSE_PORT) { $env:DEV_CLICKHOUSE_PORT } else { '19000' }
 $DevClickHousePassword = 'tidemark-dev' # loopback-only dev server, same as the Makefile
@@ -59,7 +66,7 @@ function WithEnv {
 }
 
 function Target-Help {
-    'build web cross test test-integration lint vuln web-check check licences notices dev clean' -split ' ' | ForEach-Object { "  $_" }
+    'build web cross dist test test-integration lint vuln web-check check licences notices dev clean' -split ' ' | ForEach-Object { "  $_" }
 }
 
 function Target-Web {
@@ -72,8 +79,8 @@ function Target-Web {
 }
 
 function Build-Binary {
-    param([string]$Os, [string]$Arch, [string]$Out)
-    $ldflags = "-s -w -X main.version=$(Get-Version)"
+    param([string]$Os, [string]$Arch, [string]$Out, [string]$Version = (Get-Version))
+    $ldflags = "-s -w -X main.version=$Version"
     WithEnv @{ CGO_ENABLED = '0'; GOOS = $Os; GOARCH = $Arch } {
         Invoke go @('build', '-trimpath', '-ldflags', $ldflags, '-o', $Out, './cmd/tidemark')
     }
@@ -91,6 +98,51 @@ function Target-Cross {
         $ext = if ($os -eq 'windows') { '.exe' } else { '' }
         Build-Binary -Os $os -Arch $arch -Out "bin/tidemark-$os-$arch$ext"
     }
+}
+
+function Get-DistVersion {
+    $v = (Get-Content -LiteralPath 'VERSION' -Raw).Trim()
+    if ($v -cnotmatch $SemVerPattern) { throw "dist: VERSION must hold a semantic version without a 'v' (got '$v')" }
+    return $v
+}
+
+# New-DistArchive packs dist/<name> into dist/<name>.zip (Windows) or .tar.gz with the tar.exe
+# (bsdtar) that ships with Windows 10 and later.
+function New-DistArchive {
+    param([Parameter(Mandatory)][string]$Name, [Parameter(Mandatory)][string]$Os)
+    $suffix = if ($Os -eq 'windows') { 'zip' } else { 'tar.gz' }
+    # -C applies to the files that follow; the archive path stays relative to the repository root.
+    Invoke tar @('-C', $DistDir, '-a', '-c', '-f', (Join-Path $DistDir "$Name.$suffix"), $Name)
+}
+
+# Target-Dist builds the release archives and checksums.txt into dist/ (same layout as make dist).
+function Target-Dist {
+    $version = Get-DistVersion
+    Target-Web
+    if (Test-Path -LiteralPath $DistDir) { Remove-Item -LiteralPath $DistDir -Recurse -Force }
+    New-Item -ItemType Directory -Path $DistDir | Out-Null
+    foreach ($t in $CrossTargets) {
+        $os, $arch = $t -split '/'
+        $name = "tidemark_${version}_${os}_${arch}"
+        $stage = Join-Path $DistDir $name
+        $ext = if ($os -eq 'windows') { '.exe' } else { '' }
+        $extra = if ($os -eq 'windows') { $DistFilesWindows } else { $DistFilesLinux }
+        Write-Host "dist $name"
+        Build-Binary -Os $os -Arch $arch -Out (Join-Path $stage "tidemark$ext") -Version $version
+        foreach ($f in @($DistFiles) + @($extra)) {
+            $dest = Join-Path $stage $f
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dest) | Out-Null
+            Copy-Item -LiteralPath $f -Destination $dest
+        }
+        New-DistArchive -Name $name -Os $os
+        Remove-Item -LiteralPath $stage -Recurse -Force
+    }
+    $lines = Get-ChildItem -LiteralPath $DistDir -Filter 'tidemark_*' | Sort-Object Name | ForEach-Object {
+        "$((Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant())  $($_.Name)"
+    }
+    $sums = Join-Path $PSScriptRoot (Join-Path $DistDir 'checksums.txt')
+    [IO.File]::WriteAllText($sums, (($lines -join "`n") + "`n"))
+    Get-Content -LiteralPath $sums
 }
 
 # The race detector needs CGO, which Windows CI does not have; SPEC §18 runs plain tests there.
@@ -207,7 +259,7 @@ function Target-Dev {
 }
 
 function Target-Clean {
-    foreach ($p in 'bin', 'internal/web/assets/dist') {
+    foreach ($p in 'bin', 'dist', 'internal/web/assets/dist') {
         if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Recurse -Force }
     }
 }
@@ -217,6 +269,7 @@ switch ($Target) {
     'build' { Target-Build }
     'web' { Target-Web }
     'cross' { Target-Cross }
+    'dist' { Target-Dist }
     'test' { Target-Test }
     'test-integration' { Target-TestIntegration }
     'lint' { Target-Lint }

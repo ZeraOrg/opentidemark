@@ -42,6 +42,36 @@ func TestHASettings(t *testing.T) {
 	}
 }
 
+// TestNodeIDMustStartWithLetterOrDigit pins the SPEC §7 rule for TIDEMARK_NODE_ID: a letter or
+// digit first, then up to 63 of [A-Za-z0-9._-].
+func TestNodeIDMustStartWithLetterOrDigit(t *testing.T) {
+	const maxLen = 64
+	tests := []struct {
+		id    string
+		valid bool
+	}{
+		{"a", true},
+		{"7", true},
+		{"tm-node1", true},
+		{"Node_2.example-com", true},
+		{"a" + strings.Repeat("-", maxLen-1), true},
+		{"-node", false},
+		{".node", false},
+		{"_node", false},
+		{"bad id!", false},
+		{"a" + strings.Repeat("b", maxLen), false},
+	}
+	for _, tc := range tests {
+		c, err := load(t, nil, MapEnv{VarNodeID: tc.id})
+		switch {
+		case tc.valid && (err != nil || c.NodeID != tc.id):
+			t.Errorf("%q: want accepted, got %v", tc.id, err)
+		case !tc.valid && (!errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "must start with a letter or digit")):
+			t.Errorf("%q: want rejected with the SPEC §7 rule, got %v", tc.id, err)
+		}
+	}
+}
+
 func TestHAValidation(t *testing.T) {
 	tests := map[string]MapEnv{
 		VarMetaDriver:     {VarMetaDriver: "mysql"},

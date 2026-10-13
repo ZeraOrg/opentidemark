@@ -146,7 +146,7 @@ var (
 func parseHA(p *parser, c *Config) {
 	c.NodeID = p.str(VarNodeID)
 	if !nodeIDPattern.MatchString(c.NodeID) {
-		p.fail(VarNodeID, errors.New("must be 1-64 characters of [A-Za-z0-9._-]"))
+		p.fail(VarNodeID, errors.New("must start with a letter or digit, followed by up to 63 characters of [A-Za-z0-9._-]"))
 	}
 	c.Meta = Meta{Driver: strings.ToLower(p.str(VarMetaDriver)), DSN: p.vals[VarMetaDSN]}
 	switch c.Meta.Driver {
