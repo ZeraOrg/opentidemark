@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: Apache-2.0
+# Local agent worktrees / tooling state
+.claude/worktrees/
+.claude/settings.local.json
+
+# Build output (SPEC §17.4)
+/bin/
+/vendor/
+/tidemark
+/tidemark.exe
+/dist/
+/internal/web/assets/dist/
+web/dist/
+web/dist-mock/
+web/mock-public/
+web/node_modules/
+web/coverage/
+web/test-results/
+web/playwright-report/
+web/e2e/screenshots/
+coverage.out
+*.test
+*.out
+
+# Local data / secrets (`make dev` state, Docker Compose .env, keys; SPEC §17.2)
+/.dev/
+.env
+deploy/.env
+*.key

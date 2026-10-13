@@ -1,0 +1,29 @@
+{
+  "resourceMetrics": [{
+    "resource": {"attributes": [
+      {"key": "service.name", "value": {"stringValue": "api"}},
+      {"key": "host.name", "value": {"stringValue": "api-1"}}
+    ]},
+    "scopeMetrics": [{
+      "scope": {"name": "io.opentelemetry.runtime"},
+      "metrics": [
+        {"name": "process.runtime.memory", "unit": "By", "description": "Heap memory",
+         "gauge": {"dataPoints": [{"timeUnixNano": "1791892681000000000", "asInt": "52428800", "attributes": [{"key": "pool", "value": {"stringValue": "heap"}}]}]}},
+        {"name": "http.server.requests", "unit": "{request}",
+         "sum": {"aggregationTemporality": 2, "isMonotonic": true, "dataPoints": [
+           {"startTimeUnixNano": "1791892600000000000", "timeUnixNano": "1791892681000000000", "asDouble": 1234, "attributes": [{"key": "http.route", "value": {"stringValue": "/orders"}}]},
+           {"timeUnixNano": "1791892681000000000", "flags": 1}
+         ]}},
+        {"name": "http.server.request.duration", "unit": "s",
+         "histogram": {"aggregationTemporality": 1, "dataPoints": [{"timeUnixNano": "1791892681000000000", "count": "4", "sum": 2.0, "min": 0.1, "max": 1.2,
+           "explicitBounds": [0.25, 0.5, 1], "bucketCounts": ["1", "2", "0", "1"]}]}},
+        {"name": "rpc.latency", "unit": "ms",
+         "exponentialHistogram": {"aggregationTemporality": 2, "dataPoints": [{"timeUnixNano": "1791892681000000000", "count": "6", "sum": 30, "scale": 0, "zeroCount": "1",
+           "positive": {"offset": 1, "bucketCounts": ["2", "3"]}, "min": 0, "max": 7.5}]}},
+        {"name": "gc.pause", "unit": "ms",
+         "summary": {"dataPoints": [{"timeUnixNano": "1791892681000000000", "count": "10", "sum": 50,
+           "quantileValues": [{"quantile": 0.5, "value": 4}, {"quantile": 0.99, "value": 12}]}]}}
+      ]
+    }]
+  }]
+}

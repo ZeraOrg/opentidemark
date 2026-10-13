@@ -1,0 +1,829 @@
+=== timeout
+kind: events  source: logs  limit: 200
+canonical: "timeout"
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND ((positionCaseInsensitiveUTF8(message, ?) > 0 OR positionCaseInsensitiveUTF8(exception, ?) > 0)) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "timeout"
+  3: string "timeout"
+  4: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== "connection refused"
+kind: events  source: logs  limit: 200
+canonical: "connection refused"
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND ((positionCaseInsensitiveUTF8(message, ?) > 0 OR positionCaseInsensitiveUTF8(exception, ?) > 0)) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "connection refused"
+  3: string "connection refused"
+  4: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== level:error
+kind: events  source: logs  limit: 200
+canonical: level:"error"
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND (level_num = ?) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: uint8 4
+  3: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== level >= warning
+kind: events  source: logs  limit: 200
+canonical: level >= "warning"
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND (level_num >= ?) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: uint8 3
+  3: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== service:checkout*  and not env:dev
+kind: events  source: logs  limit: 200
+canonical: service:checkout* and not env:"dev"
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND (service ILIKE ? AND NOT (lower(environment) = lower(?))) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "checkout%"
+  3: string "dev"
+  4: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== status_code:(500 or 502 or 503)
+kind: events  source: logs  limit: 200
+canonical: status_code:500 or status_code:502 or status_code:503
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND ((((mapContains(props_num, ?) AND props_num[?] = ?) OR lower(props[?]) = lower(?)) OR ((mapContains(props_num, ?) AND props_num[?] = ?) OR lower(props[?]) = lower(?))) OR ((mapContains(props_num, ?) AND props_num[?] = ?) OR lower(props[?]) = lower(?))) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "status_code"
+  3: string "status_code"
+  4: float64 500
+  5: string "status_code"
+  6: string "500"
+  7: string "status_code"
+  8: string "status_code"
+  9: float64 502
+  10: string "status_code"
+  11: string "502"
+  12: string "status_code"
+  13: string "status_code"
+  14: float64 503
+  15: string "status_code"
+  16: string "503"
+  17: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== status_code >= 500 and elapsed > 250
+kind: events  source: logs  limit: 200
+canonical: status_code >= 500 and elapsed > 250
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND ((mapContains(props_num, ?) AND props_num[?] >= ?) AND (mapContains(props_num, ?) AND props_num[?] > ?)) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "status_code"
+  3: string "status_code"
+  4: float64 500
+  5: string "elapsed"
+  6: string "elapsed"
+  7: float64 250
+  8: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== user.email:*
+kind: events  source: logs  limit: 200
+canonical: user.email:*
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND ((mapContains(props, ?) AND props[?] != '')) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "user.email"
+  3: string "user.email"
+  4: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== not exception:*
+kind: events  source: logs  limit: 200
+canonical: not exception:*
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND (NOT (exception != '')) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== path:/\/api\/v[12]\/orders/
+kind: events  source: logs  limit: 200
+canonical: path:/\/api\/v[12]\/orders/
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND (match(props[?], ?)) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "path"
+  3: string "/api/v[12]/orders"
+  4: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== Service = 'payments-svc' and StatusCode != 200
+kind: events  source: logs  limit: 200
+canonical: Service = "payments-svc" and StatusCode != 200
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND (service = ? AND NOT (((mapContains(props_num, ?) AND props_num[?] = ?) OR lower(props[?]) = lower(?)))) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "payments-svc"
+  3: string "StatusCode"
+  4: string "StatusCode"
+  5: float64 200
+  6: string "StatusCode"
+  7: string "200"
+  8: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== @trace_id:4bf92f3577b34da6a3ce929d0e0e4736
+kind: events  source: logs  limit: 200
+canonical: @trace_id:"4bf92f3577b34da6a3ce929d0e0e4736"
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND (trace_id = ?) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "4bf92f3577b34da6a3ce929d0e0e4736"
+  3: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== level:error | stats count() by service | sort count desc
+kind: table  source: logs  limit: 10000
+canonical: level:"error" | stats count() by service | sort count desc
+sql: SELECT service AS g0, count() AS a0 FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND (level_num = ?) GROUP BY g0 ORDER BY a0 DESC, g0 ASC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: uint8 4
+  3: int 10000
+columns: service:string, count:number
+
+=== level:error | top 10 exception_type
+kind: table  source: logs  limit: 10
+canonical: level:"error" | top 10 exception_type
+sql: SELECT props[?] AS g0, count() AS a0 FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND (level_num = ?) GROUP BY g0 ORDER BY a0 DESC, g0 ASC LIMIT ?
+args:
+  0: string "exception_type"
+  1: time 2026-10-13T11:00:00Z
+  2: time 2026-10-13T12:00:00Z
+  3: uint8 4
+  4: int 10
+columns: exception_type:string, count:number
+
+=== * | stats count() by level span 5m
+kind: timeseries  source: logs  limit: 10000  span: 5m0s
+canonical: * | stats count() by level span 5m
+sql: SELECT toStartOfInterval(timestamp, toIntervalSecond(?)) AS bucket, level AS g0, count() AS a0 FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? GROUP BY bucket, g0 ORDER BY bucket ASC, g0 ASC LIMIT ?
+args:
+  0: int64 300
+  1: time 2026-10-13T11:00:00Z
+  2: time 2026-10-13T12:00:00Z
+  3: int 10000
+columns: @bucket:time, level:string, count:number
+
+=== elapsed:* | stats p95(elapsed), avg(elapsed) by service, route span 1m
+kind: timeseries  source: logs  limit: 10000  span: 1m0s
+canonical: elapsed:* | stats p95(elapsed), avg(elapsed) by service, route span 1m
+sql: SELECT toStartOfInterval(timestamp, toIntervalSecond(?)) AS bucket, service AS g0, props[?] AS g1, quantileTDigest(0.95)(if(mapContains(props_num, ?), props_num[?], NULL)) AS a0, avg(if(mapContains(props_num, ?), props_num[?], NULL)) AS a1 FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND ((mapContains(props, ?) AND props[?] != '')) GROUP BY bucket, g0, g1 ORDER BY bucket ASC, g0 ASC, g1 ASC LIMIT ?
+args:
+  0: int64 60
+  1: string "route"
+  2: string "elapsed"
+  3: string "elapsed"
+  4: string "elapsed"
+  5: string "elapsed"
+  6: time 2026-10-13T11:00:00Z
+  7: time 2026-10-13T12:00:00Z
+  8: string "elapsed"
+  9: string "elapsed"
+  10: int 10000
+columns: @bucket:time, service:string, route:string, p95_elapsed:number, avg_elapsed:number
+
+=== *
+kind: events  source: logs  limit: 200
+canonical: *
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== source logs | level:warn
+kind: events  source: logs  limit: 200
+canonical: level:"warn"
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND (level_num = ?) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: uint8 3
+  3: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== level:(error or fatal)
+kind: events  source: logs  limit: 200
+canonical: level:"error" or level:"fatal"
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND (level_num = ? OR level_num = ?) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: uint8 4
+  3: uint8 5
+  4: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== level:3
+kind: events  source: logs  limit: 200
+canonical: level:3
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND (level_num = ?) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: uint8 3
+  3: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== level:err*
+kind: events  source: logs  limit: 200
+canonical: level:err*
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND (level ILIKE ?) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "err%"
+  3: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== level:/^Err/
+kind: events  source: logs  limit: 200
+canonical: level:/^Err/
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND (match(level, ?)) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "^Err"
+  3: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== level in [error, fatal]
+kind: events  source: logs  limit: 200
+canonical: level in ["error", "fatal"]
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND (level_num IN (?, ?)) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: uint8 4
+  3: uint8 5
+  4: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== level != debug
+kind: events  source: logs  limit: 200
+canonical: level != "debug"
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND (NOT (level_num = ?)) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: uint8 1
+  3: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== level = 'Error'
+kind: events  source: logs  limit: 200
+canonical: level = "Error"
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND (level_num = ?) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: uint8 4
+  3: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== a:(x or y and z)
+kind: events  source: logs  limit: 200
+canonical: a:"x" or a:"y" and a:"z"
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND (lower(props[?]) = lower(?) OR (lower(props[?]) = lower(?) AND lower(props[?]) = lower(?))) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "a"
+  3: string "x"
+  4: string "a"
+  5: string "y"
+  6: string "a"
+  7: string "z"
+  8: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== status:500 and status:"500" and status:true and status:null
+kind: events  source: logs  limit: 200
+canonical: status:500 and status:"500" and status:true and status:null
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND (((((mapContains(props_num, ?) AND props_num[?] = ?) OR lower(props[?]) = lower(?)) AND lower(props[?]) = lower(?)) AND lower(props[?]) = lower(?)) AND NOT mapContains(props, ?)) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "status"
+  3: string "status"
+  4: float64 500
+  5: string "status"
+  6: string "500"
+  7: string "status"
+  8: string "500"
+  9: string "status"
+  10: string "true"
+  11: string "status"
+  12: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== status: >= 500 and status: < 'b'
+kind: events  source: logs  limit: 200
+canonical: status:>= 500 and status:< "b"
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND ((mapContains(props_num, ?) AND props_num[?] >= ?) AND props[?] < ?) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "status"
+  3: string "status"
+  4: float64 500
+  5: string "status"
+  6: string "b"
+  7: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== code > 'abc' ci
+kind: events  source: logs  limit: 200
+canonical: code > "abc" ci
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND (lower(props[?]) > lower(?)) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "code"
+  3: string "abc"
+  4: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== Message = 'Hi' and Message = 'Hi' ci and Message == 'x' and Message <> 'y'
+kind: events  source: logs  limit: 200
+canonical: Message = "Hi" and Message = "Hi" ci and Message == "x" and Message <> "y"
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND (((message = ? AND lower(message) = lower(?)) AND message = ?) AND NOT (message = ?)) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "Hi"
+  3: string "Hi"
+  4: string "x"
+  5: string "y"
+  6: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== message like '%time%' ci or message not like 'x%'
+kind: events  source: logs  limit: 200
+canonical: message like "%time%" ci or message not like "x%"
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND (message ILIKE ? OR NOT message LIKE ?) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "%time%"
+  3: string "x%"
+  4: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== x = null or y != null
+kind: events  source: logs  limit: 200
+canonical: x = null or y != null
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND (NOT mapContains(props, ?) OR (mapContains(props, ?) AND props[?] != '')) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "x"
+  3: string "y"
+  4: string "y"
+  5: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== x in [1, 2] and y not in ['a', 3] and z in [true]
+kind: events  source: logs  limit: 200
+canonical: x in [1, 2] and y not in ["a", 3] and z in [true]
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND (((mapContains(props_num, ?) AND props_num[?] IN (?, ?)) AND NOT (props[?] IN (?, ?))) AND props[?] IN (?)) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "x"
+  3: string "x"
+  4: float64 1
+  5: float64 2
+  6: string "y"
+  7: string "a"
+  8: string "3"
+  9: string "z"
+  10: string "true"
+  11: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== id:0192f0a0-0000-7000-8000-000000000000 or id in ['0192F0A0-0000-7000-8000-000000000000'] or id:*
+kind: events  source: logs  limit: 200
+canonical: id:"0192f0a0-0000-7000-8000-000000000000" or id in ["0192F0A0-0000-7000-8000-000000000000"] or id:*
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND ((id = toUUIDOrZero(?) OR id IN (toUUIDOrZero(?))) OR 1) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "0192f0a0-0000-7000-8000-000000000000"
+  3: string "0192f0a0-0000-7000-8000-000000000000"
+  4: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== contains(message, 'timeout') or startswith(service, 'CHECK') or endswith(host, '1') or has(route) or match(route, '^/a')
+kind: events  source: logs  limit: 200
+canonical: contains(message, "timeout") or startswith(service, "CHECK") or endswith(host, "1") or has(route) or match(route, "^/a")
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND ((((positionCaseInsensitiveUTF8(message, ?) > 0 OR startsWith(lower(service), lower(?))) OR endsWith(lower(host), lower(?))) OR (mapContains(props, ?) AND props[?] != '')) OR match(props[?], ?)) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "timeout"
+  3: string "CHECK"
+  4: string "1"
+  5: string "route"
+  6: string "route"
+  7: string "route"
+  8: string "^/a"
+  9: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== @timestamp > now-15m and @timestamp <= '2026-10-13T11:59:00Z' and timestamp >= '2026-10-13'
+kind: events  source: logs  limit: 200
+canonical: @timestamp > "now-15m" and @timestamp <= "2026-10-13T11:59:00Z" and timestamp >= "2026-10-13"
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND ((timestamp > ? AND timestamp <= ?) AND timestamp >= ?) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: time 2026-10-13T11:45:00Z
+  3: time 2026-10-13T11:59:00Z
+  4: time 2026-10-13T00:00:00Z
+  5: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== props.level:x and attrs.message:y and `weird key`:1
+kind: events  source: logs  limit: 200
+canonical: props.level:"x" and attrs.message:"y" and `weird key`:1
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND ((lower(props[?]) = lower(?) AND lower(props[?]) = lower(?)) AND ((mapContains(props_num, ?) AND props_num[?] = ?) OR lower(props[?]) = lower(?))) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "level"
+  3: string "x"
+  4: string "message"
+  5: string "y"
+  6: string "weird key"
+  7: string "weird key"
+  8: float64 1
+  9: string "weird key"
+  10: string "1"
+  11: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== @m:hello and @x:* and msg:hi and @mt:"User {Id}" and @i:abcd1234 and @tr:ABC and @sp:def and env:prod and @l:error
+kind: events  source: logs  limit: 200
+canonical: @m:"hello" and @x:* and msg:"hi" and @mt:"User {Id}" and @i:"abcd1234" and @tr:"ABC" and @sp:"def" and env:"prod" and @l:"error"
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND ((((((((lower(message) = lower(?) AND exception != '') AND lower(message) = lower(?)) AND lower(message_template) = lower(?)) AND lower(event_type) = lower(?)) AND trace_id = ?) AND span_id = ?) AND lower(environment) = lower(?)) AND level_num = ?) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "hello"
+  3: string "hi"
+  4: string "User {Id}"
+  5: string "abcd1234"
+  6: string "abc"
+  7: string "def"
+  8: string "prod"
+  9: uint8 4
+  10: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== !foo && (bar || baz)
+kind: events  source: logs  limit: 200
+canonical: not "foo" and ("bar" or "baz")
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND (NOT ((positionCaseInsensitiveUTF8(message, ?) > 0 OR positionCaseInsensitiveUTF8(exception, ?) > 0)) AND ((positionCaseInsensitiveUTF8(message, ?) > 0 OR positionCaseInsensitiveUTF8(exception, ?) > 0) OR (positionCaseInsensitiveUTF8(message, ?) > 0 OR positionCaseInsensitiveUTF8(exception, ?) > 0))) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "foo"
+  3: string "foo"
+  4: string "bar"
+  5: string "bar"
+  6: string "baz"
+  7: string "baz"
+  8: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== not not x:1
+kind: events  source: logs  limit: 200
+canonical: not not x:1
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND (NOT (NOT (((mapContains(props_num, ?) AND props_num[?] = ?) OR lower(props[?]) = lower(?))))) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "x"
+  3: string "x"
+  4: float64 1
+  5: string "x"
+  6: string "1"
+  7: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== hello world
+kind: events  source: logs  limit: 200
+canonical: "hello" and "world"
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND ((positionCaseInsensitiveUTF8(message, ?) > 0 OR positionCaseInsensitiveUTF8(exception, ?) > 0) AND (positionCaseInsensitiveUTF8(message, ?) > 0 OR positionCaseInsensitiveUTF8(exception, ?) > 0)) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "hello"
+  3: string "hello"
+  4: string "world"
+  5: string "world"
+  6: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== RequestPath:/api/v1/orders and RequestPath:* and not RequestPath:null and RequestPath:"/API/*"
+kind: events  source: logs  limit: 200
+canonical: RequestPath:"/api/v1/orders" and RequestPath:* and not RequestPath:null and RequestPath:"/API/*"
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND (((lower(f_requestpath) = lower(?) AND f_requestpath != '') AND NOT (f_requestpath = '')) AND f_requestpath ILIKE ?) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "/api/v1/orders"
+  3: string "/API/%"
+  4: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== path:a\*b and path:"lit\*eral" and path:"wild*card?"
+kind: events  source: logs  limit: 200
+canonical: path:"a\*b" and path:"lit\*eral" and path:"wild*card?"
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND ((lower(props[?]) = lower(?) AND lower(props[?]) = lower(?)) AND props[?] ILIKE ?) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "path"
+  3: string "a*b"
+  4: string "path"
+  5: string "lit*eral"
+  6: string "path"
+  7: string "wild%card_"
+  8: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== not
+kind: events  source: logs  limit: 200  interpretedAsText
+canonical: "not"
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND ((positionCaseInsensitiveUTF8(message, ?) > 0 OR positionCaseInsensitiveUTF8(exception, ?) > 0)) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "not"
+  3: string "not"
+  4: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== foo and
+kind: events  source: logs  limit: 200  interpretedAsText
+canonical: "foo and"
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND ((positionCaseInsensitiveUTF8(message, ?) > 0 OR positionCaseInsensitiveUTF8(exception, ?) > 0)) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "foo and"
+  3: string "foo and"
+  4: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== Hello, world!
+kind: events  source: logs  limit: 200  interpretedAsText
+canonical: "Hello, world!"
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND ((positionCaseInsensitiveUTF8(message, ?) > 0 OR positionCaseInsensitiveUTF8(exception, ?) > 0)) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "Hello, world!"
+  3: string "Hello, world!"
+  4: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== * | stats count() by service span 1h | where count > 10 and service:checkout* | sort count desc
+kind: timeseries  source: logs  limit: 10000  span: 1h0m0s
+canonical: * | stats count() by service span 1h | where count > 10 and service:checkout* | sort count desc
+sql: SELECT toStartOfInterval(timestamp, toIntervalSecond(?)) AS bucket, service AS g0, count() AS a0 FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? GROUP BY bucket, g0 HAVING (a0 > ? AND g0 ILIKE ?) ORDER BY bucket ASC, a0 DESC, g0 ASC LIMIT ?
+args:
+  0: int64 3600
+  1: time 2026-10-13T11:00:00Z
+  2: time 2026-10-13T12:00:00Z
+  3: float64 10
+  4: string "checkout%"
+  5: int 10000
+columns: @bucket:time, service:string, count:number
+
+=== * | stats count() as n, avg(elapsed) as e by level, route | where level >= warning and n > 1 or route:/a | sort e desc, level asc | limit 5
+kind: table  source: logs  limit: 5
+canonical: * | stats count() as n, avg(elapsed) as e by level, route | where level >= "warning" and n > 1 or route:"/a" | sort e desc, level asc | limit 5
+sql: SELECT level AS g0, props[?] AS g1, count() AS a0, avg(if(mapContains(props_num, ?), props_num[?], NULL)) AS a1 FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? GROUP BY g0, g1 HAVING ((g0 IN (?, ?, ?) AND a0 > ?) OR lower(g1) = lower(?)) ORDER BY a1 DESC, g0 ASC, g1 ASC LIMIT ?
+args:
+  0: string "route"
+  1: string "elapsed"
+  2: string "elapsed"
+  3: time 2026-10-13T11:00:00Z
+  4: time 2026-10-13T12:00:00Z
+  5: string "Warning"
+  6: string "Error"
+  7: string "Fatal"
+  8: float64 1
+  9: string "/a"
+  10: int 5
+columns: level:string, route:string, n:number, e:number
+
+=== * | stats count(), count(route), count_distinct(route), sum(elapsed), min(elapsed), max(elapsed), p50(elapsed), p75(elapsed), p90(elapsed), p99(elapsed), rate(), first(message), last(level) by service
+kind: table  source: logs  limit: 10000
+canonical: * | stats count(), count(route), count_distinct(route), sum(elapsed), min(elapsed), max(elapsed), p50(elapsed), p75(elapsed), p90(elapsed), p99(elapsed), rate(), first(message), last(level) by service
+sql: SELECT service AS g0, count() AS a0, countIf((mapContains(props, ?) AND props[?] != '')) AS a1, uniq(props[?]) AS a2, sum(if(mapContains(props_num, ?), props_num[?], NULL)) AS a3, min(if(mapContains(props_num, ?), props_num[?], NULL)) AS a4, max(if(mapContains(props_num, ?), props_num[?], NULL)) AS a5, quantileTDigest(0.5)(if(mapContains(props_num, ?), props_num[?], NULL)) AS a6, quantileTDigest(0.75)(if(mapContains(props_num, ?), props_num[?], NULL)) AS a7, quantileTDigest(0.9)(if(mapContains(props_num, ?), props_num[?], NULL)) AS a8, quantileTDigest(0.99)(if(mapContains(props_num, ?), props_num[?], NULL)) AS a9, count() / ? AS a10, argMin(message, timestamp) AS a11, argMax(level, timestamp) AS a12 FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? GROUP BY g0 ORDER BY a0 DESC, g0 ASC LIMIT ?
+args:
+  0: string "route"
+  1: string "route"
+  2: string "route"
+  3: string "elapsed"
+  4: string "elapsed"
+  5: string "elapsed"
+  6: string "elapsed"
+  7: string "elapsed"
+  8: string "elapsed"
+  9: string "elapsed"
+  10: string "elapsed"
+  11: string "elapsed"
+  12: string "elapsed"
+  13: string "elapsed"
+  14: string "elapsed"
+  15: string "elapsed"
+  16: string "elapsed"
+  17: float64 3600
+  18: time 2026-10-13T11:00:00Z
+  19: time 2026-10-13T12:00:00Z
+  20: int 10000
+columns: service:string, count:number, count_route:number, count_distinct_route:number, sum_elapsed:number, min_elapsed:number, max_elapsed:number, p50_elapsed:number, p75_elapsed:number, p90_elapsed:number, p99_elapsed:number, rate:number, first_message:string, last_level:string
+
+=== * | stats rate() span 1m
+kind: timeseries  source: logs  limit: 10000  span: 1m0s
+canonical: * | stats rate() span 1m
+sql: SELECT toStartOfInterval(timestamp, toIntervalSecond(?)) AS bucket, count() / ? AS a0 FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? GROUP BY bucket ORDER BY bucket ASC LIMIT ?
+args:
+  0: int64 60
+  1: float64 60
+  2: time 2026-10-13T11:00:00Z
+  3: time 2026-10-13T12:00:00Z
+  4: int 10000
+columns: @bucket:time, rate:number
+
+=== level:error | top 3 route by service
+kind: table  source: logs  limit: 10000
+canonical: level:"error" | top 3 route by service
+sql: SELECT service AS g0, props[?] AS g1, count() AS a0 FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND (level_num = ?) GROUP BY g0, g1 ORDER BY a0 DESC, g0 ASC, g1 ASC LIMIT ? BY g0 LIMIT ?
+args:
+  0: string "route"
+  1: time 2026-10-13T11:00:00Z
+  2: time 2026-10-13T12:00:00Z
+  3: uint8 4
+  4: int 3
+  5: int 10000
+columns: service:string, route:string, count:number
+
+=== level:error | top 3 route | limit 2
+kind: table  source: logs  limit: 2
+canonical: level:"error" | top 3 route | limit 2
+sql: SELECT props[?] AS g0, count() AS a0 FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND (level_num = ?) GROUP BY g0 ORDER BY a0 DESC, g0 ASC LIMIT ?
+args:
+  0: string "route"
+  1: time 2026-10-13T11:00:00Z
+  2: time 2026-10-13T12:00:00Z
+  3: uint8 4
+  4: int 2
+columns: route:string, count:number
+
+=== * | fields message, level, elapsed, RequestPath | limit 10
+kind: events  source: logs  limit: 10
+canonical: * | fields message, level, elapsed, RequestPath | limit 10
+sql: SELECT timestamp, id, message AS f0, level AS f1, props[?] AS f2, f_requestpath AS f3 FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: string "elapsed"
+  1: time 2026-10-13T11:00:00Z
+  2: time 2026-10-13T12:00:00Z
+  3: int 10
+columns: timestamp:time, id:string, message:string, level:string, elapsed:string, RequestPath:string
+
+=== * | where level:error | stats count() by host | sort host
+kind: table  source: logs  limit: 10000
+canonical: * | where level:"error" | stats count() by host | sort host asc
+sql: SELECT host AS g0, count() AS a0 FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND (level_num = ?) GROUP BY g0 ORDER BY g0 ASC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: uint8 4
+  3: int 10000
+columns: host:string, count:number
+
+=== contains(x, /re/) and id:~ and id >= 3
+kind: events  source: logs  limit: 200
+canonical: contains(x, "/re/") and id:"~" and id >= 3
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND ((positionCaseInsensitiveUTF8(props[?], ?) > 0 AND id = toUUIDOrZero(?)) AND ifNull(toFloat64OrNull(toString(id)) >= ?, 0)) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "x"
+  3: string "/re/"
+  4: string "~"
+  5: float64 3
+  6: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== * | where level:error | stats count() by host span auto | sort @bucket desc
+kind: timeseries  source: logs  limit: 10000  span: 1m0s
+canonical: * | where level:"error" | stats count() by host span auto | sort @bucket desc
+sql: SELECT toStartOfInterval(timestamp, toIntervalSecond(?)) AS bucket, host AS g0, count() AS a0 FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND (level_num = ?) GROUP BY bucket, g0 ORDER BY bucket ASC, g0 ASC LIMIT ?
+args:
+  0: int64 60
+  1: time 2026-10-13T11:00:00Z
+  2: time 2026-10-13T12:00:00Z
+  3: uint8 4
+  4: int 10000
+columns: @bucket:time, host:string, count:number
+
+=== * | limit 50
+kind: events  source: logs  limit: 50
+canonical: * | limit 50
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: int 50
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== * | stats count() by level | where level in [error, fatal] and not has(level) or contains(level, 'err')
+kind: table  source: logs  limit: 10000
+canonical: * | stats count() by level | where level in ["error", "fatal"] and not has(level) or contains(level, "err")
+sql: SELECT level AS g0, count() AS a0 FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? GROUP BY g0 HAVING ((g0 IN (?, ?) AND NOT (g0 != '')) OR positionCaseInsensitiveUTF8(g0, ?) > 0) ORDER BY a0 DESC, g0 ASC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "Error"
+  3: string "Fatal"
+  4: string "err"
+  5: int 10000
+columns: level:string, count:number
+
+=== * | stats count() by level | where level:err* and level != error and count in [1, 2]
+kind: table  source: logs  limit: 10000
+canonical: * | stats count() by level | where level:err* and level != "error" and count in [1, 2]
+sql: SELECT level AS g0, count() AS a0 FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? GROUP BY g0 HAVING ((g0 ILIKE ? AND NOT (g0 IN (?))) AND a0 IN (?, ?)) ORDER BY a0 DESC, g0 ASC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "err%"
+  3: string "Error"
+  4: float64 1
+  5: float64 2
+  6: int 10000
+columns: level:string, count:number
+
+=== %cursor level:error
+kind: events  source: logs  limit: 200
+canonical: level:"error"
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND (level_num = ?) AND (timestamp, id) < (?, toUUIDOrZero(?)) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: uint8 4
+  3: time 2026-10-13T11:59:00Z
+  4: string "0192f0a0-0000-7000-8000-000000000001"
+  5: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== %where level:error | stats count() by service
+sql: timestamp >= ? AND timestamp < ? AND (level_num = ?)
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: uint8 4
+
+=== %where * | where host:a | stats count()
+sql: timestamp >= ? AND timestamp < ? AND (lower(host) = lower(?))
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "a"
+

@@ -1,0 +1,4 @@
+{"index":{"_index":"logstash-2026.10.13","routing":null}}
+{"@timestamp":"2026-10-13T11:58:01.000Z","@version":"1","message":"Oct 13 11:58:01 db-01 sshd[1234]: Accepted publickey for deploy from 10.0.0.9 port 52344","host":{"name":"db-01"},"log":{"file":{"path":"/var/log/auth.log"}},"event":{"original":"Oct 13 11:58:01 db-01 sshd[1234]: Accepted publickey for deploy"},"tags":["syslog","auth"]}
+{"index":{"_index":"logstash-20261013"}}
+{"@timestamp":"2026-10-13T11:58:02.000Z","@version":"1","message":"kernel: Out of memory: Killed process 4242 (java)","host":{"name":"db-01"},"syslog":{"severity":2},"tags":["syslog"]}

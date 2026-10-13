@@ -1,0 +1,357 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Settings area: sub-nav and pages (DESIGN §5.20, §9.9). */
+
+.layout {
+  display: flex;
+  min-height: 100%;
+}
+
+.subnav {
+  width: 200px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 8px;
+  border-right: 1px solid var(--tm-color-border);
+  background: var(--tm-color-bg-surface);
+}
+
+.subItem {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--tm-radius-md);
+  color: var(--tm-color-fg-muted);
+  font-weight: var(--tm-font-weight-medium);
+}
+
+.subItem:hover {
+  background: var(--tm-color-bg-hover);
+  color: var(--tm-color-fg);
+  text-decoration: none;
+}
+
+.subItem:global(.active) {
+  background: var(--tm-color-selection);
+  color: var(--tm-color-fg);
+}
+
+.content {
+  flex: 1;
+  min-width: 0;
+}
+
+.page {
+  padding: 20px 24px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.narrowStack {
+  max-width: 1100px;
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+}
+
+.headActions {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+}
+
+.rowActions {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.strong {
+  font-weight: var(--tm-font-weight-semibold);
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.mono {
+  font-family: var(--tm-font-mono);
+}
+
+.dangerText {
+  color: var(--tm-color-danger);
+}
+
+.footnote {
+  font-size: var(--tm-text-xs);
+  line-height: var(--tm-leading-xs);
+  color: var(--tm-color-fg-subtle);
+}
+
+.accountForm {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 420px;
+}
+
+/* ---- connection wizard ----------------------------------------------------------------------- */
+.steps {
+  list-style: none;
+  margin: 0 0 0 auto;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  font-size: var(--tm-text-sm);
+  color: var(--tm-color-fg-subtle);
+}
+
+.stepItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stepMark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--tm-color-border-strong);
+  font-size: var(--tm-text-2xs);
+  font-weight: var(--tm-font-weight-semibold);
+}
+
+.stepDone {
+  color: var(--tm-color-fg-muted);
+}
+
+.stepDone .stepMark {
+  background: var(--tm-color-accent-soft);
+  border-color: var(--tm-color-accent-border);
+  color: var(--tm-color-accent);
+}
+
+.stepCurrent {
+  color: var(--tm-color-fg);
+  font-weight: var(--tm-font-weight-semibold);
+}
+
+.stepCurrent .stepMark {
+  background: var(--tm-color-accent);
+  border-color: var(--tm-color-accent);
+  color: var(--tm-color-accent-fg);
+}
+
+.stepArrow {
+  margin-left: 4px;
+  color: var(--tm-color-fg-subtle);
+}
+
+.wizardBody {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 520px;
+}
+
+.wizardGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 320px));
+  gap: 14px 20px;
+}
+
+.wizardFoot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.keyStep {
+  display: grid;
+  grid-template-columns: 420px minmax(0, 1fr);
+  gap: 24px;
+}
+
+.keyPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--tm-color-accent-border);
+  border-radius: 8px;
+  background: var(--tm-color-accent-soft);
+}
+
+.keyTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--tm-color-accent);
+  font-weight: var(--tm-font-weight-semibold);
+}
+
+.keyValue {
+  font-family: var(--tm-font-mono);
+  font-size: var(--tm-text-md);
+  word-break: break-all;
+  color: var(--tm-color-fg);
+}
+
+.keyNote {
+  font-size: var(--tm-text-xs);
+  line-height: var(--tm-leading-xs);
+  color: var(--tm-color-fg-muted);
+}
+
+.snippets {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.snippetHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--tm-color-border-subtle);
+  overflow-x: auto;
+}
+
+.snippetHead > :first-child {
+  flex: 1;
+  border-bottom: 0;
+}
+
+/* ---- system, audit, import ------------------------------------------------------------------- */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
+}
+
+.contents {
+  display: contents;
+}
+
+.diskBar {
+  display: block;
+  height: 4px;
+  margin-top: 6px;
+  border-radius: 2px;
+  background: var(--tm-color-bg-input);
+}
+
+.diskBar span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--tm-color-accent);
+}
+
+.filters {
+  display: grid;
+  grid-template-columns: minmax(0, 200px) minmax(0, 320px) 200px;
+  gap: 8px;
+}
+
+.progress {
+  display: inline-block;
+  width: 80px;
+  height: 4px;
+  margin-left: 8px;
+  vertical-align: middle;
+  border-radius: 2px;
+  background: var(--tm-color-bg-input);
+}
+
+.progress span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--tm-color-info);
+}
+
+.importSource {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.importGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 360px));
+  gap: 14px 20px;
+}
+
+.wide {
+  grid-column: 1 / -1;
+}
+
+.fileDrop {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px;
+  border: 1px dashed var(--tm-color-border-strong);
+  border-radius: 8px;
+  color: var(--tm-color-fg-muted);
+  cursor: pointer;
+}
+
+.fileDrop input {
+  margin-left: auto;
+  color: var(--tm-color-fg-muted);
+}
+
+@media (max-width: 1199px) {
+  .keyStep {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 899px) {
+  .layout {
+    flex-direction: column;
+  }
+
+  .subnav {
+    width: auto;
+    flex-direction: row;
+    overflow-x: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--tm-color-border);
+  }
+
+  .subItem {
+    flex: none;
+  }
+
+  .wizardGrid,
+  .importGrid,
+  .filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 599px) {
+  .page {
+    padding: 14px 12px 24px;
+  }
+}

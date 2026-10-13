@@ -1,0 +1,30 @@
+{
+  "id": "log-volume",
+  "name": "Log volume & errors",
+  "description": "Log volume by level, error counts, top exceptions and services.",
+  "doc": {
+    "version": 1,
+    "timeRange": {"from": "now-24h", "to": "now"},
+    "refresh": "1m",
+    "variables": [
+      {"name": "service", "label": "Service", "type": "field-values", "source": "logs", "field": "service",
+       "multi": true, "default": ["*"]}
+    ],
+    "panels": [
+      {"id": "volume", "title": "Volume by level", "type": "timeseries", "grid": {"x": 0, "y": 0, "w": 9, "h": 6},
+       "query": "service:$service | stats count() by level span auto", "options": {"stack": true, "style": "bars"}},
+      {"id": "errors", "title": "Errors", "type": "stat", "grid": {"x": 9, "y": 0, "w": 3, "h": 3},
+       "query": "service:$service and level >= error | stats count()",
+       "options": {"thresholds": [{"value": 1, "color": "danger"}]}},
+      {"id": "warnings", "title": "Warnings", "type": "stat", "grid": {"x": 9, "y": 3, "w": 3, "h": 3},
+       "query": "service:$service and level:warning | stats count()",
+       "options": {"thresholds": [{"value": 1, "color": "warning"}]}},
+      {"id": "top-exceptions", "title": "Top exceptions", "type": "table", "grid": {"x": 0, "y": 6, "w": 6, "h": 8},
+       "query": "service:$service and exception:* | top 10 exception", "options": {}},
+      {"id": "by-service", "title": "Errors by service", "type": "bar", "grid": {"x": 6, "y": 6, "w": 6, "h": 8},
+       "query": "service:$service and level >= error | top 10 service", "options": {}},
+      {"id": "error-logs", "title": "Error events", "type": "logs", "grid": {"x": 0, "y": 14, "w": 12, "h": 8},
+       "query": "service:$service and level >= error", "options": {}}
+    ]
+  }
+}

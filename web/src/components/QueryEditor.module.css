@@ -1,0 +1,280 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Query bar, TQL token colours, error popover and autocomplete popover (DESIGN §3.2, §5.7). */
+
+.wrap {
+  position: relative;
+  min-width: 0;
+  flex: 1;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 6px 0 10px;
+  border-radius: var(--tm-radius-md);
+  border: 1px solid var(--tm-color-border);
+  background: var(--tm-color-bg-input);
+  transition:
+    border-color 120ms,
+    box-shadow 120ms;
+}
+
+.sm {
+  min-height: 32px;
+}
+
+.focused {
+  border-color: var(--tm-color-accent);
+  box-shadow: 0 0 0 3px var(--tm-color-accent-soft);
+}
+
+.error {
+  border-color: var(--tm-color-danger);
+  box-shadow: 0 0 0 3px var(--tm-color-danger-soft);
+}
+
+.text {
+  border-color: var(--tm-color-warning);
+}
+
+.readOnly {
+  opacity: 0.85;
+}
+
+.icon {
+  color: var(--tm-color-fg-subtle);
+  flex: none;
+}
+
+.host {
+  flex: 1;
+  min-width: 0;
+}
+
+.trailing {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+/* ---- CodeMirror ---------------------------------------------------------------------------- */
+.host :global(.cm-editor) {
+  background: transparent;
+  color: var(--tm-color-fg);
+  font-family: var(--tm-font-mono);
+  font-size: 13px;
+}
+
+.sm .host :global(.cm-editor) {
+  font-size: var(--tm-text-mono);
+}
+
+.host :global(.cm-editor.cm-focused) {
+  outline: none;
+}
+
+.host :global(.cm-scroller) {
+  font-family: var(--tm-font-mono);
+  line-height: 20px;
+  overflow: hidden;
+}
+
+.host :global(.cm-content) {
+  padding: 7px 0;
+  caret-color: var(--tm-color-accent);
+}
+
+.sm .host :global(.cm-content) {
+  padding: 5px 0;
+}
+
+.host :global(.cm-line) {
+  padding: 0;
+}
+
+.host :global(.cm-placeholder) {
+  color: var(--tm-color-fg-subtle);
+  font-family: var(--tm-font-sans);
+}
+
+.host :global(.cm-cursor) {
+  border-left-color: var(--tm-color-accent);
+}
+
+.host :global(.cm-selectionBackground),
+.host :global(.cm-focused .cm-selectionBackground) {
+  background: var(--tm-color-selection) !important;
+}
+
+/* Token classes (DESIGN §3.2), also used by read-only TQL renderings (`TqlText`). */
+:global(.tql-field) {
+  color: var(--tm-color-info);
+}
+:global(.tql-operator),
+:global(.tql-punct) {
+  color: var(--tm-color-fg-muted);
+}
+:global(.tql-value),
+:global(.tql-regex) {
+  color: var(--tm-color-fg);
+}
+:global(.tql-keyword) {
+  color: var(--tm-color-accent);
+  font-weight: var(--tm-font-weight-semibold);
+}
+:global(.tql-string) {
+  color: var(--tm-color-warning);
+}
+:global(.tql-number),
+:global(.tql-variable) {
+  color: var(--tm-chart-4);
+}
+:global(.tql-function) {
+  color: var(--tm-chart-5);
+}
+:global(.tql-pipe) {
+  color: var(--tm-color-fg-subtle);
+}
+:global(.cm-tql-error) {
+  text-decoration: wavy underline var(--tm-color-danger);
+  text-decoration-skip-ink: none;
+  text-underline-offset: 3px;
+}
+
+/* ---- Error popover ------------------------------------------------------------------------- */
+.errorPop {
+  position: absolute;
+  top: calc(100% + 6px);
+  z-index: 30;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  max-width: min(560px, 100%);
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--tm-color-bg-overlay);
+  box-shadow: var(--tm-shadow-2);
+  font-size: var(--tm-text-md);
+}
+
+.errorPop > svg {
+  color: var(--tm-color-danger);
+  flex: none;
+  margin-top: 2px;
+}
+
+.errorMsg strong {
+  color: var(--tm-color-danger);
+  font-weight: var(--tm-font-weight-semibold);
+}
+
+.errorMeta {
+  margin-top: 2px;
+  font-size: var(--tm-text-sm);
+  color: var(--tm-color-fg-subtle);
+}
+
+.fix {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--tm-color-link);
+  text-decoration: underline;
+  font-weight: var(--tm-font-weight-semibold);
+}
+
+/* ---- Autocomplete popover (rendered by CodeMirror inside the editor) ----------------------- */
+.host :global(.cm-tooltip.cm-tooltip-autocomplete) {
+  width: min(520px, calc(100vw - 32px));
+  margin-top: 6px;
+  padding: 6px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--tm-color-bg-raised);
+  box-shadow: var(--tm-shadow-3);
+}
+
+.host :global(.cm-tooltip-autocomplete > ul) {
+  font-family: var(--tm-font-mono);
+  max-height: 240px;
+}
+
+.host :global(.cm-tooltip-autocomplete > ul > li) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 5px;
+  color: var(--tm-color-fg);
+}
+
+.host :global(.cm-tooltip-autocomplete > ul > li[aria-selected]) {
+  background: var(--tm-color-selection);
+  color: var(--tm-color-fg);
+}
+
+.host :global(.cm-tooltip-autocomplete)::after {
+  content: '↑ ↓ navigate · Tab accept · ? cheat-sheet';
+  display: block;
+  margin-top: 6px;
+  padding: 6px 8px 2px;
+  border-top: 1px solid var(--tm-color-border-subtle);
+  font-family: var(--tm-font-sans);
+  font-size: var(--tm-text-xs);
+  color: var(--tm-color-fg-subtle);
+}
+
+.host :global(.cm-tql-kind) {
+  width: 64px;
+  flex: none;
+  font-family: var(--tm-font-sans);
+  font-size: var(--tm-text-2xs);
+  font-weight: var(--tm-font-weight-semibold);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--tm-color-fg-subtle);
+}
+
+.host :global(.cm-completionLabel) {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--tm-text-mono);
+}
+
+.host :global(.cm-completionDetail) {
+  margin-left: auto;
+  font-family: var(--tm-font-sans);
+  font-size: var(--tm-text-xs);
+  font-style: normal;
+  color: var(--tm-color-fg-subtle);
+  white-space: nowrap;
+}
+
+.host :global(.cm-completionMatchedText) {
+  text-decoration: none;
+  font-weight: var(--tm-font-weight-semibold);
+}
+
+.host :global(.cm-tql-opt-field .cm-completionLabel) {
+  color: var(--tm-color-info);
+}
+.host :global(.cm-tql-opt-keyword .cm-completionLabel),
+.host :global(.cm-tql-opt-stage .cm-completionLabel) {
+  color: var(--tm-color-accent);
+}
+.host :global(.cm-tql-opt-function .cm-completionLabel) {
+  color: var(--tm-chart-5);
+}
+.host :global(.cm-tql-opt-operator .cm-completionLabel) {
+  color: var(--tm-color-fg-muted);
+}
+.host :global(.cm-tql-opt-value .cm-completionLabel) {
+  color: var(--tm-color-fg);
+}

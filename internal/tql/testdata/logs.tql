@@ -1,0 +1,70 @@
+# SPDX-License-Identifier: Apache-2.0
+# Golden inputs: one query per line. Lines starting with '#' are comments.
+# Directives (prefix): %cursor  — compile with a keyset cursor
+#                     %where   — use CompileWhere instead of Compile
+# Spec §10.1 examples
+timeout
+"connection refused"
+level:error
+level >= warning
+service:checkout*  and not env:dev
+status_code:(500 or 502 or 503)
+status_code >= 500 and elapsed > 250
+user.email:*
+not exception:*
+path:/\/api\/v[12]\/orders/
+Service = 'payments-svc' and StatusCode != 200
+@trace_id:4bf92f3577b34da6a3ce929d0e0e4736
+level:error | stats count() by service | sort count desc
+level:error | top 10 exception_type
+* | stats count() by level span 5m
+elapsed:* | stats p95(elapsed), avg(elapsed) by service, route span 1m
+# filters
+*
+source logs | level:warn
+level:(error or fatal)
+level:3
+level:err*
+level:/^Err/
+level in [error, fatal]
+level != debug
+level = 'Error'
+a:(x or y and z)
+status:500 and status:"500" and status:true and status:null
+status: >= 500 and status: < 'b'
+code > 'abc' ci
+Message = 'Hi' and Message = 'Hi' ci and Message == 'x' and Message <> 'y'
+message like '%time%' ci or message not like 'x%'
+x = null or y != null
+x in [1, 2] and y not in ['a', 3] and z in [true]
+id:0192f0a0-0000-7000-8000-000000000000 or id in ['0192F0A0-0000-7000-8000-000000000000'] or id:*
+contains(message, 'timeout') or startswith(service, 'CHECK') or endswith(host, '1') or has(route) or match(route, '^/a')
+@timestamp > now-15m and @timestamp <= '2026-10-13T11:59:00Z' and timestamp >= '2026-10-13'
+props.level:x and attrs.message:y and `weird key`:1
+@m:hello and @x:* and msg:hi and @mt:"User {Id}" and @i:abcd1234 and @tr:ABC and @sp:def and env:prod and @l:error
+!foo && (bar || baz)
+not not x:1
+hello world
+RequestPath:/api/v1/orders and RequestPath:* and not RequestPath:null and RequestPath:"/API/*"
+path:a\*b and path:"lit\*eral" and path:"wild*card?"
+# free-text fallback (parse error, no operators)
+not
+foo and
+Hello, world!
+# stages
+* | stats count() by service span 1h | where count > 10 and service:checkout* | sort count desc
+* | stats count() as n, avg(elapsed) as e by level, route | where level >= warning and n > 1 or route:/a | sort e desc, level asc | limit 5
+* | stats count(), count(route), count_distinct(route), sum(elapsed), min(elapsed), max(elapsed), p50(elapsed), p75(elapsed), p90(elapsed), p99(elapsed), rate(), first(message), last(level) by service
+* | stats rate() span 1m
+level:error | top 3 route by service
+level:error | top 3 route | limit 2
+* | fields message, level, elapsed, RequestPath | limit 10
+* | where level:error | stats count() by host | sort host
+contains(x, /re/) and id:~ and id >= 3
+* | where level:error | stats count() by host span auto | sort @bucket desc
+* | limit 50
+* | stats count() by level | where level in [error, fatal] and not has(level) or contains(level, 'err')
+* | stats count() by level | where level:err* and level != error and count in [1, 2]
+%cursor level:error
+%where level:error | stats count() by service
+%where * | where host:a | stats count()

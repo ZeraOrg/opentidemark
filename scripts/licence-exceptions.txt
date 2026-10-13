@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Reviewed Go licence exceptions (SPEC §19.1): modules whose licence go-licenses cannot classify.
+# They are excluded from `go-licenses check/report`, their LICENSE file must still have the
+# reviewed SHA-256 (a relicence fails `make licences`), and they are listed in
+# THIRD_PARTY_NOTICES.md. Adding a line requires a spec change with its justification.
+#
+# <module path> <SPDX identifier> <SHA-256 of the module's LICENSE file>
+github.com/segmentio/asm MIT-0 cca993712df289a5958bdef69031a5dac0f951ac15afeb313f9eeea55ed59443

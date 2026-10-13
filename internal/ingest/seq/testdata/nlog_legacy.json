@@ -1,0 +1,5 @@
+{"Events":[
+ {"Timestamp":"2026-10-13T13:58:01.123+02:00","Level":"Information","MessageTemplate":"Order {OrderId} shipped to {City}","Properties":{"OrderId":1042,"City":"Amsterdam","Logger":"Shop.Shipping","MachineName":"APP-02","Application":"shop"}},
+ {"Timestamp":"2026-10-13T13:58:02.456+02:00","Level":"Error","MessageTemplate":"Database unavailable","RenderedMessage":"Database unavailable","Exception":"System.Data.SqlClient.SqlException (0x80131904): A network-related error occurred.","Properties":{"Logger":"Shop.Data","MachineName":"APP-02","Application":"shop"}},
+ "not an object"
+]}

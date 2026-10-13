@@ -1,0 +1,124 @@
+=== source spans | service:checkout-api and status:error | stats count() by name
+kind: table  source: spans  limit: 10000
+canonical: source spans | service:"checkout-api" and status:"error" | stats count() by name
+sql: SELECT name AS g0, count() AS a0 FROM tidemark.spans WHERE start_time >= ? AND start_time < ? AND (lower(service) = lower(?) AND lower(status_code) = lower(?)) GROUP BY g0 ORDER BY a0 DESC, g0 ASC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "checkout-api"
+  3: string "error"
+  4: int 10000
+columns: name:string, count:number
+
+=== source spans
+kind: events  source: spans  limit: 200
+canonical: source spans | *
+sql: SELECT start_time, trace_id, span_id, parent_span_id, stream, service, name, kind, duration_ns / 1e6 AS duration_ms, status_code, status_message, connection_id, attrs, attrs_num, resource_json, events_json, links_json FROM tidemark.spans WHERE start_time >= ? AND start_time < ? ORDER BY start_time DESC, span_id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: int 200
+columns: start_time:time, trace_id:string, span_id:string, parent_span_id:string, stream:string, service:string, name:string, kind:string, duration_ms:duration_ms, status_code:string, status_message:string, connection_id:string, attrs:map, attrs_num:map, resource_json:json, events_json:json, links_json:json
+
+=== source spans | duration > 250ms and duration <= 2s | stats p95(duration), avg(duration) by service span 5m
+kind: timeseries  source: spans  limit: 10000  span: 5m0s
+canonical: source spans | duration > 250ms and duration <= 2s | stats p95(duration), avg(duration) by service span 5m
+sql: SELECT toStartOfInterval(start_time, toIntervalSecond(?)) AS bucket, service AS g0, quantileTDigest(0.95)(duration_ns / 1e6) AS a0, avg(duration_ns / 1e6) AS a1 FROM tidemark.spans WHERE start_time >= ? AND start_time < ? AND (duration_ns > ? AND duration_ns <= ?) GROUP BY bucket, g0 ORDER BY bucket ASC, g0 ASC LIMIT ?
+args:
+  0: int64 300
+  1: time 2026-10-13T11:00:00Z
+  2: time 2026-10-13T12:00:00Z
+  3: float64 2.5e+08
+  4: float64 2e+09
+  5: int 10000
+columns: @bucket:time, service:string, p95_duration:number, avg_duration:number
+
+=== source spans | duration:* and duration:500 and http.status_code >= 200 | fields name, duration, http.route
+kind: events  source: spans  limit: 200
+canonical: source spans | duration:* and duration:500 and http.status_code >= 200 | fields name, duration, http.route
+sql: SELECT start_time, span_id, name AS f0, duration_ns / 1e6 AS f1, attrs[?] AS f2 FROM tidemark.spans WHERE start_time >= ? AND start_time < ? AND ((1 AND duration_ns = ?) AND (mapContains(attrs_num, ?) AND attrs_num[?] >= ?)) ORDER BY start_time DESC, span_id DESC LIMIT ?
+args:
+  0: string "http.route"
+  1: time 2026-10-13T11:00:00Z
+  2: time 2026-10-13T12:00:00Z
+  3: float64 5e+08
+  4: string "http.status_code"
+  5: string "http.status_code"
+  6: float64 200
+  7: int 200
+columns: start_time:time, span_id:string, name:string, duration:duration_ms, http.route:string
+
+=== source spans | duration in [1s, 500] and @duration < 1.5
+kind: events  source: spans  limit: 200
+canonical: source spans | duration in [1s, 500] and @duration < 1.5
+sql: SELECT start_time, trace_id, span_id, parent_span_id, stream, service, name, kind, duration_ns / 1e6 AS duration_ms, status_code, status_message, connection_id, attrs, attrs_num, resource_json, events_json, links_json FROM tidemark.spans WHERE start_time >= ? AND start_time < ? AND (duration_ns IN (?, ?) AND duration_ns < ?) ORDER BY start_time DESC, span_id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: float64 1e+09
+  3: float64 5e+08
+  4: float64 1.5e+06
+  5: int 200
+columns: start_time:time, trace_id:string, span_id:string, parent_span_id:string, stream:string, service:string, name:string, kind:string, duration_ms:duration_ms, status_code:string, status_message:string, connection_id:string, attrs:map, attrs_num:map, resource_json:json, events_json:json, links_json:json
+
+=== source spans | * | stats count() by duration | where duration > 100
+kind: table  source: spans  limit: 10000
+canonical: source spans | * | stats count() by duration | where duration > 100
+sql: SELECT duration_ns / 1e6 AS g0, count() AS a0 FROM tidemark.spans WHERE start_time >= ? AND start_time < ? GROUP BY g0 HAVING (g0 > ?) ORDER BY a0 DESC, g0 ASC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: float64 100
+  3: int 10000
+columns: duration:duration_ms, count:number
+
+=== source spans | * | stats rate() span auto
+kind: timeseries  source: spans  limit: 10000  span: 1m0s
+canonical: source spans | * | stats rate() span auto
+sql: SELECT toStartOfInterval(start_time, toIntervalSecond(?)) AS bucket, count() / ? AS a0 FROM tidemark.spans WHERE start_time >= ? AND start_time < ? GROUP BY bucket ORDER BY bucket ASC LIMIT ?
+args:
+  0: int64 60
+  1: float64 60
+  2: time 2026-10-13T11:00:00Z
+  3: time 2026-10-13T12:00:00Z
+  4: int 10000
+columns: @bucket:time, rate:number
+
+=== source spans | trace_id:ABC and parent_span_id:x and status_code:ok and kind:server
+kind: events  source: spans  limit: 200
+canonical: source spans | trace_id:"ABC" and parent_span_id:"x" and status_code:"ok" and kind:"server"
+sql: SELECT start_time, trace_id, span_id, parent_span_id, stream, service, name, kind, duration_ns / 1e6 AS duration_ms, status_code, status_message, connection_id, attrs, attrs_num, resource_json, events_json, links_json FROM tidemark.spans WHERE start_time >= ? AND start_time < ? AND (((trace_id = ? AND parent_span_id = ?) AND lower(status_code) = lower(?)) AND lower(kind) = lower(?)) ORDER BY start_time DESC, span_id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "abc"
+  3: string "x"
+  4: string "ok"
+  5: string "server"
+  6: int 200
+columns: start_time:time, trace_id:string, span_id:string, parent_span_id:string, stream:string, service:string, name:string, kind:string, duration_ms:duration_ms, status_code:string, status_message:string, connection_id:string, attrs:map, attrs_num:map, resource_json:json, events_json:json, links_json:json
+
+=== source spans | @timestamp > now-1h
+kind: events  source: spans  limit: 200
+canonical: source spans | @timestamp > "now-1h"
+sql: SELECT start_time, trace_id, span_id, parent_span_id, stream, service, name, kind, duration_ns / 1e6 AS duration_ms, status_code, status_message, connection_id, attrs, attrs_num, resource_json, events_json, links_json FROM tidemark.spans WHERE start_time >= ? AND start_time < ? AND (start_time > ?) ORDER BY start_time DESC, span_id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: time 2026-10-13T11:00:00Z
+  3: int 200
+columns: start_time:time, trace_id:string, span_id:string, parent_span_id:string, stream:string, service:string, name:string, kind:string, duration_ms:duration_ms, status_code:string, status_message:string, connection_id:string, attrs:map, attrs_num:map, resource_json:json, events_json:json, links_json:json
+
+=== %cursor source spans | status:error
+kind: events  source: spans  limit: 200
+canonical: source spans | status:"error"
+sql: SELECT start_time, trace_id, span_id, parent_span_id, stream, service, name, kind, duration_ns / 1e6 AS duration_ms, status_code, status_message, connection_id, attrs, attrs_num, resource_json, events_json, links_json FROM tidemark.spans WHERE start_time >= ? AND start_time < ? AND (lower(status_code) = lower(?)) AND (start_time, span_id) < (?, ?) ORDER BY start_time DESC, span_id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "error"
+  3: time 2026-10-13T11:59:00Z
+  4: string "0192f0a0-0000-7000-8000-000000000001"
+  5: int 200
+columns: start_time:time, trace_id:string, span_id:string, parent_span_id:string, stream:string, service:string, name:string, kind:string, duration_ms:duration_ms, status_code:string, status_message:string, connection_id:string, attrs:map, attrs_num:map, resource_json:json, events_json:json, links_json:json
+

@@ -1,0 +1,33 @@
+{
+  "id": "service-overview",
+  "name": "Service overview (OTel)",
+  "description": "Requests, errors and latency from spans plus error logs of one service.",
+  "doc": {
+    "version": 1,
+    "timeRange": {"from": "now-6h", "to": "now"},
+    "refresh": "1m",
+    "variables": [
+      {"name": "service", "label": "Service", "type": "field-values", "source": "spans", "field": "service",
+       "multi": true, "default": ["*"]}
+    ],
+    "panels": [
+      {"id": "requests", "title": "Requests", "type": "timeseries", "grid": {"x": 0, "y": 0, "w": 4, "h": 6},
+       "query": "source spans | service:$service and kind:server | stats count() by service span auto",
+       "options": {"unit": "short", "legend": "bottom"}},
+      {"id": "errors", "title": "Errored spans", "type": "timeseries", "grid": {"x": 4, "y": 0, "w": 4, "h": 6},
+       "query": "source spans | service:$service and status:error | stats count() by service span auto",
+       "options": {"unit": "short", "legend": "bottom", "style": "bars"}},
+      {"id": "latency", "title": "Latency p95", "type": "timeseries", "grid": {"x": 8, "y": 0, "w": 4, "h": 6},
+       "query": "source spans | service:$service and kind:server | stats p95(duration) by service span auto",
+       "options": {"unit": "ms", "legend": "bottom"}},
+      {"id": "log-errors", "title": "Error logs", "type": "stat", "grid": {"x": 0, "y": 6, "w": 3, "h": 4},
+       "query": "service:$service and level >= error | stats count()",
+       "options": {"unit": "short", "thresholds": [{"value": 1, "color": "warning"}, {"value": 100, "color": "danger"}]}},
+      {"id": "slowest", "title": "Slowest operations", "type": "table", "grid": {"x": 3, "y": 6, "w": 9, "h": 8},
+       "query": "source spans | service:$service | stats p95(duration), count() by name | sort p95_duration desc | limit 20",
+       "options": {"unit": "ms"}},
+      {"id": "recent-errors", "title": "Recent errors", "type": "logs", "grid": {"x": 0, "y": 14, "w": 12, "h": 8},
+       "query": "service:$service and level >= error", "options": {}}
+    ]
+  }
+}

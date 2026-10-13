@@ -1,0 +1,208 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Event stream (DESIGN §5.9, §9.12). */
+
+.list {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--tm-color-bg-surface);
+}
+
+.header {
+  display: grid;
+  gap: 12px;
+  align-items: center;
+  height: 32px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--tm-color-border);
+  font-size: var(--tm-text-xs);
+  font-weight: var(--tm-font-weight-semibold);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--tm-color-fg-subtle);
+  flex: none;
+}
+
+.header span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scroller {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  outline: none;
+}
+
+.inner {
+  position: relative;
+  width: 100%;
+}
+
+.item {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+}
+
+.row {
+  display: grid;
+  gap: 12px;
+  align-items: center;
+  height: var(--tm-size-row-compact);
+  padding: 0 16px;
+  border-bottom: 1px solid var(--tm-color-border-subtle);
+  font-family: var(--tm-font-mono);
+  font-size: var(--tm-text-mono);
+  cursor: pointer;
+}
+
+.comfortable .row {
+  height: var(--tm-size-row-comfortable);
+}
+
+.row:hover,
+.card:hover {
+  background: var(--tm-color-bg-hover);
+}
+
+.row:focus-visible,
+.card:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--tm-color-focus);
+  border-radius: 0;
+}
+
+.cursor {
+  background: var(--tm-color-bg-hover);
+}
+
+.selected,
+.selected:hover {
+  background: var(--tm-color-selection);
+  box-shadow: inset 2px 0 0 var(--tm-color-accent);
+}
+
+.time {
+  color: var(--tm-color-fg-muted);
+  white-space: nowrap;
+  font-feature-settings: 'tnum';
+}
+
+.service,
+.pinned {
+  color: var(--tm-color-fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--tm-color-fg);
+}
+
+.comfortable .message {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-height: 16px;
+}
+
+.pv {
+  color: var(--tm-color-accent);
+  background: var(--tm-color-accent-soft);
+  border-radius: 3px;
+  padding: 0 3px;
+}
+
+.footer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 44px;
+  padding: 8px 16px;
+}
+
+.liveNote {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--tm-text-sm);
+  color: var(--tm-color-fg-subtle);
+}
+
+.liveDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tm-color-accent);
+}
+
+.newPill {
+  position: absolute;
+  top: 44px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--tm-color-accent-border);
+  border-radius: var(--tm-radius-pill);
+  background: var(--tm-color-accent-soft);
+  color: var(--tm-color-accent);
+  font-weight: var(--tm-font-weight-semibold);
+  box-shadow: var(--tm-shadow-2);
+}
+
+/* ---- Phone cards (§9.12) ---------------------------------------------------------------------- */
+.mobile .newPill {
+  top: 8px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--tm-color-border);
+  font-family: var(--tm-font-mono);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cardTime {
+  margin-left: auto;
+  color: var(--tm-color-fg-subtle);
+  font-size: var(--tm-text-mono);
+}
+
+.cardMsg {
+  line-height: 18px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}

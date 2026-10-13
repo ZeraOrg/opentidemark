@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Development override used by `make dev` / `.\build.ps1 dev` (SPEC §17.4): publishes ClickHouse's
+# native port on loopback only so a locally running tidemark can reach it. Never use in production.
+services:
+  clickhouse:
+    ports:
+      - "127.0.0.1:${TIDEMARK_DEV_CLICKHOUSE_PORT:-19000}:9000"
+    networks: [backend, frontend]

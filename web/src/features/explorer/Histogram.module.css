@@ -1,0 +1,195 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Volume histogram (DESIGN §5.12). */
+
+.histogram {
+  padding: 8px 16px 4px;
+  background: var(--tm-color-bg-surface);
+  border-bottom: 1px solid var(--tm-color-border);
+  user-select: none;
+}
+
+.compact {
+  padding: 8px 16px;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 20px;
+  margin-bottom: 8px;
+  min-width: 0;
+}
+
+.caps {
+  font-size: var(--tm-text-xs);
+  font-weight: var(--tm-font-weight-semibold);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--tm-color-fg-subtle);
+  white-space: nowrap;
+}
+
+.legend {
+  display: flex;
+  gap: 12px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: var(--tm-text-xs);
+  color: var(--tm-color-fg-muted);
+  overflow: hidden;
+}
+
+.legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.readout {
+  margin-left: auto;
+  font-size: var(--tm-text-sm);
+  color: var(--tm-color-accent);
+  white-space: nowrap;
+}
+
+.square {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex: none;
+}
+
+.area {
+  position: relative;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.col {
+  position: absolute;
+  bottom: 0;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  padding: 0 1px;
+}
+
+.stack {
+  width: 100%;
+  display: flex;
+  flex-direction: column-reverse;
+  border-radius: 1px 1px 0 0;
+  overflow: hidden;
+}
+
+.seg {
+  display: block;
+  width: 100%;
+}
+
+.hoverCol .stack {
+  filter: brightness(1.2);
+}
+
+/* Level colours: the chip fg (fatal: its bg) — DESIGN §2.3. */
+.verbose {
+  background: var(--tm-level-verbose-fg);
+}
+.debug {
+  background: var(--tm-level-debug-fg);
+}
+.information {
+  background: var(--tm-level-information-fg);
+}
+.warning {
+  background: var(--tm-level-warning-fg);
+}
+.error {
+  background: var(--tm-level-error-fg);
+}
+.fatal {
+  background: var(--tm-level-fatal-bg);
+}
+.unset {
+  background: var(--tm-level-verbose-fg);
+}
+.ok {
+  background: var(--tm-color-success);
+}
+.spanError {
+  background: var(--tm-color-danger);
+}
+.count {
+  background: var(--tm-chart-1);
+}
+
+.brush {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--tm-chart-brush);
+  border-left: 1px solid var(--tm-color-accent);
+  border-right: 1px solid var(--tm-color-accent);
+  pointer-events: none;
+}
+
+.tooltip {
+  position: absolute;
+  top: 4px;
+  z-index: 4;
+  min-width: 170px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--tm-color-bg-overlay);
+  box-shadow: var(--tm-shadow-2);
+  font-size: var(--tm-text-sm);
+  pointer-events: none;
+  transform: translateX(12px);
+}
+
+.tipTime {
+  font-family: var(--tm-font-mono);
+  font-size: var(--tm-text-xs);
+  color: var(--tm-color-fg-subtle);
+  margin-bottom: 4px;
+}
+
+.tipRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 20px;
+  color: var(--tm-color-fg-muted);
+}
+
+.tipCount {
+  margin-left: auto;
+  font-family: var(--tm-font-mono);
+  color: var(--tm-color-fg);
+}
+
+.axis {
+  position: relative;
+  height: 20px;
+  font-family: var(--tm-font-mono);
+  font-size: var(--tm-text-2xs);
+  color: var(--tm-chart-axis);
+}
+
+.axis span {
+  position: absolute;
+  top: 4px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.axis span.first {
+  transform: none;
+}
+
+.axis span.last {
+  transform: translateX(-100%);
+}

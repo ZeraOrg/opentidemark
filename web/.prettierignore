@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: Apache-2.0
+dist
+dist-mock
+mock-public
+coverage
+playwright-report
+test-results
+e2e/screenshots
+node_modules
+package-lock.json
+# normative design tokens, kept in their reviewed layout
+src/styles/tokens.css

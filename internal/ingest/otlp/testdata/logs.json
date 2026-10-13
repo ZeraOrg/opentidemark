@@ -1,0 +1,53 @@
+{
+  "resourceLogs": [{
+    "resource": {"attributes": [
+      {"key": "service.name", "value": {"stringValue": "cart-service"}},
+      {"key": "deployment.environment.name", "value": {"stringValue": "staging"}},
+      {"key": "host.name", "value": {"stringValue": "cart-7d9f"}},
+      {"key": "telemetry.sdk.language", "value": {"stringValue": "dotnet"}},
+      {"key": "tidemark.stream", "value": {"stringValue": "Cart"}}
+    ]},
+    "scopeLogs": [{
+      "scope": {"name": "Cart.Api.CartController", "version": "1.0.0"},
+      "logRecords": [
+        {
+          "timeUnixNano": "1791892681123456789",
+          "observedTimeUnixNano": "1791892681200000000",
+          "severityNumber": 9,
+          "severityText": "Information",
+          "body": {"stringValue": "Added item 42 to cart 7"},
+          "attributes": [
+            {"key": "{OriginalFormat}", "value": {"stringValue": "Added item {ItemId} to cart {CartId}"}},
+            {"key": "ItemId", "value": {"intValue": "42"}},
+            {"key": "CartId", "value": {"intValue": "7"}},
+            {"key": "http.route", "value": {"stringValue": "/cart/{id}"}}
+          ],
+          "traceId": "5B8EFFF798038103D269B633813FC60C",
+          "spanId": "EEE19B7EC3C1B174",
+          "flags": 1
+        },
+        {
+          "observedTimeUnixNano": "1791892682000000000",
+          "severityNumber": 17,
+          "body": {"kvlistValue": {"values": [
+            {"key": "msg", "value": {"stringValue": "checkout failed"}},
+            {"key": "orderId", "value": {"stringValue": "o-9"}}
+          ]}},
+          "attributes": [
+            {"key": "exception.type", "value": {"stringValue": "InvalidOperationException"}},
+            {"key": "exception.message", "value": {"stringValue": "Cart is empty"}},
+            {"key": "exception.stacktrace", "value": {"stringValue": "at Cart.Api.CartController.Checkout()"}},
+            {"key": "retry", "value": {"boolValue": true}},
+            {"key": "ratio", "value": {"doubleValue": 0.25}},
+            {"key": "tags", "value": {"arrayValue": {"values": [{"stringValue": "a"}, {"stringValue": "b"}]}}}
+          ]
+        },
+        {
+          "timeUnixNano": "1791892683000000000",
+          "severityNumber": 5,
+          "body": {"stringValue": "cache miss"}
+        }
+      ]
+    }]
+  }]
+}

@@ -1,0 +1,9 @@
+{"index":{"_index":"app-logs","_id":"1"}}
+{"message":"first","level":"info"}
+{"update":{"_index":"app-logs","_id":"1"}}
+{"doc":{"message":"changed"}}
+{"delete":{"_index":"app-logs","_id":"1"}}
+{"create":{"_index":"app-logs"}}
+not json at all
+{"create":{}}
+{"message":"uses the URL index","level":"debug"}

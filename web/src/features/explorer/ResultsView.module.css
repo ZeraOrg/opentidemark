@@ -1,0 +1,67 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Analytics results (DESIGN §9.3). */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 24px 24px;
+  min-width: 0;
+}
+
+.legend {
+  margin-bottom: 12px;
+}
+
+.empty {
+  padding: 40px;
+  text-align: center;
+  color: var(--tm-color-fg-subtle);
+}
+
+.sortNote {
+  font-size: var(--tm-text-xs);
+  color: var(--tm-color-fg-subtle);
+  white-space: nowrap;
+}
+
+.barHead {
+  width: 45%;
+}
+
+.barCell {
+  width: 45%;
+  min-width: 120px;
+}
+
+.bar {
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  min-width: 2px;
+}
+
+.up {
+  color: var(--tm-color-danger);
+}
+
+.down {
+  color: var(--tm-color-success);
+}
+
+.more {
+  padding: 10px 14px;
+  font-size: var(--tm-text-sm);
+  color: var(--tm-color-fg-subtle);
+}
+
+@media (max-width: 599px) {
+  .page {
+    padding: 12px;
+  }
+
+  .barHead,
+  .barCell {
+    display: none;
+  }
+}

@@ -1,0 +1,224 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/*
+ * Tidemark design tokens — normative part of the UI design specification.
+ * Dark is the default theme (`:root`); `[data-theme="light"]` on <html> switches.
+ * Every foreground/background pair used by the UI meets WCAG 2.1 AA contrast in both themes
+ * (checked by the maintainers' contrast tool whenever a colour changes).
+ */
+
+:root,[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* ---- Surfaces ------------------------------------------------------ */
+  --tm-color-bg-canvas: #0b0f14;      /* app background, deepest ink        */
+  --tm-color-bg-surface: #11161d;     /* panels, nav, rows                  */
+  --tm-color-bg-raised: #171e27;      /* cards, popovers, drawers           */
+  --tm-color-bg-overlay: #1d2631;     /* menus, tooltips, modal bodies      */
+  --tm-color-bg-input: #0d1218;       /* text inputs, query bar             */
+  --tm-color-bg-hover: #1a222c;       /* row/list hover                     */
+  --tm-color-selection: #1f2d3d;      /* selected row / active nav          */
+  --tm-color-backdrop: #05080cb3;     /* modal scrim (70%)                  */
+
+  /* ---- Borders ------------------------------------------------------- */
+  --tm-color-border-subtle: #1c2530;
+  --tm-color-border: #27333f;
+  --tm-color-border-strong: #3a4859;
+  --tm-color-focus: #b8f06a;          /* 2px ring, offset 2px               */
+
+  /* ---- Text ---------------------------------------------------------- */
+  --tm-color-fg: #e6ebf0;
+  --tm-color-fg-muted: #a3afbc;
+  --tm-color-fg-subtle: #8593a1;
+  --tm-color-fg-disabled: #55626f;
+  --tm-color-fg-inverse: #0b0f14;
+
+  /* ---- Brand accent: "phosphor" ------------------------------------- */
+  --tm-color-accent: #b8f06a;         /* text / icons / primary fill        */
+  --tm-color-accent-hover: #c9f58a;
+  --tm-color-accent-active: #a3dd55;
+  --tm-color-accent-fg: #0b0f14;      /* text on accent fill                */
+  --tm-color-accent-soft: #1d2a17;    /* tinted bg (selected chip, brush)   */
+  --tm-color-accent-border: #4f7030;
+  --tm-color-link: #8fd3ff;
+  --tm-color-link-hover: #b4e1ff;
+
+  /* ---- Semantic status ---------------------------------------------- */
+  --tm-color-success: #5fd39a;
+  --tm-color-success-soft: #10291f;
+  --tm-color-warning: #f3b945;
+  --tm-color-warning-soft: #2f2410;
+  --tm-color-danger: #ff7b70;
+  --tm-color-danger-soft: #361a1b;
+  --tm-color-on-danger: #0b0f14;
+  --tm-color-info: #6cc4ff;
+  --tm-color-info-soft: #0f2437;
+  --tm-color-danger-banner: #8f1d1d;  /* default-credentials banner fill    */
+  --tm-color-on-danger-banner: #ffe9e7;
+
+  /* ---- Logo mark (DESIGN §6: phosphor tile + ink glyph on dark) ----- */
+  --tm-logo-tile: #b8f06a;
+  --tm-logo-glyph: #0b0f14;
+
+  /* ---- Log levels (chip fg/bg) -------------------------------------- */
+  --tm-level-verbose-fg: #97a4b2;
+  --tm-level-verbose-bg: #1b222b;
+  --tm-level-debug-fg: #afbcff;
+  --tm-level-debug-bg: #1d2440;
+  --tm-level-information-fg: #6cc4ff;
+  --tm-level-information-bg: #0f2a40;
+  --tm-level-warning-fg: #f3b945;
+  --tm-level-warning-bg: #352810;
+  --tm-level-error-fg: #ff7b70;
+  --tm-level-error-bg: #3f1a1b;
+  --tm-level-fatal-fg: #ffe6ee;
+  --tm-level-fatal-bg: #8c1538;
+
+  /* ---- Charts (categorical, ordered) -------------------------------- */
+  --tm-chart-1: #b8f06a;
+  --tm-chart-2: #6cc4ff;
+  --tm-chart-3: #f3b945;
+  --tm-chart-4: #c3a8ff;
+  --tm-chart-5: #ff8fb4;
+  --tm-chart-6: #5fd39a;
+  --tm-chart-7: #ff9d66;
+  --tm-chart-8: #97a4b2;
+  --tm-chart-grid: #1c2530;
+  --tm-chart-axis: #7f8c9a;
+  --tm-chart-threshold: #ff7b70;
+  --tm-chart-brush: #b8f06a33;
+
+  /* ---- Typography ---------------------------------------------------- */
+  --tm-font-sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --tm-font-mono: "JetBrains Mono", "Cascadia Mono", ui-monospace, monospace;
+  --tm-font-weight-regular: 400;
+  --tm-font-weight-medium: 500;
+  --tm-font-weight-semibold: 600;
+
+  /* Type scale: size / line-height */
+  --tm-text-2xs: 10px; --tm-leading-2xs: 14px;
+  --tm-text-xs: 11px;  --tm-leading-xs: 16px;
+  --tm-text-sm: 12px;  --tm-leading-sm: 18px;
+  --tm-text-md: 13px;  --tm-leading-md: 20px;   /* UI default               */
+  --tm-text-lg: 15px;  --tm-leading-lg: 22px;
+  --tm-text-xl: 18px;  --tm-leading-xl: 26px;
+  --tm-text-2xl: 22px; --tm-leading-2xl: 30px;
+  --tm-text-3xl: 28px; --tm-leading-3xl: 36px;
+  --tm-text-mono: 12px; --tm-leading-mono: 18px; /* event data               */
+
+  /* ---- Spacing (4px base) ------------------------------------------- */
+  --tm-space-0: 0;
+  --tm-space-1: 2px;
+  --tm-space-2: 4px;
+  --tm-space-3: 8px;
+  --tm-space-4: 12px;
+  --tm-space-5: 16px;
+  --tm-space-6: 20px;
+  --tm-space-7: 24px;
+  --tm-space-8: 32px;
+  --tm-space-9: 40px;
+  --tm-space-10: 48px;
+  --tm-space-11: 64px;
+
+  /* Fixed layout dimensions */
+  --tm-size-topbar: 48px;
+  --tm-size-nav: 208px;
+  --tm-size-nav-collapsed: 56px;
+  --tm-size-rail: 264px;
+  --tm-size-row-compact: 28px;
+  --tm-size-row-comfortable: 36px;
+  --tm-size-control: 32px;
+  --tm-size-control-sm: 26px;
+  --tm-size-drawer: 480px;
+
+  /* ---- Radius -------------------------------------------------------- */
+  --tm-radius-xs: 2px;
+  --tm-radius-sm: 4px;
+  --tm-radius-md: 6px;
+  --tm-radius-lg: 10px;
+  --tm-radius-pill: 999px;
+
+  /* ---- Elevation ----------------------------------------------------- */
+  --tm-shadow-1: 0 1px 2px #00000066;
+  --tm-shadow-2: 0 4px 12px #00000080, 0 0 0 1px #27333f;
+  --tm-shadow-3: 0 12px 32px #00000099, 0 0 0 1px #27333f;
+  --tm-shadow-focus: 0 0 0 2px #0b0f14, 0 0 0 4px #b8f06a;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+
+  --tm-color-bg-canvas: #f3f5f8;
+  --tm-color-bg-surface: #ffffff;
+  --tm-color-bg-raised: #ffffff;
+  --tm-color-bg-overlay: #ffffff;
+  --tm-color-bg-input: #ffffff;
+  --tm-color-bg-hover: #eef1f5;
+  --tm-color-selection: #e3eaf2;
+  --tm-color-backdrop: #0b0f1480;
+
+  --tm-color-border-subtle: #e6eaef;
+  --tm-color-border: #d2d9e1;
+  --tm-color-border-strong: #aab5c2;
+  --tm-color-focus: #3f6b12;
+
+  --tm-color-fg: #121922;
+  --tm-color-fg-muted: #4a5666;
+  --tm-color-fg-subtle: #65717f;
+  --tm-color-fg-disabled: #9aa5b1;
+  --tm-color-fg-inverse: #ffffff;
+
+  --tm-color-accent: #3f6b12;
+  --tm-color-accent-hover: #345a0e;
+  --tm-color-accent-active: #2a4a0b;
+  --tm-color-accent-fg: #ffffff;
+  --tm-color-accent-soft: #eaf6d9;
+  --tm-color-accent-border: #a9d27a;
+  --tm-color-link: #0b63a8;
+  --tm-color-link-hover: #084b80;
+
+  --tm-color-success: #1d7a4b;
+  --tm-color-success-soft: #e3f5ea;
+  --tm-color-warning: #8a5a00;
+  --tm-color-warning-soft: #fff2d6;
+  --tm-color-danger: #b42318;
+  --tm-color-danger-soft: #fde8e6;
+  --tm-color-on-danger: #ffffff;
+  --tm-color-info: #0b63a8;
+  --tm-color-info-soft: #e3f1fc;
+  --tm-color-danger-banner: #b42318;
+  --tm-color-on-danger-banner: #ffffff;
+
+  --tm-logo-tile: #121922;
+  --tm-logo-glyph: #b8f06a;
+
+  --tm-level-verbose-fg: #5a6675;
+  --tm-level-verbose-bg: #eef1f4;
+  --tm-level-debug-fg: #3f52b0;
+  --tm-level-debug-bg: #e8ecfc;
+  --tm-level-information-fg: #0b63a8;
+  --tm-level-information-bg: #e3f1fc;
+  --tm-level-warning-fg: #8a5a00;
+  --tm-level-warning-bg: #fff2d6;
+  --tm-level-error-fg: #b42318;
+  --tm-level-error-bg: #fde8e6;
+  --tm-level-fatal-fg: #ffffff;
+  --tm-level-fatal-bg: #9b1140;
+
+  --tm-chart-1: #5c9418;
+  --tm-chart-2: #1a7fd0;
+  --tm-chart-3: #c47f00;
+  --tm-chart-4: #7a55d6;
+  --tm-chart-5: #d63d72;
+  --tm-chart-6: #1d8f5c;
+  --tm-chart-7: #d9641c;
+  --tm-chart-8: #6b7a8a;
+  --tm-chart-grid: #e6eaef;
+  --tm-chart-axis: #65717f;
+  --tm-chart-threshold: #b42318;
+  --tm-chart-brush: #5c941833;
+
+  --tm-shadow-1: 0 1px 2px #0b0f1414;
+  --tm-shadow-2: 0 4px 12px #0b0f141f, 0 0 0 1px #d2d9e1;
+  --tm-shadow-3: 0 12px 32px #0b0f1429, 0 0 0 1px #d2d9e1;
+  --tm-shadow-focus: 0 0 0 2px #ffffff, 0 0 0 4px #3f6b12;
+}

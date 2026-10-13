@@ -1,0 +1,263 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Alert rules and the rule drawer (DESIGN §9.7). */
+
+.layout {
+  min-height: 100%;
+}
+
+.withDrawer {
+  padding-right: 520px;
+}
+
+.main {
+  min-width: 0;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+}
+
+.head h1 {
+  margin-right: 4px;
+}
+
+.filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  width: 240px;
+  padding: 0 10px;
+  border: 1px solid var(--tm-color-border);
+  border-radius: var(--tm-radius-md);
+  background: var(--tm-color-bg-input);
+  color: var(--tm-color-fg-subtle);
+  margin-left: auto;
+}
+
+.filter input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--tm-color-fg);
+  font: inherit;
+  outline: none;
+}
+
+.rules td {
+  vertical-align: middle;
+}
+
+.ruleRow {
+  cursor: pointer;
+}
+
+.ruleName {
+  font-weight: var(--tm-font-weight-semibold);
+  white-space: nowrap;
+}
+
+.ruleNote {
+  font-size: var(--tm-text-xs);
+  color: var(--tm-color-fg-subtle);
+  white-space: nowrap;
+}
+
+.errorNote {
+  color: var(--tm-color-danger);
+}
+
+.query {
+  display: block;
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--tm-font-mono);
+  font-size: var(--tm-text-mono);
+  color: var(--tm-color-fg-muted);
+}
+
+/* With the editor drawer open only state, rule, query and condition stay; the condition is never
+   clipped (the query column gives way). */
+.compact th:nth-child(n + 5),
+.compact td:nth-child(n + 5) {
+  display: none;
+}
+
+.compact .query {
+  max-width: 240px;
+}
+
+.condition {
+  font-family: var(--tm-font-mono);
+  font-size: var(--tm-text-mono);
+  white-space: nowrap;
+}
+
+.firingValue {
+  color: var(--tm-color-danger);
+}
+
+.pendingValue {
+  color: var(--tm-color-warning);
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.noHistory {
+  padding: 16px 20px;
+  color: var(--tm-color-fg-subtle);
+  font-size: var(--tm-text-sm);
+}
+
+/* Each transition is one grid row whose height follows its content, so wrapped text never
+   overlaps the next row (the mockup's rows overlapped). */
+.transitions {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+}
+
+.transition {
+  display: grid;
+  grid-template-columns: 84px 96px minmax(0, 1fr) 92px;
+  align-items: center;
+  gap: 4px 16px;
+  min-height: 40px;
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--tm-color-border-subtle);
+}
+
+.transition:last-child {
+  border-bottom: 0;
+}
+
+.tTime {
+  font-family: var(--tm-font-mono);
+  font-size: var(--tm-text-mono);
+  color: var(--tm-color-fg-muted);
+}
+
+.tText {
+  line-height: var(--tm-leading-md);
+  overflow-wrap: anywhere;
+}
+
+.tNotified {
+  font-size: var(--tm-text-sm);
+  color: var(--tm-color-fg-subtle);
+  text-align: right;
+}
+
+/* ---- drawer ---------------------------------------------------------------------------------- */
+.conditionRow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.twoCols {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.preview {
+  border: 1px solid var(--tm-color-border);
+  border-radius: 8px;
+  background: var(--tm-color-bg-surface);
+  padding: 0 12px 10px;
+}
+
+.previewHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  font-size: var(--tm-text-sm);
+}
+
+.since {
+  margin-left: auto;
+  color: var(--tm-color-danger);
+  font-size: var(--tm-text-xs);
+  font-weight: var(--tm-font-weight-medium);
+}
+
+.previewError {
+  padding: 8px 0;
+  color: var(--tm-color-danger);
+  font-size: var(--tm-text-sm);
+}
+
+.multi {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  width: 100%;
+  min-height: 32px;
+  padding: 3px 8px;
+  border: 1px solid var(--tm-color-border);
+  border-radius: var(--tm-radius-md);
+  background: var(--tm-color-bg-input);
+  color: var(--tm-color-fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chev {
+  margin-left: auto;
+  color: var(--tm-color-fg-subtle);
+}
+
+.chipInput {
+  flex: 1;
+  min-width: 80px;
+  border: 0;
+  background: transparent;
+  color: var(--tm-color-fg);
+  font-family: var(--tm-font-mono);
+  font-size: var(--tm-text-mono);
+  outline: none;
+}
+
+.channelMenu {
+  min-width: 240px;
+}
+
+@media (max-width: 1199px) {
+  .withDrawer {
+    padding-right: 0;
+  }
+}
+
+@media (max-width: 599px) {
+  .filter {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .conditionRow,
+  .twoCols {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .transition {
+    grid-template-columns: 64px minmax(0, 1fr);
+  }
+
+  .tNotified {
+    display: none;
+  }
+}

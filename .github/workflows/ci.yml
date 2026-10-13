@@ -1,0 +1,171 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Quality gate (SPEC §17.1, §17.4, §18): lint, unit tests and builds on Linux and Windows,
+# integration tests against a ClickHouse service container, licence notices, and the web UI when
+# present. Failing steps publish their output as annotations through scripts/ci-annotate.sh.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GOLANGCI_LINT_VERSION: v2.14.0
+  GOVULNCHECK_VERSION: v1.9.0
+  CGO_ENABLED: "0"
+
+jobs:
+  go:
+    name: go (${{ matrix.os }})
+    # Pull requests run in the main public repository only; pushes to main run everywhere
+    # (SPEC §17.4).
+    if: github.event_name != 'pull_request' || github.repository == 'zeraOrg/tidemark'
+    strategy:
+      fail-fast: false
+      matrix:
+        # The Windows job (the slowest) runs in the main public repository; elsewhere the Linux job
+        # still cross-compiles for Windows (SPEC §17.4).
+        os: ${{ fromJSON(github.repository == 'zeraOrg/tidemark' && '["ubuntu-24.04","windows-latest"]' || '["ubuntu-24.04"]') }}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l $(git ls-files '*.go'))"
+          if [ -n "$unformatted" ]; then echo "::error title=gofmt needed::${unformatted//$'\n'/%0A}"; exit 1; fi
+      - name: go vet
+        run: |
+          scripts/ci-annotate.sh "go vet" -- go vet ./...
+          scripts/ci-annotate.sh "go vet (integration)" -- go vet -tags integration ./...
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+      - name: golangci-lint (integration tag)
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          args: --build-tags integration
+          install-mode: binary
+      - name: unit tests (race, Linux)
+        if: runner.os == 'Linux'
+        env:
+          CGO_ENABLED: "1"
+        run: scripts/ci-annotate.sh "unit tests" -- go test -race ./...
+      - name: unit tests (Windows)
+        if: runner.os == 'Windows'
+        run: scripts/ci-annotate.sh "unit tests" -- go test ./...
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}
+          scripts/ci-annotate.sh govulncheck -- govulncheck ./...
+      - name: cross-compile
+        run: |
+          for target in linux/amd64 linux/arm64 windows/amd64; do
+            GOOS="${target%/*}" GOARCH="${target#*/}" \
+              scripts/ci-annotate.sh "build ${target}" -- go build -trimpath -o /dev/null ./cmd/tidemark
+          done
+
+  integration:
+    name: integration (ClickHouse)
+    # Pull requests run in the main public repository only; pushes to main run everywhere
+    # (SPEC §17.4).
+    if: github.event_name != 'pull_request' || github.repository == 'zeraOrg/tidemark'
+    runs-on: ubuntu-24.04
+    services:
+      clickhouse:
+        image: clickhouse/clickhouse-server:25.8
+        env:
+          CLICKHOUSE_USER: ci_admin
+          CLICKHOUSE_PASSWORD: ci-admin-password
+          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+        ports:
+          - 9000:9000
+        options: >-
+          --health-cmd "clickhouse-client --user ci_admin --password ci-admin-password --query 'SELECT 1'"
+          --health-interval 5s --health-timeout 5s --health-retries 30
+    env:
+      TIDEMARK_TEST_CLICKHOUSE_ADDR: 127.0.0.1:9000
+      TIDEMARK_TEST_CLICKHOUSE_WRITER_PASSWORD: ci-writer-password
+      TIDEMARK_TEST_CLICKHOUSE_READER_PASSWORD: ci-reader-password
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      # Same users and grants as deploy/clickhouse/users.d/tidemark.xml, created through SQL because
+      # service containers start before the checkout.
+      - name: create the Tidemark ClickHouse users
+        run: |
+          docker exec -i "${{ job.services.clickhouse.id }}" \
+            clickhouse-client --user ci_admin --password ci-admin-password --multiquery <<SQL
+          CREATE USER tidemark_writer IDENTIFIED WITH sha256_password BY '${TIDEMARK_TEST_CLICKHOUSE_WRITER_PASSWORD}' SETTINGS max_execution_time = 600;
+          GRANT CREATE DATABASE ON tidemark.* TO tidemark_writer;
+          GRANT ALL ON tidemark.* TO tidemark_writer;
+          GRANT SELECT ON system.parts TO tidemark_writer;
+          GRANT SELECT ON system.mutations TO tidemark_writer;
+          GRANT SELECT ON system.disks TO tidemark_writer;
+          CREATE USER tidemark_reader IDENTIFIED WITH sha256_password BY '${TIDEMARK_TEST_CLICKHOUSE_READER_PASSWORD}' SETTINGS readonly = 2, max_memory_usage = 1073741824, max_execution_time = 60;
+          GRANT SELECT ON tidemark.* TO tidemark_reader;
+          SQL
+      - name: integration tests
+        run: scripts/ci-annotate.sh "integration tests" -- go test -tags integration -p 1 -count=1 ./...
+
+  notices:
+    name: licence notices
+    # Pull requests run in the main public repository only; pushes to main run everywhere
+    # (SPEC §17.4).
+    if: github.event_name != 'pull_request' || github.repository == 'zeraOrg/tidemark'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v7
+        if: hashFiles('web/package.json') != ''
+        with:
+          node-version: 22
+      - name: regenerate THIRD_PARTY_NOTICES.md
+        run: scripts/ci-annotate.sh "make notices" -- make notices
+      - name: notices are up to date
+        run: scripts/ci-annotate.sh "THIRD_PARTY_NOTICES.md is stale" -- git diff --exit-code THIRD_PARTY_NOTICES.md
+
+  web:
+    name: web
+    # Pull requests run in the main public repository only; pushes to main run everywhere
+    # (SPEC §17.4).
+    if: github.event_name != 'pull_request' || github.repository == 'zeraOrg/tidemark'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: detect web/
+        id: detect
+        run: |
+          if [ -f web/package.json ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/setup-node@v7
+        if: steps.detect.outputs.present == 'true'
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: lint, typecheck, test, build, audit
+        if: steps.detect.outputs.present == 'true'
+        run: scripts/ci-annotate.sh "make web-check" -- make web-check
+      - name: skipped
+        if: steps.detect.outputs.present != 'true'
+        run: echo "web/package.json not found; web checks skipped"

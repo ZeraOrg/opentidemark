@@ -1,0 +1,4 @@
+{"index":{"_index":"vector-2026.10.13","_type":"_doc"}}
+{"file":"/var/log/app/app.log","host":"vector-01","message":"{\"level\":\"warn\",\"msg\":\"disk 91% full\"}","source_type":"file","timestamp":"2026-10-13T11:58:01.123456789Z"}
+{"index":{"_index":"vector-2026.10.13","_type":"_doc"}}
+{"host":"vector-01","level":"WARN","msg":"disk 91% full","source_type":"file","timestamp":"2026-10-13T11:58:01.223456789Z","app":"disk-monitor"}

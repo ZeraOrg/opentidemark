@@ -1,0 +1,4 @@
+{"create":{"_index":"fluent-bit"}}
+{"@timestamp":"2026-10-13T11:58:01.123Z","log":"2026/10/13 11:58:01 [error] 7#7: *1 open() \"/usr/share/nginx/html/favicon.ico\" failed (2: No such file or directory)","stream":"stderr","time":"2026-10-13T11:58:01.123456789Z","kubernetes":{"pod_name":"nginx-7c5ddbdf54-2xk8p","namespace_name":"web","pod_id":"5f1c1a8e-3b5e-4a63-9a5b-1d1e2f3a4b5c","labels":{"app":"nginx","pod-template-hash":"7c5ddbdf54"},"host":"node-1","container_name":"nginx","docker_id":"0123456789ab","container_image":"nginx:1.27"}}
+{"create":{"_index":"fluent-bit"}}
+{"@timestamp":"2026-10-13T11:58:02.000Z","log":"10.0.0.5 - - [13/Oct/2026:11:58:02 +0000] \"GET / HTTP/1.1\" 200 615","stream":"stdout","kubernetes":{"pod_name":"nginx-7c5ddbdf54-2xk8p","namespace_name":"web","labels":{"app":"nginx"},"container_name":"nginx"}}

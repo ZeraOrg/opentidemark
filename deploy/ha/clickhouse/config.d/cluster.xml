@@ -1,0 +1,61 @@
+<?xml version="1.0"?>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!--
+  Tidemark HA ClickHouse (SPEC §17.5): one shard, three replicas, ClickHouse Keeper embedded in
+  every server (Raft quorum of 3). Identical on every node; the node-specific values come from
+  the environment of the clickhouse-server process (see ../nodes/clickhouse-nodeN.env):
+    CH_REPLICA      this node's replica name (node1 | node2 | node3)
+    CH_LISTEN_HOST  address to listen on (0.0.0.0, or the node's private IP)
+    CH_NODE1_HOST, CH_NODE2_HOST, CH_NODE3_HOST   private host names / IPs of the three servers
+    CH_INTERSERVER_HOST  the name other replicas use to fetch parts from this node
+-->
+<clickhouse>
+  <logger>
+    <level>warning</level>
+    <console>1</console>
+  </logger>
+  <listen_host from_env="CH_LISTEN_HOST"/>
+  <interserver_http_host from_env="CH_INTERSERVER_HOST"/>
+  <interserver_http_port>9009</interserver_http_port>
+  <mysql_port remove="1"/>
+  <postgresql_port remove="1"/>
+
+  <macros>
+    <shard>01</shard>
+    <replica from_env="CH_REPLICA"/>
+  </macros>
+
+  <remote_servers>
+    <tidemark_cluster>
+      <shard>
+        <internal_replication>true</internal_replication>
+        <replica><host from_env="CH_NODE1_HOST"/><port>9000</port></replica>
+        <replica><host from_env="CH_NODE2_HOST"/><port>9000</port></replica>
+        <replica><host from_env="CH_NODE3_HOST"/><port>9000</port></replica>
+      </shard>
+    </tidemark_cluster>
+  </remote_servers>
+
+  <zookeeper>
+    <node><host from_env="CH_NODE1_HOST"/><port>9181</port></node>
+    <node><host from_env="CH_NODE2_HOST"/><port>9181</port></node>
+    <node><host from_env="CH_NODE3_HOST"/><port>9181</port></node>
+  </zookeeper>
+
+  <distributed_ddl>
+    <path>/clickhouse/task_queue/ddl</path>
+  </distributed_ddl>
+
+  <!-- `tidemark backup` writes ClickHouse BACKUPs to this disk (SPEC §8.5 item 8). -->
+  <storage_configuration>
+    <disks>
+      <backups>
+        <type>local</type>
+        <path>/var/lib/clickhouse/backups/</path>
+      </backups>
+    </disks>
+  </storage_configuration>
+  <backups>
+    <allowed_disk>backups</allowed_disk>
+  </backups>
+</clickhouse>

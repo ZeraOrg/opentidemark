@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# OpenTelemetry Collector for protocols Tidemark does not speak natively (SPEC §9.7):
+# syslog (RFC 5424, TCP/UDP 5514) and Fluent forward (24224), exported to Tidemark over
+# OTLP/HTTP with a connection key (TIDEMARK_COLLECTOR_KEY, defaults to the bootstrap key).
+receivers:
+  syslog/tcp:
+    tcp:
+      listen_address: 0.0.0.0:5514
+    protocol: rfc5424
+  syslog/udp:
+    udp:
+      listen_address: 0.0.0.0:5514
+    protocol: rfc5424
+  fluentforward:
+    endpoint: 0.0.0.0:24224
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+  batch:
+    send_batch_size: 5000
+    timeout: 1s
+
+exporters:
+  otlphttp/tidemark:
+    endpoint: http://tidemark:4318
+    headers:
+      Authorization: "Bearer ${env:TIDEMARK_COLLECTOR_KEY}"
+    retry_on_failure:
+      enabled: true
+    sending_queue:
+      enabled: true
+
+service:
+  telemetry:
+    logs:
+      level: warn
+  pipelines:
+    logs:
+      receivers: [syslog/tcp, syslog/udp, fluentforward]
+      processors: [memory_limiter, batch]
+      exporters: [otlphttp/tidemark]

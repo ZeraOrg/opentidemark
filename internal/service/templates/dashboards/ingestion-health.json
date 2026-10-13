@@ -1,0 +1,30 @@
+{
+  "id": "ingestion-health",
+  "name": "Ingestion health",
+  "description": "Rows per stream and protocol, clock skew and truncation markers.",
+  "doc": {
+    "version": 1,
+    "timeRange": {"from": "now-24h", "to": "now"},
+    "refresh": "1m",
+    "variables": [
+      {"name": "service", "label": "Service", "type": "field-values", "source": "logs", "field": "service",
+       "multi": true, "default": ["*"]}
+    ],
+    "panels": [
+      {"id": "events", "title": "Events by stream", "type": "timeseries", "grid": {"x": 0, "y": 0, "w": 6, "h": 6},
+       "query": "service:$service | stats count() by stream span auto", "options": {"stack": true}},
+      {"id": "protocols", "title": "Events by protocol", "type": "timeseries", "grid": {"x": 6, "y": 0, "w": 6, "h": 6},
+       "query": "service:$service | stats count() by protocol span auto", "options": {"stack": true}},
+      {"id": "spans", "title": "Spans by stream", "type": "timeseries", "grid": {"x": 0, "y": 6, "w": 6, "h": 6},
+       "query": "source spans | service:$service | stats count() by stream span auto", "options": {"stack": true}},
+      {"id": "metrics", "title": "Metric points by stream", "type": "timeseries", "grid": {"x": 6, "y": 6, "w": 6, "h": 6},
+       "query": "source metrics | service:$service | stats count() by stream span auto", "options": {"stack": true}},
+      {"id": "skew", "title": "Clock-skewed events", "type": "table", "grid": {"x": 0, "y": 12, "w": 6, "h": 6},
+       "query": "service:$service and _tidemark.clock_skew:true | stats count() by service, protocol", "options": {}},
+      {"id": "truncated", "title": "Truncated events", "type": "table", "grid": {"x": 6, "y": 12, "w": 6, "h": 6},
+       "query": "service:$service and _tidemark.truncated:true | stats count() by service, protocol", "options": {}},
+      {"id": "help", "title": "About", "type": "markdown", "grid": {"x": 0, "y": 18, "w": 12, "h": 3},
+       "options": {"content": "Paused streams and dropped rows are listed under Settings → System."}}
+    ]
+  }
+}

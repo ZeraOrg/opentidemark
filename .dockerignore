@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: Apache-2.0
+# Keep the build context small and free of local state and secrets (SPEC §17.4).
+.git
+.github
+.claude
+.dev
+bin
+deploy/.env
+web/node_modules
+web/dist
+web/coverage
+web/test-results
+web/playwright-report
+internal/web/assets/dist
+*.test
+*.out

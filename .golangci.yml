@@ -1,0 +1,59 @@
+# SPDX-License-Identifier: Apache-2.0
+# golangci-lint v2 configuration (SPEC §18 "Static").
+version: "2"
+
+run:
+  timeout: 5m
+  go: "1.26"
+  tests: true
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - bodyclose
+    - contextcheck
+    - errorlint
+    - gocritic
+    - gosec
+    - misspell
+    - nilerr
+    - revive
+    - unconvert
+  settings:
+    gosec:
+      excludes:
+        - G304 # file paths come from configuration or are cleaned with filepath.Clean
+    gocritic:
+      enabled-tags: [diagnostic, performance]
+      disabled-checks:
+        - hugeParam # large value parameters are intentional for immutable model rows
+        - rangeValCopy # same reason: model rows and views are iterated by value
+    revive:
+      rules:
+        - name: exported
+        - name: package-comments
+        - name: var-naming
+        - name: indent-error-flow
+        - name: error-strings
+        - name: error-return
+        - name: receiver-naming
+        - name: context-as-argument
+        - name: unused-parameter
+          disabled: true
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - std-error-handling
+    rules:
+      - path: _test\.go
+        linters: [gosec, bodyclose, contextcheck, errorlint, gocritic, revive]
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/ZeraOrg/tidemark

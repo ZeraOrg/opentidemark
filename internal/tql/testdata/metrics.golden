@@ -1,0 +1,114 @@
+=== source metrics | name:http.server.request.duration | stats avg(value) by service span 1m
+kind: timeseries  source: metrics  limit: 10000  span: 1m0s
+canonical: source metrics | name:"http.server.request.duration" | stats avg(value) by service span 1m
+sql: SELECT toStartOfInterval(timestamp, toIntervalSecond(?)) AS bucket, service AS g0, avg(value) AS a0 FROM tidemark.metric_points WHERE timestamp >= ? AND timestamp < ? AND (lower(name) = lower(?)) GROUP BY bucket, g0 ORDER BY bucket ASC, g0 ASC LIMIT ?
+args:
+  0: int64 60
+  1: time 2026-10-13T11:00:00Z
+  2: time 2026-10-13T12:00:00Z
+  3: string "http.server.request.duration"
+  4: int 10000
+columns: @bucket:time, service:string, avg_value:number
+
+=== source metrics | name:http.server.request.count | stats rate(value) by service span 1m
+kind: timeseries  source: metrics  limit: 10000  span: 1m0s
+canonical: source metrics | name:"http.server.request.count" | stats rate(value) by service span 1m
+sql: SELECT bucket, g0, sum(r) / ? AS a0 FROM (SELECT toStartOfInterval(timestamp, toIntervalSecond(?)) AS bucket, service AS g0, series_id, if(any(temporality) = 'delta', sum(value), deltaSumTimestamp(value, toUnixTimestamp64Milli(timestamp))) AS r FROM tidemark.metric_points WHERE timestamp >= ? AND timestamp < ? AND (lower(name) = lower(?)) GROUP BY bucket, g0, series_id) GROUP BY bucket, g0 ORDER BY bucket ASC, g0 ASC LIMIT ?
+args:
+  0: float64 60
+  1: int64 60
+  2: time 2026-10-13T11:00:00Z
+  3: time 2026-10-13T12:00:00Z
+  4: string "http.server.request.count"
+  5: int 10000
+columns: @bucket:time, service:string, rate_value:number
+
+=== source metrics | name:http.server.request.count | stats rate(value)
+kind: table  source: metrics  limit: 10000
+canonical: source metrics | name:"http.server.request.count" | stats rate(value)
+sql: SELECT sum(r) / ? AS a0 FROM (SELECT series_id, if(any(temporality) = 'delta', sum(value), deltaSumTimestamp(value, toUnixTimestamp64Milli(timestamp))) AS r FROM tidemark.metric_points WHERE timestamp >= ? AND timestamp < ? AND (lower(name) = lower(?)) GROUP BY series_id) ORDER BY a0 DESC LIMIT ?
+args:
+  0: float64 3600
+  1: time 2026-10-13T11:00:00Z
+  2: time 2026-10-13T12:00:00Z
+  3: string "http.server.request.count"
+  4: int 10000
+columns: rate_value:number
+
+=== source metrics | name:x | stats rate(value) as rps by service span 5m | where rps > 1 | sort rps desc
+kind: timeseries  source: metrics  limit: 10000  span: 5m0s
+canonical: source metrics | name:"x" | stats rate(value) as rps by service span 5m | where rps > 1 | sort rps desc
+sql: SELECT bucket, g0, sum(r) / ? AS a0 FROM (SELECT toStartOfInterval(timestamp, toIntervalSecond(?)) AS bucket, service AS g0, series_id, if(any(temporality) = 'delta', sum(value), deltaSumTimestamp(value, toUnixTimestamp64Milli(timestamp))) AS r FROM tidemark.metric_points WHERE timestamp >= ? AND timestamp < ? AND (lower(name) = lower(?)) GROUP BY bucket, g0, series_id) GROUP BY bucket, g0 HAVING (a0 > ?) ORDER BY bucket ASC, a0 DESC, g0 ASC LIMIT ?
+args:
+  0: float64 300
+  1: int64 300
+  2: time 2026-10-13T11:00:00Z
+  3: time 2026-10-13T12:00:00Z
+  4: string "x"
+  5: float64 1
+  6: int 10000
+columns: @bucket:time, service:string, rps:number
+
+=== source metrics | value > 10 and route:/a and count >= 0 | stats max(value), last(value) by name span 30m
+kind: timeseries  source: metrics  limit: 10000  span: 30m0s
+canonical: source metrics | value > 10 and route:"/a" and count >= 0 | stats max(value), last(value) by name span 30m
+sql: SELECT toStartOfInterval(timestamp, toIntervalSecond(?)) AS bucket, name AS g0, max(value) AS a0, argMax(value, timestamp) AS a1 FROM tidemark.metric_points WHERE timestamp >= ? AND timestamp < ? AND ((value > ? AND lower(attrs[?]) = lower(?)) AND `count` >= ?) GROUP BY bucket, g0 ORDER BY bucket ASC, g0 ASC LIMIT ?
+args:
+  0: int64 1800
+  1: time 2026-10-13T11:00:00Z
+  2: time 2026-10-13T12:00:00Z
+  3: float64 10
+  4: string "route"
+  5: string "/a"
+  6: float64 0
+  7: int 10000
+columns: @bucket:time, name:string, max_value:number, last_value:number
+
+=== source metrics | route:5 and route > 3 and route:* and route:null and code in [1, 2] and sum:12 and min < 1 and max:*
+kind: events  source: metrics  limit: 200
+canonical: source metrics | route:5 and route > 3 and route:* and route:null and code in [1, 2] and sum:12 and min < 1 and max:*
+sql: SELECT timestamp, stream, service, name, description, unit, kind, temporality, is_monotonic, value, `count` AS count, `sum` AS sum, `min` AS min, `max` AS max, bucket_bounds, bucket_counts, attrs, series_id FROM tidemark.metric_points WHERE timestamp >= ? AND timestamp < ? AND (((((((lower(attrs[?]) = lower(?) AND ifNull(toFloat64OrNull(attrs[?]) > ?, 0)) AND (mapContains(attrs, ?) AND attrs[?] != '')) AND NOT mapContains(attrs, ?)) AND attrs[?] IN (?, ?)) AND `sum` = ?) AND `min` < ?) AND 1) ORDER BY timestamp DESC, series_id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "route"
+  3: string "5"
+  4: string "route"
+  5: float64 3
+  6: string "route"
+  7: string "route"
+  8: string "route"
+  9: string "code"
+  10: string "1"
+  11: string "2"
+  12: float64 12
+  13: float64 1
+  14: int 200
+columns: timestamp:time, stream:string, service:string, name:string, description:string, unit:string, kind:string, temporality:string, is_monotonic:bool, value:number, count:number, sum:number, min:number, max:number, bucket_bounds:array, bucket_counts:array, attrs:map, series_id:number
+
+=== source metrics | free text
+kind: events  source: metrics  limit: 200
+canonical: source metrics | "free" and "text"
+sql: SELECT timestamp, stream, service, name, description, unit, kind, temporality, is_monotonic, value, `count` AS count, `sum` AS sum, `min` AS min, `max` AS max, bucket_bounds, bucket_counts, attrs, series_id FROM tidemark.metric_points WHERE timestamp >= ? AND timestamp < ? AND ((positionCaseInsensitiveUTF8(name, ?) > 0 OR positionCaseInsensitiveUTF8(description, ?) > 0) AND (positionCaseInsensitiveUTF8(name, ?) > 0 OR positionCaseInsensitiveUTF8(description, ?) > 0)) ORDER BY timestamp DESC, series_id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "free"
+  3: string "free"
+  4: string "text"
+  5: string "text"
+  6: int 200
+columns: timestamp:time, stream:string, service:string, name:string, description:string, unit:string, kind:string, temporality:string, is_monotonic:bool, value:number, count:number, sum:number, min:number, max:number, bucket_bounds:array, bucket_counts:array, attrs:map, series_id:number
+
+=== %cursor source metrics
+kind: events  source: metrics  limit: 200
+canonical: source metrics | *
+sql: SELECT timestamp, stream, service, name, description, unit, kind, temporality, is_monotonic, value, `count` AS count, `sum` AS sum, `min` AS min, `max` AS max, bucket_bounds, bucket_counts, attrs, series_id FROM tidemark.metric_points WHERE timestamp >= ? AND timestamp < ? AND (timestamp, series_id) < (?, toUInt64OrZero(?)) ORDER BY timestamp DESC, series_id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: time 2026-10-13T11:59:00Z
+  3: string "0192f0a0-0000-7000-8000-000000000001"
+  4: int 200
+columns: timestamp:time, stream:string, service:string, name:string, description:string, unit:string, kind:string, temporality:string, is_monotonic:bool, value:number, count:number, sum:number, min:number, max:number, bucket_bounds:array, bucket_counts:array, attrs:map, series_id:number
+

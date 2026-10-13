@@ -1,0 +1,32 @@
+{
+  "id": "http-red",
+  "name": "HTTP (RED metrics from spans)",
+  "description": "Rate, errors and duration of server spans, per route and status code.",
+  "doc": {
+    "version": 1,
+    "timeRange": {"from": "now-3h", "to": "now"},
+    "refresh": "30s",
+    "variables": [
+      {"name": "service", "label": "Service", "type": "field-values", "source": "spans", "field": "service",
+       "multi": true, "default": ["*"]}
+    ],
+    "panels": [
+      {"id": "rate", "title": "Rate (req/s)", "type": "timeseries", "grid": {"x": 0, "y": 0, "w": 4, "h": 6},
+       "query": "source spans | service:$service and kind:server | stats rate() by service span auto",
+       "options": {"unit": "reqps"}},
+      {"id": "errors", "title": "Errors (req/s)", "type": "timeseries", "grid": {"x": 4, "y": 0, "w": 4, "h": 6},
+       "query": "source spans | service:$service and kind:server and status:error | stats rate() by service span auto",
+       "options": {"unit": "reqps", "thresholds": [{"value": 1, "color": "danger"}]}},
+      {"id": "duration", "title": "Duration", "type": "timeseries", "grid": {"x": 8, "y": 0, "w": 4, "h": 6},
+       "query": "source spans | service:$service and kind:server | stats p50(duration), p95(duration), p99(duration) span auto",
+       "options": {"unit": "ms"}},
+      {"id": "routes", "title": "Routes", "type": "table", "grid": {"x": 0, "y": 6, "w": 8, "h": 8},
+       "query": "source spans | service:$service and kind:server | stats count(), p95(duration) by http.route | sort count desc | limit 20",
+       "options": {}},
+      {"id": "status-codes", "title": "Status codes", "type": "pie", "grid": {"x": 8, "y": 6, "w": 4, "h": 8},
+       "query": "source spans | service:$service and kind:server | top 10 http.response.status_code", "options": {}},
+      {"id": "error-spans", "title": "Errored requests", "type": "traces", "grid": {"x": 0, "y": 14, "w": 12, "h": 8},
+       "query": "source spans | service:$service and kind:server and status:error", "options": {}}
+    ]
+  }
+}

@@ -1,0 +1,50 @@
+<?xml version="1.0"?>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!--
+  Tidemark ClickHouse users (SPEC §8.2, §15.8).
+  tidemark_writer: migrations, inserts and admin DDL on the tidemark database only.
+  tidemark_reader: readonly=2 user for user queries (SELECT only; settings may be tightened per query).
+  Passwords come from the environment of the ClickHouse process (see deploy/.env.example).
+-->
+<clickhouse>
+  <profiles>
+    <tidemark_writer>
+      <max_execution_time>600</max_execution_time>
+    </tidemark_writer>
+    <tidemark_reader>
+      <readonly>2</readonly>
+      <max_memory_usage>1073741824</max_memory_usage>
+      <max_execution_time>60</max_execution_time>
+    </tidemark_reader>
+  </profiles>
+
+  <users>
+    <tidemark_writer>
+      <password from_env="TIDEMARK_CLICKHOUSE_WRITER_PASSWORD"/>
+      <networks>
+        <ip>::/0</ip>
+      </networks>
+      <profile>tidemark_writer</profile>
+      <quota>default</quota>
+      <grants>
+        <query>GRANT CREATE DATABASE ON tidemark.*</query>
+        <query>GRANT ALL ON tidemark.*</query>
+        <query>GRANT SELECT ON system.parts</query>
+        <query>GRANT SELECT ON system.mutations</query>
+        <query>GRANT SELECT ON system.disks</query>
+      </grants>
+    </tidemark_writer>
+
+    <tidemark_reader>
+      <password from_env="TIDEMARK_CLICKHOUSE_READER_PASSWORD"/>
+      <networks>
+        <ip>::/0</ip>
+      </networks>
+      <profile>tidemark_reader</profile>
+      <quota>default</quota>
+      <grants>
+        <query>GRANT SELECT ON tidemark.*</query>
+      </grants>
+    </tidemark_reader>
+  </users>
+</clickhouse>

@@ -1,0 +1,4 @@
+{"create":{"_index":"filebeat-8.11.0"}}
+{"@timestamp":"2026-10-13T11:58:01.123Z","message":"GET /index.html HTTP/1.1 200 612","log":{"level":"info","file":{"path":"/var/log/nginx/access.log"},"offset":1234},"input":{"type":"filestream"},"ecs":{"version":"8.0.0"},"host":{"name":"web-01","hostname":"web-01","os":{"family":"debian"}},"agent":{"type":"filebeat","version":"8.11.0","hostname":"web-01","name":"web-01"},"service":{"name":"nginx"},"trace":{"id":"4bf92f3577b34da6a3ce929d0e0e4736"}}
+{"index":{"_index":"filebeat-8.11.0-2026.10.13","_id":"fb-doc-2"}}
+{"@timestamp":"2026-10-13T11:58:02.000Z","message":"upstream timed out (110: Connection timed out)","log":{"level":"error"},"host":{"name":"web-01"},"agent":{"type":"filebeat","version":"8.11.0"},"error":{"type":"NginxError","message":"upstream timed out"}}

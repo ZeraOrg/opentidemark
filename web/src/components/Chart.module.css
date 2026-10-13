@@ -1,0 +1,124 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* uPlot chart host, legend and tooltip (DESIGN §2.4, §5.19, §9.3). */
+
+.chart {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.right {
+  flex-direction: row;
+  align-items: flex-start;
+}
+
+.right .plotWrap {
+  flex: 1;
+}
+
+.plotWrap {
+  position: relative;
+  min-width: 0;
+}
+
+.plot {
+  width: 100%;
+  min-width: 0;
+}
+
+.plot :global(.uplot) {
+  font-family: var(--tm-font-mono);
+  width: 100% !important;
+}
+
+.plot :global(.u-cursor-x) {
+  border-right: 1px dashed var(--tm-color-fg-subtle) !important;
+}
+
+.plot :global(.u-over),
+.plot :global(.u-under) {
+  cursor: crosshair;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--tm-text-sm);
+  color: var(--tm-color-fg-muted);
+}
+
+.legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.right .legendBlock {
+  flex-direction: column;
+  width: 160px;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+.swatch {
+  width: 12px;
+  height: 3px;
+  border-radius: 2px;
+  flex: none;
+}
+
+.swatchDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.tooltip {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+  min-width: 160px;
+  max-width: 280px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--tm-color-bg-overlay);
+  box-shadow: var(--tm-shadow-2);
+  font-size: var(--tm-text-sm);
+}
+
+.tipTime {
+  font-family: var(--tm-font-mono);
+  font-size: var(--tm-text-xs);
+  color: var(--tm-color-fg-subtle);
+  margin-bottom: 4px;
+}
+
+.tipRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 20px;
+}
+
+.tipLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--tm-color-fg-muted);
+}
+
+.tipValue {
+  font-family: var(--tm-font-mono);
+  font-feature-settings: 'tnum';
+  color: var(--tm-color-fg);
+}

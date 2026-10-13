@@ -1,0 +1,400 @@
+=== level:erorr
+error: pos=6 len=5 msg="unknown level 'erorr'" hint="did you mean 'error'?"
+  | level:erorr
+  |       ^^^^^
+
+=== level >= 'wrning'
+error: pos=9 len=8 msg="unknown level 'wrning'" hint="did you mean 'warning'?"
+  | level >= 'wrning'
+  |          ^^^^^^^^
+
+=== @foo:1
+error: pos=0 len=4 msg="unknown built-in field '@foo' for source logs"
+  | @foo:1
+  | ^^^^
+
+=== x:5ms
+error: pos=2 len=3 msg="durations are only allowed for span duration" hint="remove the unit or compare against duration in source spans"
+  | x:5ms
+  |   ^^^
+
+=== level:
+error: pos=6 len=0 msg="expected a value after ':'" hint="use field:* to test that a field exists"
+  | level:
+  |       ^
+
+=== a:(x or)
+error: pos=7 len=1 msg="expected a value, found ')'"
+  | a:(x or)
+  |        ^
+
+=== a:(x y)
+error: pos=5 len=1 msg="expected 'or', 'and' or ')' in value group, found 'y'"
+  | a:(x y)
+  |      ^
+
+=== a:(
+error: pos=3 len=0 msg="expected a value, found end of query"
+  | a:(
+  |    ^
+
+=== (a or b
+error: pos=7 len=0 msg="expected ')', found end of query"
+  | (a or b
+  |        ^
+
+=== foo | statz count()
+error: pos=6 len=5 msg="unknown stage 'statz'" hint="did you mean 'stats'?"
+  | foo | statz count()
+  |       ^^^^^
+
+=== foo | stats cnt()
+error: pos=12 len=3 msg="unknown aggregate 'cnt'" hint="did you mean 'count'?"
+  | foo | stats cnt()
+  |             ^^^
+
+=== foo | stats sum()
+error: pos=12 len=5 msg="sum() needs a field" hint="sum(field)"
+  | foo | stats sum()
+  |             ^^^^^
+
+=== foo | stats count() span 5
+error: pos=25 len=1 msg="invalid span duration '5'" hint="use a positive duration with a unit, e.g. 1m, 5m, 1h"
+  | foo | stats count() span 5
+  |                          ^
+
+=== foo | stats count() span 500ms
+error: pos=20 len=10 msg="span must be a whole number of seconds (at least 1s)"
+  | foo | stats count() span 500ms
+  |                     ^^^^^^^^^^
+
+=== foo | stats count() by @timestamp
+error: pos=23 len=10 msg="cannot group by @timestamp" hint="use 'span <duration>' to group by time"
+  | foo | stats count() by @timestamp
+  |                        ^^^^^^^^^^
+
+=== foo | stats count(), count()
+error: pos=21 len=7 msg="duplicate column name 'count'" hint="give the aggregate a different name with 'as'"
+  | foo | stats count(), count()
+  |                      ^^^^^^^
+
+=== foo | stats count() by a, a
+error: pos=26 len=1 msg="duplicate by field 'a'"
+  | foo | stats count() by a, a
+  |                           ^
+
+=== foo | sort a
+error: pos=6 len=6 msg="sort needs a stats or top stage before it" hint="events are always sorted newest first"
+  | foo | sort a
+  |       ^^^^^^
+
+=== foo | stats count() | sort nope
+error: pos=27 len=4 msg="unknown sort key 'nope'"
+  | foo | stats count() | sort nope
+  |                            ^^^^
+
+=== foo | top 3 a | sort count
+error: pos=16 len=10 msg="top already sorts by count"
+  | foo | top 3 a | sort count
+  |                 ^^^^^^^^^^
+
+=== foo | stats count() | stats count()
+error: pos=22 len=13 msg="only one stats or top stage is allowed"
+  | foo | stats count() | stats count()
+  |                       ^^^^^^^^^^^^^
+
+=== foo | fields a | stats count()
+error: pos=17 len=13 msg="fields cannot be combined with stats or top"
+  | foo | fields a | stats count()
+  |                  ^^^^^^^^^^^^^
+
+=== foo | limit 1 | stats count()
+error: pos=16 len=13 msg="limit must come after stats or top"
+  | foo | limit 1 | stats count()
+  |                 ^^^^^^^^^^^^^
+
+=== foo | limit 1 | limit 2
+error: pos=16 len=7 msg="duplicate limit stage"
+  | foo | limit 1 | limit 2
+  |                 ^^^^^^^
+
+=== foo | fields a | fields b
+error: pos=17 len=8 msg="duplicate fields stage"
+  | foo | fields a | fields b
+  |                  ^^^^^^^^
+
+=== foo | stats count() by s | fields a
+error: pos=27 len=8 msg="fields cannot be combined with stats or top"
+  | foo | stats count() by s | fields a
+  |                            ^^^^^^^^
+
+=== foo | stats count() by s | where other:1
+error: pos=33 len=5 msg="after stats, where can only use aggregate names or by fields; 'other' is neither"
+  | foo | stats count() by s | where other:1
+  |                                  ^^^^^
+
+=== foo | stats count() by s | where hello
+error: pos=33 len=5 msg="free text is not allowed after stats" hint="compare an aggregate, e.g. where count > 10"
+  | foo | stats count() by s | where hello
+  |                                  ^^^^^
+
+=== foo | limit 0
+error: pos=12 len=1 msg="expected a positive integer, found '0'"
+  | foo | limit 0
+  |             ^
+
+=== foo | limit 1.5
+error: pos=12 len=3 msg="expected a positive integer, found '1.5'"
+  | foo | limit 1.5
+  |             ^^^
+
+=== foo | top x a
+error: pos=10 len=1 msg="expected a positive integer, found 'x'"
+  | foo | top x a
+  |           ^
+
+=== level:true
+error: pos=6 len=4 msg="level expects a level name such as error or warning"
+  | level:true
+  |       ^^^^
+
+=== level:null
+error: pos=6 len=4 msg="level expects a level name such as error or warning"
+  | level:null
+  |       ^^^^
+
+=== @timestamp:now
+error: pos=0 len=14 msg="@timestamp needs a comparison" hint="e.g. @timestamp > now-15m"
+  | @timestamp:now
+  | ^^^^^^^^^^^^^^
+
+=== @timestamp > yesterday
+error: pos=13 len=9 msg="invalid time 'yesterday'" hint="use now, now-15m, or an ISO-8601 time such as '2026-10-13T08:00:00Z'"
+  | @timestamp > yesterday
+  |              ^^^^^^^^^
+
+=== x in [now-1h] and @timestamp in ['2026-01-01']
+error: pos=18 len=28 msg="in cannot be used with @timestamp"
+  | x in [now-1h] and @timestamp in ['2026-01-01']
+  |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+=== source metrics | value:abc
+error: pos=23 len=3 msg="value expects a number"
+  | source metrics | value:abc
+  |                        ^^^
+
+=== source metrics | value:*x
+error: pos=23 len=2 msg="'*x' cannot be used with ="
+  | source metrics | value:*x
+  |                        ^^
+
+=== source metrics | value like 'x'
+error: pos=17 len=14 msg="like needs a text field"
+  | source metrics | value like 'x'
+  |                  ^^^^^^^^^^^^^^
+
+=== source metrics | contains(value, 'x')
+error: pos=17 len=20 msg="contains() needs a text field"
+  | source metrics | contains(value, 'x')
+  |                  ^^^^^^^^^^^^^^^^^^^^
+
+=== source spans | duration > 'slow'
+error: pos=26 len=6 msg="duration expects a number such as 250ms or 1.5s"
+  | source spans | duration > 'slow'
+  |                           ^^^^^^
+
+=== * | stats rate(x)
+error: pos=10 len=7 msg="rate() takes a field only as rate(value) on source metrics" hint="use rate() for events per second"
+  | * | stats rate(x)
+  |           ^^^^^^^
+
+=== foo | stats count() by host | sort @bucket
+error: pos=35 len=7 msg="unknown sort key '@bucket'"
+  | foo | stats count() by host | sort @bucket
+  |                                    ^^^^^^^
+
+=== source metrics | * | stats rate(value), count()
+error: pos=27 len=11 msg="rate(value) must be the only aggregate in its stats stage"
+  | source metrics | * | stats rate(value), count()
+  |                            ^^^^^^^^^^^
+
+=== source metrics | * | stats rate(name)
+error: pos=27 len=10 msg="rate() takes a field only as rate(value) on source metrics" hint="use rate() for events per second"
+  | source metrics | * | stats rate(name)
+  |                            ^^^^^^^^^^
+
+=== x:$var
+error: pos=2 len=4 msg="unresolved variable $var" hint="variables are replaced by dashboards before the query runs"
+  | x:$var
+  |   ^^^^
+
+=== x = $var
+error: pos=4 len=4 msg="unresolved variable $var" hint="variables are replaced by dashboards before the query runs"
+  | x = $var
+  |     ^^^^
+
+=== x in [$var]
+error: pos=6 len=4 msg="unresolved variable $var" hint="variables are replaced by dashboards before the query runs"
+  | x in [$var]
+  |       ^^^^
+
+=== contains(x, $var)
+error: pos=12 len=4 msg="unresolved variable $var" hint="variables are replaced by dashboards before the query runs"
+  | contains(x, $var)
+  |             ^^^^
+
+=== match(x, '(')
+error: pos=9 len=3 msg="invalid regular expression: missing closing ): `(`"
+  | match(x, '(')
+  |          ^^^
+
+=== x:/(/
+error: pos=2 len=3 msg="invalid regular expression: missing closing ): `(`"
+  | x:/(/
+  |   ^^^
+
+=== x like 5 and y > null
+error: pos=17 len=4 msg="null can only be compared with = or !="
+  | x like 5 and y > null
+  |                  ^^^^
+
+=== a:* > 3
+error: pos=4 len=1 msg="expected '|' or end of query, found '>'"
+  | a:* > 3
+  |     ^
+
+=== a: >= *
+error: pos=6 len=1 msg="a range comparison needs a single number or string"
+  | a: >= *
+  |       ^
+
+=== a = *
+error: pos=4 len=1 msg="expected a value, found '*'"
+  | a = *
+  |     ^
+
+=== a in []
+error: pos=6 len=1 msg="expected a value, found ']'"
+  | a in []
+  |       ^
+
+=== a in [1 2]
+error: pos=8 len=1 msg="expected ',' or ']', found '2'"
+  | a in [1 2]
+  |         ^
+
+=== contains(x)
+error: pos=0 len=11 msg="contains() needs a field and a value" hint="contains(field, 'text')"
+  | contains(x)
+  | ^^^^^^^^^^^
+
+=== has(x, 'y')
+error: pos=0 len=11 msg="has() takes only a field"
+  | has(x, 'y')
+  | ^^^^^^^^^^^
+
+=== contains('x', 'y')
+error: pos=9 len=3 msg="expected a field name, found string"
+  | contains('x', 'y')
+  |          ^^^
+
+=== source traces | x
+error: pos=7 len=6 msg="unknown source 'traces'"
+  | source traces | x
+  |        ^^^^^^
+
+=== "unterminated
+error: pos=0 len=13 msg="unterminated string"
+  | "unterminated
+  | ^^^^^^^^^^^^^
+
+=== `unterminated
+error: pos=0 len=13 msg="unterminated quoted field name"
+  | `unterminated
+  | ^^^^^^^^^^^^^
+
+=== `` :1
+error: pos=0 len=2 msg="empty field name"
+  | `` :1
+  | ^^
+
+=== 4bad:1
+error: pos=0 len=4 msg="invalid field name '4bad'" hint="quote unusual field names with backticks, e.g. `my key`"
+  | 4bad:1
+  | ^^^^
+
+=== x | | y
+error: pos=4 len=1 msg="expected a stage (stats, sort, limit, fields, where, top), found '|'"
+  | x | | y
+  |     ^
+
+=== foo )
+error: pos=4 len=1 msg="expected '|' or end of query, found ')'"
+  | foo )
+  |     ^
+
+=== foo | where
+error: pos=11 len=0 msg="expected an expression, found end of query"
+  | foo | where
+  |            ^
+
+=== foo | stats count() as count2, count() as Count2
+error: pos=42 len=6 msg="duplicate column name 'Count2'" hint="give the aggregate a different name with 'as'"
+  | foo | stats count() as count2, count() as Count2
+  |                                           ^^^^^^
+
+=== foo | stats p95(@timestamp)
+error: pos=16 len=10 msg="p95() needs a numeric field; @timestamp is not numeric"
+  | foo | stats p95(@timestamp)
+  |                 ^^^^^^^^^^
+
+=== foo | stats avg(id)
+error: pos=16 len=2 msg="avg() needs a numeric field; id is not numeric"
+  | foo | stats avg(id)
+  |                 ^^
+
+=== foo | top 3 @timestamp
+error: pos=12 len=10 msg="cannot group by @timestamp" hint="use 'span <duration>' to group by time"
+  | foo | top 3 @timestamp
+  |             ^^^^^^^^^^
+
+=== foo | stats first() by x
+error: pos=12 len=7 msg="first() needs a field" hint="first(field)"
+  | foo | stats first() by x
+  |             ^^^^^^^
+
+=== foo | sort
+error: pos=10 len=0 msg="expected a sort key, found end of query"
+  | foo | sort
+  |           ^
+
+=== foo | fields
+error: pos=12 len=0 msg="expected a field name, found end of query"
+  | foo | fields
+  |             ^
+
+=== foo | stats count() by
+error: pos=22 len=0 msg="expected a field name, found end of query"
+  | foo | stats count() by
+  |                       ^
+
+=== foo | stats count() as
+error: pos=22 len=0 msg="expected an alias name, found end of query"
+  | foo | stats count() as
+  |                       ^
+
+=== foo | stats count(x y)
+error: pos=20 len=1 msg="expected ')', found 'y'"
+  | foo | stats count(x y)
+  |                     ^
+
+=== foo | stats count
+error: pos=17 len=0 msg="expected '(', found end of query"
+  | foo | stats count
+  |                  ^
+
+=== foo | top 3
+error: pos=11 len=0 msg="expected a field name, found end of query"
+  | foo | top 3
+  |            ^
+

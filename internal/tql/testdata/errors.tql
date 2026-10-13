@@ -1,0 +1,82 @@
+# SPDX-License-Identifier: Apache-2.0
+# Each query must fail; the golden file records the error position and message.
+level:erorr
+level >= 'wrning'
+@foo:1
+x:5ms
+level:
+a:(x or)
+a:(x y)
+a:(
+(a or b
+foo | statz count()
+foo | stats cnt()
+foo | stats sum()
+foo | stats count() span 5
+foo | stats count() span 500ms
+foo | stats count() by @timestamp
+foo | stats count(), count()
+foo | stats count() by a, a
+foo | sort a
+foo | stats count() | sort nope
+foo | top 3 a | sort count
+foo | stats count() | stats count()
+foo | fields a | stats count()
+foo | limit 1 | stats count()
+foo | limit 1 | limit 2
+foo | fields a | fields b
+foo | stats count() by s | fields a
+foo | stats count() by s | where other:1
+foo | stats count() by s | where hello
+foo | limit 0
+foo | limit 1.5
+foo | top x a
+level:true
+level:null
+@timestamp:now
+@timestamp > yesterday
+x in [now-1h] and @timestamp in ['2026-01-01']
+source metrics | value:abc
+source metrics | value:*x
+source metrics | value like 'x'
+source metrics | contains(value, 'x')
+source spans | duration > 'slow'
+* | stats rate(x)
+foo | stats count() by host | sort @bucket
+source metrics | * | stats rate(value), count()
+source metrics | * | stats rate(name)
+x:$var
+x = $var
+x in [$var]
+contains(x, $var)
+match(x, '(')
+x:/(/
+x like 5 and y > null
+a:* > 3
+a: >= *
+a = *
+a in []
+a in [1 2]
+contains(x)
+has(x, 'y')
+contains('x', 'y')
+source traces | x
+"unterminated
+`unterminated
+`` :1
+4bad:1
+x | | y
+foo )
+foo | where
+foo | stats count() as count2, count() as Count2
+foo | stats p95(@timestamp)
+foo | stats avg(id)
+foo | top 3 @timestamp
+foo | stats first() by x
+foo | sort
+foo | fields
+foo | stats count() by
+foo | stats count() as
+foo | stats count(x y)
+foo | stats count
+foo | top 3

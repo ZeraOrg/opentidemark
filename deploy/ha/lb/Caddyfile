@@ -1,0 +1,59 @@
+# SPDX-License-Identifier: Apache-2.0
+# Caddy 2 in front of three Tidemark nodes (SPEC §17.5). Caddy obtains the certificate for the
+# UI host itself (or use `tls <cert> <key>`). Active health checks use each node's /readyz on
+# port 8080, so a draining node leaves rotation immediately.
+# Set TIDEMARK_TRUSTED_PROXIES on the nodes to this host's address.
+
+{
+	servers :4317 {
+		protocols h1 h2c
+	}
+}
+
+(tidemark_health) {
+	health_uri /readyz
+	health_port 8080
+	health_interval 2s
+	health_timeout 2s
+	lb_policy round_robin
+	lb_try_duration 5s
+}
+
+tidemark.example.internal {
+	request_body {
+		max_size 1100MB
+	}
+	reverse_proxy tm-node1:8080 tm-node2:8080 tm-node3:8080 {
+		import tidemark_health
+		# Live tail is Server-Sent Events.
+		flush_interval -1
+	}
+}
+
+:5341 {
+	reverse_proxy tm-node1:5341 tm-node2:5341 tm-node3:5341 {
+		import tidemark_health
+	}
+}
+
+:9200 {
+	reverse_proxy tm-node1:9200 tm-node2:9200 tm-node3:9200 {
+		import tidemark_health
+	}
+}
+
+:4318 {
+	reverse_proxy tm-node1:4318 tm-node2:4318 tm-node3:4318 {
+		import tidemark_health
+	}
+}
+
+# OTLP/gRPC needs HTTP/2 end to end: h2c from clients and to the nodes. Active checks would use
+# the h2c transport against port 8080, so this block relies on passive checks.
+:4317 {
+	reverse_proxy h2c://tm-node1:4317 h2c://tm-node2:4317 h2c://tm-node3:4317 {
+		lb_policy round_robin
+		lb_try_duration 5s
+		fail_duration 10s
+	}
+}

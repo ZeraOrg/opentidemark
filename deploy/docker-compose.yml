@@ -1,0 +1,105 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Tidemark + ClickHouse (SPEC §17.2). Run `./install.sh docker` (or `.\install.ps1 -Mode Docker`)
+# once to create .env with random passwords, then `docker compose up -d`.
+# ClickHouse is only on the internal `backend` network and is never published to the host (§15.1).
+# Optional OTel Collector for syslog / Fluent forward: `docker compose --profile collector up -d`.
+
+name: tidemark
+
+x-ch-passwords: &ch-passwords
+  TIDEMARK_CLICKHOUSE_WRITER_PASSWORD: ${TIDEMARK_CLICKHOUSE_WRITER_PASSWORD:?run install.sh docker to create deploy/.env}
+  TIDEMARK_CLICKHOUSE_READER_PASSWORD: ${TIDEMARK_CLICKHOUSE_READER_PASSWORD:?run install.sh docker to create deploy/.env}
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.8
+    restart: unless-stopped
+    environment:
+      <<: *ch-passwords
+    volumes:
+      - ch-data:/var/lib/clickhouse
+      - ./clickhouse/config.d/tidemark.xml:/etc/clickhouse-server/config.d/tidemark.xml:ro
+      - ./clickhouse/users.d/tidemark.xml:/etc/clickhouse-server/users.d/tidemark.xml:ro
+    ulimits:
+      nofile: { soft: 262144, hard: 262144 }
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --user tidemark_reader --password \"$$TIDEMARK_CLICKHOUSE_READER_PASSWORD\" --query 'SELECT 1'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  tidemark:
+    image: ${TM_IMAGE:-tidemark:local}
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        VERSION: ${TM_VERSION:-dev}
+    restart: unless-stopped
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    # Every TIDEMARK_* variable in .env is passed through (SPEC §7); the address and data
+    # directory are fixed by this file.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      <<: *ch-passwords
+      TIDEMARK_CLICKHOUSE_ADDR: clickhouse:9000
+      TIDEMARK_DATA_DIR: /data
+    ports:
+      - "${TM_BIND_ADDR:-0.0.0.0}:8080:8080"
+      - "${TM_BIND_ADDR:-0.0.0.0}:5341:5341"
+      - "${TM_BIND_ADDR:-0.0.0.0}:9200:9200"
+      - "${TM_BIND_ADDR:-0.0.0.0}:4317:4317"
+      - "${TM_BIND_ADDR:-0.0.0.0}:4318:4318"
+    volumes:
+      - tm-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    networks: [frontend, backend]
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/tidemark", "healthcheck"]
+      interval: 15s
+      timeout: 6s
+      retries: 3
+      start_period: 30s
+
+  otel-collector:
+    profiles: [collector]
+    image: otel/opentelemetry-collector-contrib:0.120.0
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    depends_on:
+      tidemark:
+        condition: service_healthy
+    environment:
+      TIDEMARK_COLLECTOR_KEY: ${COLLECTOR_INGEST_KEY:-${TIDEMARK_BOOTSTRAP_INGEST_KEY:-}}
+    volumes:
+      - ./otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "${TM_BIND_ADDR:-0.0.0.0}:5514:5514/tcp"
+      - "${TM_BIND_ADDR:-0.0.0.0}:5514:5514/udp"
+      - "${TM_BIND_ADDR:-0.0.0.0}:24224:24224"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    networks: [frontend]
+
+networks:
+  frontend: {}
+  backend:
+    internal: true
+
+volumes:
+  ch-data: {}
+  tm-data: {}

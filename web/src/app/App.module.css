@@ -1,0 +1,9 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 240px;
+  height: 100%;
+  color: var(--tm-color-fg-subtle);
+}

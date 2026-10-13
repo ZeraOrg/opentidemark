@@ -1,0 +1,6 @@
+[
+  {"timestamp":"2026-10-13T11:58:01Z","level":"error","message":"payment failed","service":"billing","env":"prod","user":{"id":7,"email":"a@example.com"},"_stream":"billing"},
+  {"@t":"2026-10-13T11:58:02Z","@mt":"User {UserId} signed in","UserId":7,"@l":"Information"},
+  42,
+  {"msg":"bare","ts":1791892682}
+]

@@ -1,0 +1,124 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Base styles (DESIGN §1, §3, §8). Components style themselves through CSS modules + tokens. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--tm-color-bg-canvas);
+  color: var(--tm-color-fg);
+  font-family: var(--tm-font-sans);
+  font-size: var(--tm-text-md);
+  line-height: var(--tm-leading-md);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3,
+h4,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: var(--tm-text-xl);
+  line-height: var(--tm-leading-xl);
+  font-weight: var(--tm-font-weight-semibold);
+  letter-spacing: -0.01em;
+}
+
+h2 {
+  font-size: var(--tm-text-lg);
+  line-height: var(--tm-leading-lg);
+  font-weight: var(--tm-font-weight-semibold);
+}
+
+h3 {
+  font-size: var(--tm-text-md);
+  font-weight: var(--tm-font-weight-semibold);
+}
+
+a {
+  color: var(--tm-color-link);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--tm-color-link-hover);
+  text-decoration: underline;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+code,
+pre,
+kbd,
+samp {
+  font-family: var(--tm-font-mono);
+}
+
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  box-shadow: var(--tm-shadow-focus);
+  border-radius: var(--tm-radius-sm);
+}
+
+::selection {
+  background: var(--tm-color-accent-soft);
+}
+
+::placeholder {
+  color: var(--tm-color-fg-subtle);
+  opacity: 1;
+}
+
+* {
+  scrollbar-color: var(--tm-color-border-strong) transparent;
+  scrollbar-width: thin;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+  }
+}

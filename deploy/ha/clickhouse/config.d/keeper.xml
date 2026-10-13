@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!--
+  Embedded ClickHouse Keeper (Raft, 3 voters). CH_KEEPER_ID is 1, 2 or 3 and must match the
+  position of this node in raft_configuration. Client port 9181, Raft port 9234: open them only
+  between the three servers.
+-->
+<clickhouse>
+  <keeper_server>
+    <tcp_port>9181</tcp_port>
+    <server_id from_env="CH_KEEPER_ID"/>
+    <log_storage_path>/var/lib/clickhouse/coordination/log</log_storage_path>
+    <snapshot_storage_path>/var/lib/clickhouse/coordination/snapshots</snapshot_storage_path>
+    <coordination_settings>
+      <operation_timeout_ms>10000</operation_timeout_ms>
+      <session_timeout_ms>30000</session_timeout_ms>
+      <raft_logs_level>warning</raft_logs_level>
+    </coordination_settings>
+    <raft_configuration>
+      <server><id>1</id><hostname from_env="CH_NODE1_HOST"/><port>9234</port></server>
+      <server><id>2</id><hostname from_env="CH_NODE2_HOST"/><port>9234</port></server>
+      <server><id>3</id><hostname from_env="CH_NODE3_HOST"/><port>9234</port></server>
+    </raft_configuration>
+  </keeper_server>
+</clickhouse>

@@ -1,0 +1,17 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
+.tql {
+  display: block;
+  min-width: 0;
+  font-family: var(--tm-font-mono);
+  font-size: var(--tm-text-mono);
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--tm-color-fg);
+}
+
+.wrap {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: Apache-2.0
+# Spans (source spans): duration is exposed in ms; literals with units convert.
+source spans | service:checkout-api and status:error | stats count() by name
+source spans
+source spans | duration > 250ms and duration <= 2s | stats p95(duration), avg(duration) by service span 5m
+source spans | duration:* and duration:500 and http.status_code >= 200 | fields name, duration, http.route
+source spans | duration in [1s, 500] and @duration < 1.5
+source spans | * | stats count() by duration | where duration > 100
+source spans | * | stats rate() span auto
+source spans | trace_id:ABC and parent_span_id:x and status_code:ok and kind:server
+source spans | @timestamp > now-1h
+%cursor source spans | status:error

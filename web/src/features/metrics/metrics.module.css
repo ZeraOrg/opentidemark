@@ -1,0 +1,127 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Metric browser. */
+
+.page {
+  height: 100%;
+  min-height: 0;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--tm-color-bg-raised);
+  border: 1px solid var(--tm-color-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.list ul {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+}
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--tm-color-border-subtle);
+  color: var(--tm-color-fg-subtle);
+}
+
+.search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--tm-color-fg);
+  font: inherit;
+  outline: none;
+}
+
+.item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--tm-radius-md);
+  background: transparent;
+  color: var(--tm-color-fg);
+  text-align: left;
+  cursor: pointer;
+}
+
+.item:hover {
+  background: var(--tm-color-bg-hover);
+}
+
+.active {
+  background: var(--tm-color-selection);
+  box-shadow: inset 2px 0 0 var(--tm-color-accent);
+}
+
+.name {
+  font-family: var(--tm-font-mono);
+  font-size: var(--tm-text-mono);
+  overflow-wrap: anywhere;
+}
+
+.tags {
+  display: flex;
+  gap: 4px;
+}
+
+.none {
+  padding: 16px;
+  color: var(--tm-color-fg-subtle);
+  font-size: var(--tm-text-sm);
+}
+
+.detail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.queryLine {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  border: 1px solid var(--tm-color-border);
+  border-radius: var(--tm-radius-md);
+  background: var(--tm-color-bg-input);
+}
+
+.queryActions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+@media (max-width: 899px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .list {
+    max-height: 280px;
+  }
+}
