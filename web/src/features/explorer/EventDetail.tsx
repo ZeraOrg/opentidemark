@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 //
-// Inline event detail (SPEC §16.3, DESIGN §5.10): Properties (filter / exclude / pin / copy
+// Inline event detail (SPEC §16.3, DESIGN §5.10): Properties (filter / exclude / show in column /
+// copy
 // actions, template-sourced values highlighted, trace/span links), Exception with collapsible
 // framework frames, Context (same service & host, or same trace) and Raw JSON; permalink and
 // "Open trace".
 
 import { useQuery } from '@tanstack/react-query';
-import { Activity, ChevronUp, Copy, Link2, Pin, PinOff } from 'lucide-react';
+import { Activity, ChevronUp, Columns3, Copy, Link2 } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { search } from '../../api/endpoints';
@@ -19,6 +20,7 @@ import { cx } from '../../lib/cx';
 import { copyText } from '../../lib/download';
 import { renderValue, templateProperties } from '../../lib/template';
 import { formatClock } from '../../lib/time';
+import { canShowAsColumn } from './columns';
 import { parseException } from './exception';
 import s from './EventDetail.module.css';
 
@@ -75,7 +77,7 @@ function PropertiesCard({
       <header className={s.cardHead}>
         <h3>Properties</h3>
         <Tag>{rows.length}</Tag>
-        <span className={s.hint}>hover a row for filter · exclude · pin · copy</span>
+        <span className={s.hint}>hover a row for filter · exclude · show in column · copy</span>
       </header>
       <dl className={s.props}>
         {rows.map((r) => {
@@ -128,14 +130,15 @@ function PropertiesCard({
                     >
                       ≠
                     </button>
-                    {!r.builtin ? (
+                    {canShowAsColumn(r.field, r.builtin) ? (
                       <button
                         type="button"
-                        aria-label={isPinned ? `Unpin column ${r.field}` : `Pin column ${r.field}`}
-                        title={isPinned ? 'Unpin column' : 'Pin column'}
+                        className={s.labelled}
+                        aria-label={isPinned ? `Hide column ${r.field}` : `Show ${r.field} in column`}
                         onClick={() => onPin(r.field)}
                       >
-                        {isPinned ? <PinOff size={13} /> : <Pin size={13} />}
+                        <Columns3 size={13} aria-hidden="true" />
+                        {isPinned ? 'Hide column' : 'Show in column'}
                       </button>
                     ) : null}
                     <button

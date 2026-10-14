@@ -128,6 +128,7 @@ func (a *App) openWAL() (*pipeline.WALJournals, error) {
 				"bytes", rep.TruncatedBytes, "at", rep.TruncatedAt)
 		}
 		a.journals = append(a.journals, l)
+		a.metrics.WALBytes(s.name, l.Size)
 		*s.dst = l
 	}
 	if a.cfg.WAL.Sync == string(wal.SyncNone) {

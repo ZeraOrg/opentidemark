@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# OpenTelemetry Collector for protocols Tidemark does not speak natively (SPEC §9.7):
-# syslog (RFC 5424, TCP/UDP 5514) and Fluent forward (24224), exported to Tidemark over
+# OpenTelemetry Collector for protocols OpenTidemark does not speak natively (SPEC §9.7):
+# syslog (RFC 5424, TCP/UDP 5514) and Fluent forward (24224), exported to OpenTidemark over
 # OTLP/HTTP with a connection key (TIDEMARK_COLLECTOR_KEY, defaults to the bootstrap key).
 receivers:
   syslog/tcp:

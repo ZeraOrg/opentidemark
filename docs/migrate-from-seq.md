@@ -1,19 +1,22 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 # Migrating from Seq
 
-This guide moves a Seq installation to Tidemark: applications keep sending logs unchanged,
+Move from Seq to OpenTidemark as a self-hosted Seq alternative: Serilog and NLog clients keep their
+Seq sink and API keys, and existing events and signals are imported.
+
+This guide moves a Seq installation to OpenTidemark: applications keep sending logs unchanged,
 existing events and signals are imported, and Seq can be switched off afterwards. The
 Seq-compatible endpoints are described in [ingestion.md](ingestion.md), the query language in
 [query-language.md](query-language.md).
 
-## 1. Point applications at Tidemark
+## 1. Point applications at OpenTidemark
 
-Tidemark accepts Seq's ingestion API on port **5341** (`POST /api/events/raw`, CLEF and the
+OpenTidemark accepts Seq's ingestion API on port **5341** (`POST /api/events/raw`, CLEF and the
 compact JSON format), authenticated with the `X-Seq-ApiKey` header or the `?apiKey=` parameter.
 
 To avoid touching every application's configuration, re-use the existing Seq API keys:
 
-1. In Tidemark, open **Settings → Connections → New connection**, protocol **Seq**.
+1. In OpenTidemark, open **Settings → Connections → New connection**, protocol **Seq**.
 2. Paste the existing Seq API key into **Key** (admin-supplied key). The key must be
    20–256 printable ASCII characters without spaces and look random enough (≥ 80 bits of
    estimated entropy); Seq's generated keys qualify.
@@ -26,7 +29,7 @@ Then change only the host name (or DNS record) your applications use, for exampl
 ## 2. Import historical events and signals
 
 Create an API key in Seq with the **Read** permission. Import from the UI
-(**Settings → Import → Seq**) or from the command line on a Tidemark server:
+(**Settings → Import → Seq**) or from the command line on an OpenTidemark server:
 
 ```bash
 export SEQ_API_KEY='…'            # never pass secrets as command-line arguments
@@ -54,7 +57,7 @@ interrupted and resumed job never stores an event twice.
 ### Signals
 
 Seq filter expressions are translated to TQL: `@Level`, `@Message`, `@MessageTemplate`,
-`@Exception`, `@EventType`, `@TraceId` and `@SpanId` map to Tidemark's built-in fields,
+`@Exception`, `@EventType`, `@TraceId` and `@SpanId` map to OpenTidemark's built-in fields,
 `X is not null` becomes `X:*`, and Seq's `=`, `<>`, `like`, `in […]`, `and`/`or`/`not` work
 as they are. A signal whose filter cannot be translated is imported **disabled** with its
 original text and a warning in the job report; edit it in **Signals** and enable it.
@@ -78,4 +81,4 @@ job).
   not be decoded and warnings.
 - Data older than a stream's retention is removed by ClickHouse shortly after the import; raise
   the stream's retention first if you need it.
-- Once applications send to Tidemark and the history is imported, Seq can be stopped.
+- Once applications send to OpenTidemark and the history is imported, Seq can be stopped.

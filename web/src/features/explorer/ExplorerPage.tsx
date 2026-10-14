@@ -3,15 +3,30 @@
 // Log explorer (SPEC §16.3, DESIGN §9.1–§9.3, §9.11, §9.12): query bar with validation and
 // autocomplete, volume histogram with brush zoom, facet rail with signals, a virtualized event
 // stream with inline detail, live tail over SSE, and table / timeseries results with "Add to
-// dashboard". Query, range, signals, live and the selected event are all in the URL.
+// dashboard". Query, range, scope (streams, env), signals, live and the selected event are all
+// in the URL.
 
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { Bookmark, Download, LayoutGrid, Link2, MoreHorizontal, Columns3, Filter, Play } from 'lucide-react';
+import {
+  Bookmark,
+  ChevronDown,
+  ChevronUp,
+  Columns3,
+  Download,
+  Filter,
+  LayoutGrid,
+  Link2,
+  MoreHorizontal,
+  Play,
+  Plus,
+  X,
+} from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { errorMessage } from '../../api/client';
 import { search, signals as signalsApi } from '../../api/endpoints';
 import type { LogEvent, QueryResponse } from '../../api/types';
+import { useDataScope } from '../../app/scope';
 import { useApi, useServices } from '../../app/services';
 import { useFocusTarget, useTopbarStatus } from '../../app/shellContext';
 import { listParam, patchParams, useTimeRange } from '../../app/url';
@@ -29,6 +44,7 @@ import { AddToDashboardDialog } from '../dashboards/AddToDashboard';
 import { errorFromApi, useQueryCheck } from '../query/useQueryCheck';
 import { EventDetail } from './EventDetail';
 import { EventList, type Density } from './EventList';
+import { BUILTIN_COLUMN_FIELDS, COLUMN_FILTER_THRESHOLD, columnChoices } from './columns';
 import { FacetRail } from './FacetRail';
 import { Histogram, histogramTotal } from './Histogram';
 import { chartTitle, ResultsView } from './ResultsView';
@@ -163,6 +179,17 @@ function ColumnsDialog({
   onClose: () => void;
   candidates: readonly string[];
 }) {
+  const [filter, setFilter] = useState('');
+  const { shown, available } = columnChoices(candidates, pinned, filter);
+  const move = (field: string, dir: -1 | 1): void => {
+    const i = pinned.indexOf(field);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= pinned.length) return;
+    const next = [...pinned];
+    next.splice(i, 1);
+    next.splice(j, 0, field);
+    onChange(next);
+  };
   return (
     <Modal
       title="Columns"
@@ -174,25 +201,78 @@ function ColumnsDialog({
       }
     >
       <p className={s.dialogNote}>
-        Pinned property columns appear before the message. Saved in this browser.
+        Shown columns appear before the message, in this order; the × in a column header or{' '}
+        <em>Show in column</em> in an event's properties change them too. Saved in this browser.
       </p>
-      <ul className={s.columnList}>
-        {candidates.map((c) => {
-          const on = pinned.includes(c);
-          return (
+      <section aria-label="Shown columns" className={s.columnSection}>
+        <h3 className={s.columnHeading}>
+          Shown <span className={s.count}>{shown.length}</span>
+        </h3>
+        {shown.length === 0 ? <p className={s.columnEmpty}>No extra columns yet.</p> : null}
+        <ul className={s.shownList}>
+          {shown.map((c, i) => (
             <li key={c}>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={on}
-                  onChange={() => onChange(on ? pinned.filter((p) => p !== c) : [...pinned, c])}
-                />
-                <span>{c}</span>
-              </label>
+              <span className={s.shownName} title={c}>
+                {c}
+              </span>
+              <Button
+                size="sm"
+                variant="ghost"
+                iconOnly
+                icon={<ChevronUp size={14} />}
+                aria-label={`Move ${c} up`}
+                disabled={i === 0}
+                onClick={() => move(c, -1)}
+              />
+              <Button
+                size="sm"
+                variant="ghost"
+                iconOnly
+                icon={<ChevronDown size={14} />}
+                aria-label={`Move ${c} down`}
+                disabled={i === shown.length - 1}
+                onClick={() => move(c, 1)}
+              />
+              <Button
+                size="sm"
+                variant="ghost"
+                iconOnly
+                icon={<X size={14} />}
+                aria-label={`Remove column ${c}`}
+                onClick={() => onChange(pinned.filter((p) => p !== c))}
+              />
             </li>
-          );
-        })}
-      </ul>
+          ))}
+        </ul>
+      </section>
+      <section aria-label="Available fields" className={s.columnSection}>
+        <h3 className={s.columnHeading}>
+          Add <span className={s.count}>{available.length}</span>
+        </h3>
+        {candidates.length > COLUMN_FILTER_THRESHOLD ? (
+          <input
+            type="search"
+            className={s.columnFilter}
+            placeholder="Filter fields"
+            aria-label="Filter fields"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+          />
+        ) : null}
+        {available.length === 0 ? (
+          <p className={s.columnEmpty}>{filter === '' ? 'Every field is shown.' : 'No field matches.'}</p>
+        ) : null}
+        <ul className={s.columnList}>
+          {available.map((c) => (
+            <li key={c}>
+              <button type="button" className={s.columnAdd} onClick={() => onChange([...pinned, c])}>
+                <Plus size={12} aria-hidden="true" />
+                <span title={c}>{c}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </section>
     </Modal>
   );
 }
@@ -202,6 +282,7 @@ export default function ExplorerPage() {
   const { tail, now } = useServices();
   const toast = useToast();
   const { range, setRange } = useTimeRange();
+  const scope = useDataScope();
   const { setParams, q, activeSignals, live, selectedId, go } = useExplorerUrl();
   const phone = useMediaQuery(PHONE_QUERY);
   const [draft, setDraft] = useState(q);
@@ -221,15 +302,19 @@ export default function ExplorerPage() {
   const signalsQ = useQuery({ queryKey: ['signals'], queryFn: () => signalsApi.list(api) });
   const logSignals = useMemo(() => (signalsQ.data ?? []).filter((x) => x.source === 'logs'), [signalsQ.data]);
   const fieldsQ = useQuery({
-    queryKey: ['fields', 'logs', range.from, range.to],
-    queryFn: ({ signal }) => search.fields(api, { source: 'logs', ...range }, signal),
+    queryKey: ['fields', 'logs', range.from, range.to, scope.key],
+    queryFn: ({ signal }) => search.fields(api, { source: 'logs', ...range, ...scope.params }, signal),
     staleTime: 60_000,
   });
 
   const results = useInfiniteQuery({
-    queryKey: ['query', q, range.from, range.to, activeSignals.join(',')],
+    queryKey: ['query', q, range.from, range.to, activeSignals.join(','), scope.key],
     queryFn: ({ pageParam, signal }) =>
-      search.query(api, { q, ...range, limit: PAGE_SIZE, cursor: pageParam, signals: activeSignals }, signal),
+      search.query(
+        api,
+        { q, ...range, limit: PAGE_SIZE, cursor: pageParam, signals: activeSignals, ...scope.body },
+        signal,
+      ),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last: QueryResponse) => (last.kind === 'events' ? last.nextCursor : undefined),
   });
@@ -238,9 +323,13 @@ export default function ExplorerPage() {
   const isEvents = kind === null || kind === 'events';
 
   const histQ = useQuery({
-    queryKey: ['histogram', q, range.from, range.to, activeSignals.join(',')],
+    queryKey: ['histogram', q, range.from, range.to, activeSignals.join(','), scope.key],
     queryFn: ({ signal }) =>
-      search.histogram(api, { q, ...range, buckets: phone ? 40 : 80, signals: activeSignals }, signal),
+      search.histogram(
+        api,
+        { q, ...range, buckets: phone ? 40 : 80, signals: activeSignals, ...scope.params },
+        signal,
+      ),
     enabled: isEvents && !hasStages(q),
     refetchInterval: live ? LIVE_REFRESH_MS : false,
   });
@@ -249,9 +338,13 @@ export default function ExplorerPage() {
     [openFields],
   );
   const facetsQ = useQuery({
-    queryKey: ['facets', q, range.from, range.to, activeSignals.join(','), facetFields.join(',')],
+    queryKey: ['facets', q, range.from, range.to, activeSignals.join(','), facetFields.join(','), scope.key],
     queryFn: ({ signal }) =>
-      search.facets(api, { q, ...range, fields: facetFields, top: 10, signals: activeSignals }, signal),
+      search.facets(
+        api,
+        { q, ...range, fields: facetFields, top: 10, signals: activeSignals, ...scope.params },
+        signal,
+      ),
     enabled: isEvents && !hasStages(q),
   });
 
@@ -266,7 +359,7 @@ export default function ExplorerPage() {
     setTailError(null);
     if (!live || hasStages(q)) return undefined;
     return tail.open(
-      { q, signals: activeSignals },
+      { q, signals: activeSignals, ...scope.params },
       {
         onEvents: (evs) => {
           const sorted = [...evs].sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
@@ -282,9 +375,9 @@ export default function ExplorerPage() {
         onError: (m) => setTailError(m),
       },
     );
-    // activeSignals is derived from the URL; its joined form is the dependency.
+    // activeSignals and the scope are derived from the URL; their joined forms are the dependencies.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live, q, activeSignals.join(','), tail, toast]);
+  }, [live, q, activeSignals.join(','), scope.key, tail, toast]);
 
   const pageEvents = useMemo(
     () =>
@@ -339,7 +432,7 @@ export default function ExplorerPage() {
     [go, selectedId, phone, actionsFor],
   );
   const exportAs = (format: 'csv' | 'ndjson'): void =>
-    downloadUrl(search.exportUrl(api, { q, ...range, format, signals: activeSignals }));
+    downloadUrl(search.exportUrl(api, { q, ...range, format, signals: activeSignals, ...scope.params }));
   const share = async (): Promise<void> => {
     const ok = await copyText(window.location.href);
     toast.push({
@@ -397,7 +490,10 @@ export default function ExplorerPage() {
 
   const queryError = check.error ?? errorFromApi(q, results.error);
   const showDate = resolveTime(range.to, now()) - resolveTime(range.from, now()) > DAY_MS;
-  const candidates = (fieldsQ.data ?? []).filter((f) => !f.builtin).map((f) => f.name);
+  const candidates = [
+    ...BUILTIN_COLUMN_FIELDS,
+    ...(fieldsQ.data ?? []).filter((f) => !f.builtin).map((f) => f.name),
+  ];
 
   const rail = (
     <FacetRail
@@ -431,6 +527,7 @@ export default function ExplorerPage() {
           history={history}
           placeholder="Search events — try level:error or press ?"
           className={s.editor}
+          scope={scope.params}
           onView={(v) => {
             focusRef.current = v === null ? null : () => v.focus();
           }}
@@ -556,6 +653,7 @@ export default function ExplorerPage() {
                   onToggle={toggleEvent}
                   density={density}
                   pinned={pinned}
+                  onHideColumn={(field) => setPinned(pinned.filter((p) => p !== field))}
                   showDate={showDate}
                   hasMore={results.hasNextPage}
                   loadingMore={results.isFetchingNextPage}

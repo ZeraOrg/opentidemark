@@ -104,6 +104,103 @@
   max-width: 420px;
 }
 
+.accountAccess {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--tm-color-border);
+  border-radius: var(--tm-radius-md);
+  background: var(--tm-color-bg-surface);
+  font-size: var(--tm-text-sm);
+  line-height: var(--tm-leading-sm);
+}
+
+.accountAccess > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--tm-color-fg-subtle);
+}
+
+.accountAccess p {
+  margin: 0 0 6px;
+}
+
+.accountAccess p:last-child {
+  margin-bottom: 0;
+}
+
+.warnText {
+  color: var(--tm-color-warning);
+}
+
+.savedText {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--tm-color-success);
+}
+
+/* ---- teams ------------------------------------------------------------------------------------ */
+.accessRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.accessToggle {
+  flex: none;
+  margin-top: 1px;
+  font-weight: var(--tm-font-weight-medium);
+}
+
+.accessText {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  font-size: var(--tm-text-md);
+  line-height: var(--tm-leading-md);
+}
+
+.accessText p {
+  margin: 0;
+}
+
+.teamDescription {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.teamGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.detailsGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
+  gap: 14px 20px;
+}
+
+.saveRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--tm-color-border-subtle);
+}
+
+.saveState {
+  margin-left: auto;
+  font-size: var(--tm-text-sm);
+}
+
 /* ---- connection wizard ----------------------------------------------------------------------- */
 .steps {
   list-style: none;
@@ -345,7 +442,9 @@
 
   .wizardGrid,
   .importGrid,
-  .filters {
+  .filters,
+  .teamGrid,
+  .detailsGrid {
     grid-template-columns: minmax(0, 1fr);
   }
 }
@@ -353,5 +452,10 @@
 @media (max-width: 599px) {
   .page {
     padding: 14px 12px 24px;
+  }
+
+  .accessRow {
+    flex-direction: column;
+    gap: 8px;
   }
 }

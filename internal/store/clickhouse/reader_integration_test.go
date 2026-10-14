@@ -20,6 +20,7 @@ import (
 // readerFixture writes a small dataset and returns a Reader on it.
 type readerFixture struct {
 	r      *Reader
+	w      *Writer // writer connection, for data added by later subtests
 	base   time.Time
 	events []model.Event
 	from   time.Time
@@ -40,7 +41,7 @@ func newReaderFixture(t *testing.T) *readerFixture {
 	}
 	w, _ := NewWriter(conn, env.Database)
 	base := time.Now().UTC().Add(-30 * time.Minute).Truncate(time.Minute)
-	f := &readerFixture{base: base, from: base.Add(-time.Hour), to: base.Add(time.Hour)}
+	f := &readerFixture{w: w, base: base, from: base.Add(-time.Hour), to: base.Add(time.Hour)}
 	levels := []model.Level{model.Information, model.Warning, model.Error}
 	for i := range 30 {
 		ts := base.Add(time.Duration(i) * 100 * time.Millisecond).Add(time.Duration(i) * time.Microsecond) // sub-second keyset
@@ -93,7 +94,8 @@ func (f *readerFixture) compile(t *testing.T, q string, limit int, cur *tql.Curs
 	if err != nil {
 		t.Fatal(err)
 	}
-	c, err := tql.Compile(pq, tql.Options{Database: f.r.cfg.Database, From: f.from, To: f.to, Limit: limit, Cursor: cur})
+	c, err := tql.Compile(pq, tql.Options{Database: f.r.cfg.Database, From: f.from, To: f.to, Limit: limit, Cursor: cur,
+		Streams: model.AllStreams()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,15 +104,20 @@ func (f *readerFixture) compile(t *testing.T, q string, limit int, cur *tql.Curs
 
 func (f *readerFixture) filter(t *testing.T, q string) store.Filter {
 	t.Helper()
+	return f.scopedFilter(t, q, model.AllStreams())
+}
+
+func (f *readerFixture) scopedFilter(t *testing.T, q string, scope model.StreamScope) store.Filter {
+	t.Helper()
 	pq, err := tql.Parse(q)
 	if err != nil {
 		t.Fatal(err)
 	}
-	where, args, err := tql.CompileWhere(pq, tql.Options{Database: f.r.cfg.Database, From: f.from, To: f.to})
+	where, args, err := tql.CompileWhere(pq, tql.Options{Database: f.r.cfg.Database, From: f.from, To: f.to, Streams: scope})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return store.Filter{Source: pq.Source, Where: where, Args: args, Range: store.TimeRange{From: f.from, To: f.to}}
+	return store.Filter{Source: pq.Source, Where: where, Args: args, Range: store.TimeRange{From: f.from, To: f.to}, Streams: scope}
 }
 
 func TestIntegrationReader(t *testing.T) {
@@ -124,6 +131,7 @@ func TestIntegrationReader(t *testing.T) {
 	t.Run("tail", f.testTail)
 	t.Run("traces", f.testTraces)
 	t.Run("metric names", f.testMetricNames)
+	t.Run("stream scope", f.testStreamScope)
 }
 
 func (f *readerFixture) testEventPages(t *testing.T) {
@@ -257,7 +265,7 @@ func (f *readerFixture) testNewestFields(t *testing.T) {
 	if err != nil || s.Sampled || s.Total != 30 {
 		t.Errorf("unsampled %+v %v", s, err)
 	}
-	fields, err := f.r.Fields(ctx, model.SourceLogs, store.TimeRange{From: f.from, To: f.to})
+	fields, err := f.r.Fields(ctx, model.AllStreams(), model.SourceLogs, store.TimeRange{From: f.from, To: f.to})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +276,7 @@ func (f *readerFixture) testNewestFields(t *testing.T) {
 	if !got["status"].Numeric || got["route"].Numeric || got["status"].Hits != 30 {
 		t.Errorf("fields %+v", fields)
 	}
-	mf, err := f.r.Fields(ctx, model.SourceMetrics, store.TimeRange{From: f.from, To: f.to})
+	mf, err := f.r.Fields(ctx, model.AllStreams(), model.SourceMetrics, store.TimeRange{From: f.from, To: f.to})
 	if err != nil || len(mf) != 1 || mf[0].Name != "route" {
 		t.Errorf("metric fields %+v %v", mf, err)
 	}
@@ -277,14 +285,14 @@ func (f *readerFixture) testNewestFields(t *testing.T) {
 func (f *readerFixture) testEventContext(t *testing.T) {
 	ctx := context.Background()
 	want := f.events[10]
-	ev, err := f.r.Event(ctx, want.ID)
+	ev, err := f.r.Event(ctx, model.AllStreams(), want.ID)
 	if err != nil || ev.ID != want.ID || !ev.Timestamp.Equal(want.Timestamp) || ev.Level != want.Level {
 		t.Fatalf("event %+v %v", ev, err)
 	}
-	if _, err := f.r.Event(ctx, uuid.Must(uuid.NewV7())); !errors.Is(err, store.ErrNotFound) {
+	if _, err := f.r.Event(ctx, model.AllStreams(), uuid.Must(uuid.NewV7())); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("missing event: %v", err)
 	}
-	older, newer, err := f.r.Context(ctx, ev, 2, 3)
+	older, newer, err := f.r.Context(ctx, model.AllStreams(), ev, 2, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -322,7 +330,7 @@ func (f *readerFixture) testTail(t *testing.T) {
 
 func (f *readerFixture) testTraces(t *testing.T) {
 	ctx := context.Background()
-	spans, events, err := f.r.Trace(ctx, traceA)
+	spans, events, err := f.r.Trace(ctx, model.AllStreams(), traceA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,7 +338,7 @@ func (f *readerFixture) testTraces(t *testing.T) {
 		spans[0].Attributes["cached"] != true || len(spans[1].Events) != 1 || len(events) != 1 {
 		t.Errorf("trace %+v events %d", spans, len(events))
 	}
-	if _, _, err := f.r.Trace(ctx, "cccccccccccccccccccccccccccccccc"); !errors.Is(err, store.ErrNotFound) {
+	if _, _, err := f.r.Trace(ctx, model.AllStreams(), "cccccccccccccccccccccccccccccccc"); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("missing trace: %v", err)
 	}
 	sums, err := f.r.Traces(ctx, f.filter(t, "source spans | *"), 10)
@@ -352,7 +360,7 @@ func (f *readerFixture) testTraces(t *testing.T) {
 }
 
 func (f *readerFixture) testMetricNames(t *testing.T) {
-	names, err := f.r.MetricNames(context.Background(), "HTTP", store.TimeRange{From: f.from, To: f.to}, 10)
+	names, err := f.r.MetricNames(context.Background(), model.AllStreams(), "HTTP", store.TimeRange{From: f.from, To: f.to}, 10)
 	if err != nil || len(names) != 1 || names[0].Name != "http.server.duration" || names[0].Unit != "ms" {
 		t.Errorf("metric names %+v %v", names, err)
 	}

@@ -16,8 +16,13 @@ import (
 	"github.com/ZeraOrg/tidemark/internal/tql"
 )
 
-// ErrNotFound is returned when an event, trace or job does not exist.
+// ErrNotFound is returned when an event, trace or job does not exist (or is outside the
+// caller's stream scope, which looks the same to the caller).
 var ErrNotFound = errors.New("not found")
+
+// ErrNoScope is returned by every read whose stream scope was not set (SPEC §15.10): reads
+// fail closed instead of returning every stream.
+var ErrNoScope = errors.New("stream scope not set")
 
 // EventWriter persists events.
 type EventWriter interface {
@@ -36,7 +41,9 @@ type MetricWriter interface {
 
 // Querier runs compiled TQL and the explorer read paths (SPEC §11.3). It is implemented by
 // the query layer of internal/store/clickhouse using the read-only connection. Filters come
-// from tql.CompileWhere, so every user value is a positional argument.
+// from tql.CompileWhere, so every user value is a positional argument. Every read is limited
+// to a stream scope (SPEC §15.10): compiled queries and filters carry it, the fixed reads take
+// it as a parameter; an unset scope fails with ErrNoScope.
 type Querier interface {
 	// Run executes a compiled query; events pages carry NextCursor when the page is full.
 	Run(ctx context.Context, q *tql.Compiled) (Result, error)
@@ -46,29 +53,33 @@ type Querier interface {
 	// so facets can be restricted to the newest n rows (SPEC §11.3).
 	Newest(ctx context.Context, f Filter, n uint64) (Sample, error)
 	// Fields lists the property keys seen in r (field_catalog; metric attribute keys).
-	Fields(ctx context.Context, src model.Source, r TimeRange) ([]FieldInfo, error)
-	// Event returns one event by id; ErrNotFound when absent.
-	Event(ctx context.Context, id uuid.UUID) (model.Event, error)
+	Fields(ctx context.Context, scope model.StreamScope, src model.Source, r TimeRange) ([]FieldInfo, error)
+	// Event returns one event by id; ErrNotFound when absent or outside scope.
+	Event(ctx context.Context, scope model.StreamScope, id uuid.UUID) (model.Event, error)
 	// Context returns up to before older and after newer events of the same service and host.
-	Context(ctx context.Context, ev model.Event, before, after int) (older, newer []model.Event, err error)
+	Context(ctx context.Context, scope model.StreamScope, ev model.Event, before, after int) (older, newer []model.Event, err error)
 	// Tail returns up to limit events ingested in (after, until] in ingestion order and the
 	// total number of such events.
 	Tail(ctx context.Context, f Filter, after, until time.Time, limit int) ([]TailEvent, uint64, error)
-	// Trace returns every span of a trace and the events carrying its trace id.
-	Trace(ctx context.Context, traceID string) ([]model.Span, []model.Event, error)
-	// Traces summarizes the most recent traces having a span that matches f.
+	// Trace returns the spans of a trace and the events carrying its trace id, both limited to
+	// scope; ErrNotFound when nothing is visible.
+	Trace(ctx context.Context, scope model.StreamScope, traceID string) ([]model.Span, []model.Event, error)
+	// Traces summarizes the most recent traces having a span that matches f; summaries cover
+	// only the spans inside f.Streams.
 	Traces(ctx context.Context, f Filter, limit int) ([]TraceSummary, error)
 	// MetricNames lists metric names containing substr (case-insensitive) seen in r.
-	MetricNames(ctx context.Context, substr string, r TimeRange, limit int) ([]MetricName, error)
+	MetricNames(ctx context.Context, scope model.StreamScope, substr string, r TimeRange, limit int) ([]MetricName, error)
 }
 
 // Filter is a compiled WHERE condition (tql.CompileWhere) for one source; it already contains
-// the time range Range.
+// the time range Range and the stream condition of Streams, the scope it was compiled with
+// (readers reject an unset Streams with ErrNoScope).
 type Filter struct {
-	Source model.Source
-	Where  string
-	Args   []any
-	Range  TimeRange
+	Source  model.Source
+	Where   string
+	Args    []any
+	Range   TimeRange
+	Streams model.StreamScope
 }
 
 // Sample is the outcome of Querier.Newest. When Sampled is set, only rows at or after
@@ -112,7 +123,7 @@ type StreamAdmin interface {
 	Purge(ctx context.Context, p PurgeRequest) (PurgeJob, error)
 	AddIndexedField(ctx context.Context, f IndexedField) error
 	DropIndexedField(ctx context.Context, f IndexedField) error
-	Mappings(ctx context.Context, stream string) ([]FieldMapping, error)
+	Mappings(ctx context.Context, scope model.StreamScope, stream string) ([]FieldMapping, error)
 	DeleteStream(ctx context.Context, name string) error
 }
 

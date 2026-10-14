@@ -13,7 +13,7 @@ import (
 // MaxFutureSkew is how far in the future a timestamp may be before it is clamped (SPEC §9.1).
 const MaxFutureSkew = 7 * 24 * time.Hour
 
-// Internal property keys added by Tidemark.
+// Internal property keys added by OpenTidemark.
 const (
 	PropClockSkew = "_tidemark.clock_skew"
 	PropTruncated = "_tidemark.truncated"

@@ -1,7 +1,10 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
-# Tidemark Query Language (TQL)
+# OpenTidemark Query Language (TQL)
 
-TQL is the one query language of Tidemark: the explorer, dashboards and alerts all use the same
+Search and analyse logs, traces and metrics with TQL, OpenTidemark's query language: KQL-style
+`field:value` filters, Seq-style operators and pipe stages such as `stats`, `sort` and `top`.
+
+TQL is the one query language of OpenTidemark: the explorer, dashboards and alerts all use the same
 text. Filters are as easy as KQL (`level:error service:checkout*`), Seq-style operators work too
 (`Level = 'Error'`), and pipe stages turn a filter into analytics.
 
@@ -102,9 +105,12 @@ Property keys are case-sensitive.
 
 | Source | Built-in fields (aliases) |
 |---|---|
-| logs | `@timestamp` (`timestamp`, `@t`) · `level` (`@level`, `@l`) · `message` (`@message`, `@m`, `msg`) · `template` (`@mt`, `messagetemplate`) · `exception` (`@x`) · `service` · `environment` (`env`) · `host` · `stream` · `trace_id` (`traceid`, `@tr`) · `span_id` (`spanid`, `@sp`) · `event_type` (`@i`) · `protocol` · `id` (`@id`) |
-| spans | `@timestamp` (`start_time`, `timestamp`) · `trace_id` · `span_id` · `parent_span_id` · `service` · `name` · `kind` · `status` (`status_code`) · `status_message` · `duration` (`@duration`, milliseconds in results) · `stream` |
-| metrics | `@timestamp` · `name` · `service` · `kind` · `unit` · `value` · `count` · `sum` · `min` · `max` · `stream` |
+| logs | `@timestamp` (`timestamp`, `@t`) · `level` (`@level`, `@l`) · `message` (`@message`, `@m`, `msg`) · `template` (`@mt`, `messagetemplate`) · `exception` (`@x`) · `service` · `environment` (`env`) · `host` · `stream` · `trace_id` (`traceid`, `@tr`) · `span_id` (`spanid`, `@sp`) · `event_type` (`@i`) · `protocol` · `connection_id` (`connectionid`) · `id` (`@id`) |
+| spans | `@timestamp` (`start_time`, `timestamp`) · `trace_id` · `span_id` · `parent_span_id` · `service` · `name` · `kind` · `status` (`status_code`) · `status_message` · `duration` (`@duration`, milliseconds in results) · `stream` · `connection_id` (`connectionid`) |
+| metrics | `@timestamp` · `name` · `service` · `kind` · `unit` · `value` · `count` · `sum` · `min` · `max` · `stream` · `connection_id` (`connectionid`) |
+
+`connection_id` is the id of the connection that sent the data (shown as `connectionId` on each
+event), so `connection_id:<id> | stats count() by stream` shows where one connection writes.
 
 ## Stages
 

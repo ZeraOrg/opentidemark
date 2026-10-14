@@ -56,5 +56,5 @@ func (a *TokenAuthenticator) Authenticate(ctx context.Context, raw string) (Prin
 		}
 	}
 	return Principal{Kind: KindToken, UserID: u.ID, Username: u.Username, TokenID: t.ID,
-		Role: MinRole(Role(u.Role), ScopeRole(t.Scope)), MustChangePassword: u.MustChangePassword}, nil
+		Role: MinRole(Role(u.Role), ScopeRole(t.Scope)), UserRole: Role(u.Role), MustChangePassword: u.MustChangePassword}, nil
 }

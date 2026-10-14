@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -69,22 +70,28 @@ func decodeBulk(t *testing.T, w *httptest.ResponseRecorder) bulkResp {
 	return r
 }
 
-func TestInfoAndProductHeader(t *testing.T) {
+// TestInfoDoesNotIdentifyAsElasticsearch: the endpoint must not claim to be Elasticsearch — no
+// product header on any response and no Elasticsearch tagline or build details (SPEC §9.3).
+func TestInfoDoesNotIdentifyAsElasticsearch(t *testing.T) {
 	for _, prefix := range []string{"", "/es"} {
 		e := newEnv(t, prefix)
 		w := e.do("GET", prefix+"/", nil)
-		if w.Code != 200 || w.Header().Get("X-Elastic-Product") != "Elasticsearch" {
-			t.Fatalf("%q: %d %v", prefix, w.Code, w.Header())
+		if w.Code != 200 {
+			t.Fatalf("%q: %d", prefix, w.Code)
 		}
-		var info struct {
-			Name    string            `json:"name"`
-			Version map[string]string `json:"version"`
-			Tagline string            `json:"tagline"`
+		if got := w.Header().Values("X-Elastic-Product"); len(got) != 0 {
+			t.Errorf("%q: product header %v", prefix, got)
 		}
-		_ = json.Unmarshal(w.Body.Bytes(), &info)
-		if info.Name != "tidemark" || info.Version["number"] != "8.11.0" || info.Version["build_flavor"] != "default" ||
-			info.Version["minimum_wire_compatibility_version"] != "7.17.0" || info.Tagline != "You Know, for Search" {
-			t.Errorf("info %+v", info)
+		var info map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &info); err != nil {
+			t.Fatal(err)
+		}
+		want := map[string]any{"name": "tidemark", "cluster_name": "tidemark", "version": map[string]any{"number": "8.11.0"}}
+		if !reflect.DeepEqual(info, want) {
+			t.Errorf("%q: info %s", prefix, w.Body.String())
+		}
+		if bw := e.do("POST", prefix+"/_bulk", fixture(t, "filebeat_bulk.ndjson")); len(bw.Header().Values("X-Elastic-Product")) != 0 {
+			t.Errorf("%q: product header on _bulk", prefix)
 		}
 		if w := e.do("HEAD", prefix+"/", nil); w.Code != 200 {
 			t.Errorf("HEAD: %d", w.Code)

@@ -1,0 +1,40 @@
+{#- SPDX-License-Identifier: Apache-2.0 -#}
+{#- Material for MkDocs override (SPEC §17.4): Open Graph / Twitter card tags from each page's
+    description with the social preview image (docs/images/social-preview.png), and the product
+    colours of web/src/styles/tokens.css. -#}
+{% extends "base.html" %}
+
+{% block extrahead %}
+  {%- set title = page.title ~ " - " ~ config.site_name if page and page.title and not page.is_homepage else config.site_name -%}
+  {%- set description = page.meta.description if page and page.meta and page.meta.description else config.site_description -%}
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="{{ config.site_name }}">
+  <meta property="og:title" content="{{ title }}">
+  <meta property="og:description" content="{{ description }}">
+  {%- if page and page.canonical_url %}
+  <meta property="og:url" content="{{ page.canonical_url }}">
+  {%- endif %}
+  <meta property="og:image" content="{{ config.site_url }}images/social-preview.png">
+  <meta property="og:image:width" content="1280">
+  <meta property="og:image:height" content="640">
+  <meta property="og:image:alt" content="OpenTidemark: self-hosted logs, metrics and traces">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="{{ config.site_url }}images/social-preview.png">
+  <meta name="twitter:title" content="{{ title }}">
+  <meta name="twitter:description" content="{{ description }}">
+  <style>
+    [data-md-color-scheme="slate"] {
+      --md-default-bg-color: #0b0f14;
+      --md-primary-fg-color: #11161d;
+      --md-primary-bg-color: #e6ebf0;
+      --md-accent-fg-color: #b8f06a;
+      --md-typeset-a-color: #8fd3ff;
+    }
+    [data-md-color-scheme="default"] {
+      --md-primary-fg-color: #121922;
+      --md-primary-bg-color: #ffffff;
+      --md-accent-fg-color: #3f6b12;
+      --md-typeset-a-color: #0b63a8;
+    }
+  </style>
+{% endblock %}

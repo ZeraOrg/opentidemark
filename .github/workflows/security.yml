@@ -1,13 +1,22 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# Supply-chain checks (SPEC §15.9, §19.1): govulncheck, npm audit (when web/ exists), the licence
-# allow-list for shipped Go code, and a Trivy scan of the container image. Runs on changes and
-# weekly for new advisories. Failing steps publish their output through scripts/ci-annotate.sh.
+# Supply-chain checks (SPEC §15.9, §17.4): govulncheck, npm audit and a Trivy scan of the
+# container image. Runs weekly for new advisories, by hand, and on pushes to main that change
+# dependencies or the image. (The licence allow-list runs in ci's notices job.) Jobs run
+# automatically only in the main public repository ZeraOrg/tidemark; anywhere else they run only
+# when started by hand. Failing steps publish their output through scripts/ci-annotate.sh.
 name: security
 
 on:
   push:
     branches: [main]
+    paths:
+      - go.mod
+      - go.sum
+      - web/package.json
+      - web/package-lock.json
+      - Dockerfile
+      - .github/workflows/security.yml
   schedule:
     - cron: "17 5 * * 1"
   workflow_dispatch:
@@ -15,54 +24,50 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   GOVULNCHECK_VERSION: v1.9.0
   TRIVY_VERSION: v0.75.0
 
 jobs:
   govulncheck:
+    if: github.repository == 'ZeraOrg/tidemark' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@v7 # caches modules and the build cache (go.sum)
         with:
           go-version-file: go.mod
       - name: govulncheck
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}
+          go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
           scripts/ci-annotate.sh govulncheck -- govulncheck ./...
 
-  licences:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-      - name: only allow-listed licences in shipped Go code
-        run: scripts/ci-annotate.sh "make licences" -- make licences
-
   npm-audit:
+    if: github.repository == 'ZeraOrg/tidemark' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - name: detect web/
-        id: detect
-        run: |
-          if [ -f web/package.json ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; fi
       - uses: actions/setup-node@v7
-        if: steps.detect.outputs.present == 'true'
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
       - name: npm audit
-        if: steps.detect.outputs.present == 'true'
         working-directory: web
         run: |
-          npm ci --ignore-scripts
+          npm ci --ignore-scripts --no-audit --no-fund
           ../scripts/ci-annotate.sh "npm audit" -- npm audit --audit-level=high
 
   image:
+    if: github.repository == 'ZeraOrg/tidemark' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - name: build image

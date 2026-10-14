@@ -9,6 +9,7 @@ import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { errorMessage } from '../../api/client';
 import { search } from '../../api/endpoints';
+import { useDataScope } from '../../app/scope';
 import { useApi } from '../../app/services';
 import { useTopbarStatus } from '../../app/shellContext';
 import { patchParams, useTimeRange } from '../../app/url';
@@ -40,12 +41,13 @@ export function defaultAgg(kind: string): MetricAgg {
 export default function MetricsPage() {
   const api = useApi();
   const { range } = useTimeRange();
+  const scope = useDataScope();
   const [params, setParams] = useSearchParams();
   const [filter, setFilter] = useState(params.get('filter') ?? '');
   const debounced = useDebounced(filter, 200);
   const names = useQuery({
-    queryKey: ['metric-names', debounced],
-    queryFn: ({ signal }) => search.metricNames(api, debounced, signal),
+    queryKey: ['metric-names', debounced, scope.key],
+    queryFn: ({ signal }) => search.metricNames(api, { q: debounced, ...scope.params }, signal),
   });
   const selected = params.get('metric') ?? names.data?.[0]?.name ?? null;
   const meta = names.data?.find((m) => m.name === selected);
@@ -55,8 +57,8 @@ export default function MetricsPage() {
   const effectiveAgg = agg ?? defaultAgg(meta?.kind ?? '');
   const q = selected === null ? '' : metricQuery(selected, effectiveAgg, group);
   const chart = useQuery({
-    queryKey: ['query', q, range.from, range.to, ''],
-    queryFn: ({ signal }) => search.query(api, { q, ...range }, signal),
+    queryKey: ['query', q, range.from, range.to, '', scope.key],
+    queryFn: ({ signal }) => search.query(api, { q, ...range, ...scope.body }, signal),
     enabled: q !== '',
   });
   const data = useMemo(

@@ -152,7 +152,7 @@ type streamListView struct {
 }
 
 func (a *StreamsAPI) list(w http.ResponseWriter, r *http.Request) error {
-	streams, at, err := a.Streams.List(r.Context())
+	streams, at, err := a.Streams.List(r.Context(), principal(r))
 	if err != nil {
 		return err
 	}
@@ -223,7 +223,7 @@ type fieldMappingView struct {
 }
 
 func (a *StreamsAPI) fields(w http.ResponseWriter, r *http.Request) error {
-	maps, err := a.Streams.Fields(r.Context(), r.PathValue("name"))
+	maps, err := a.Streams.Fields(r.Context(), principal(r), r.PathValue("name"))
 	if err != nil {
 		return err
 	}

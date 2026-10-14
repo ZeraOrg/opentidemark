@@ -24,7 +24,8 @@ func TestTokenAuthenticator(t *testing.T) {
 	_ = tokens.Create(ctx, tok)
 	a := NewTokenAuthenticator(tokens, users, c)
 	p, err := a.Authenticate(ctx, raw)
-	if err != nil || p.Role != RoleEditor || p.Kind != KindToken || p.TokenID != tok.ID || p.Actor() != "token:"+tok.ID {
+	if err != nil || p.Role != RoleEditor || p.UserRole != RoleEditor || p.Kind != KindToken || p.TokenID != tok.ID ||
+		p.Actor() != "token:"+tok.ID {
 		t.Fatalf("%+v %v", p, err)
 	}
 	if got, _ := tokens.Get(ctx, tok.ID); got.LastUsedAt == nil {
@@ -42,7 +43,7 @@ func TestTokenAuthenticator(t *testing.T) {
 	raw2, _ := GenerateKey(UserTokenPrefix)
 	tok2 := &meta.APIToken{Name: "r", UserID: u.ID, KeyPrefix: KeyPrefix(raw2), KeyHash: HashKey(raw2), Scope: meta.ScopeRead}
 	_ = tokens.Create(ctx, tok2)
-	if p, err := a.Authenticate(ctx, raw2); err != nil || p.Role != RoleViewer {
+	if p, err := a.Authenticate(ctx, raw2); err != nil || p.Role != RoleViewer || p.UserRole != RoleEditor {
 		t.Errorf("read scope: %+v %v", p, err)
 	}
 	_ = tokens.Revoke(ctx, tok2.ID, c.Now())

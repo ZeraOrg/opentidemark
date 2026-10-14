@@ -40,6 +40,7 @@ const (
 	maxDescription     = 1024
 	maxCIDRs           = 64
 	maxAppliedProps    = 64
+	maxAllowedStreams  = 100
 	maxRateLimitEPS    = 1_000_000
 	MaxRotateGraceMins = 1440
 )
@@ -64,6 +65,7 @@ type ConnectionInput struct {
 	Protocols         *[]string
 	DefaultStream     *string
 	AllowedCIDRs      *[]string
+	AllowedStreams    *[]string
 	MinimumLevel      *string
 	AppliedProperties *map[string]any
 	RateLimitEPS      *int
@@ -99,7 +101,7 @@ func (s *Connections) Create(ctx context.Context, actor Actor, in ConnectionInpu
 	}
 	s.cache.Invalidate()
 	s.audit.Record(ctx, actor, ActionConnectionCreate, c.ID, map[string]any{"name": c.Name, "protocols": c.Protocols,
-		"suppliedKey": in.Key != nil})
+		"suppliedKey": in.Key != nil, "allowedStreams": nonNil(c.AllowedStreams)})
 	return c, raw, nil
 }
 
@@ -139,7 +141,7 @@ func (s *Connections) Update(ctx context.Context, actor Actor, id string, in Con
 		return meta.Connection{}, nameConflict(err)
 	}
 	s.cache.Invalidate()
-	s.audit.Record(ctx, actor, ActionConnectionUpdate, c.ID, map[string]any{"name": c.Name})
+	s.audit.Record(ctx, actor, ActionConnectionUpdate, c.ID, map[string]any{"name": c.Name, "allowedStreams": nonNil(c.AllowedStreams)})
 	return s.store.Get(ctx, id)
 }
 
@@ -211,12 +213,47 @@ func protocolNames(ps []auth.Protocol) []string {
 
 func (s *Connections) apply(c *meta.Connection, in ConnectionInput) error {
 	steps := []func(*meta.Connection, ConnectionInput) error{
-		applyName, applyDescription, applyProtocols, applyStream, applyCIDRs, applyLevel, applyProps, applyRate,
-		s.applyExpiry,
+		applyName, applyDescription, applyProtocols, applyStream, applyCIDRs, applyAllowedStreams, applyLevel, applyProps,
+		applyRate, s.applyExpiry, checkStreamsAllowed,
 	}
 	for _, step := range steps {
 		if err := step(c, in); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// applyAllowedStreams sets the streams the connection may write to (sorted, unique; empty =
+// any stream).
+func applyAllowedStreams(c *meta.Connection, in ConnectionInput) error {
+	if in.AllowedStreams == nil {
+		return nil
+	}
+	if len(*in.AllowedStreams) > maxAllowedStreams {
+		return invalid("allowedStreams", fmt.Sprintf("at most %d streams", maxAllowedStreams))
+	}
+	for _, s := range *in.AllowedStreams {
+		if !model.ValidStreamName(s) {
+			return invalid("allowedStreams", fmt.Sprintf("%q is not a valid stream name", s))
+		}
+	}
+	c.AllowedStreams = slices.Compact(slices.Sorted(slices.Values(*in.AllowedStreams)))
+	return nil
+}
+
+// checkStreamsAllowed requires the default and the pinned stream to be allowed, so a
+// connection with allowed streams never writes outside them.
+func checkStreamsAllowed(c *meta.Connection, _ ConnectionInput) error {
+	if len(c.AllowedStreams) == 0 {
+		return nil
+	}
+	if !slices.Contains(c.AllowedStreams, c.DefaultStream) {
+		return invalid("allowedStreams", "must include the default stream "+c.DefaultStream)
+	}
+	for _, k := range []string{"@stream", "_stream"} {
+		if pinned, ok := c.AppliedProperties[k].(string); ok && !slices.Contains(c.AllowedStreams, pinned) {
+			return invalid("allowedStreams", "must include the pinned stream "+pinned)
 		}
 	}
 	return nil

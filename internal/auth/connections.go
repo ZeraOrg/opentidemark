@@ -41,6 +41,7 @@ type Connection struct {
 	Protocols         []Protocol
 	DefaultStream     string
 	AllowedCIDRs      []netip.Prefix
+	AllowedStreams    []string // sorted; empty = any stream (SPEC §9.1)
 	MinimumLevel      *model.Level
 	AppliedProperties map[string]any
 	RateLimitEPS      int
@@ -50,6 +51,15 @@ type Connection struct {
 
 // Allows reports whether the connection may use protocol p.
 func (c Connection) Allows(p Protocol) bool { return slices.Contains(c.Protocols, p) }
+
+// AllowsStream reports whether the connection may write to stream (empty list = any).
+func (c Connection) AllowsStream(stream string) bool {
+	if len(c.AllowedStreams) == 0 {
+		return true
+	}
+	_, ok := slices.BinarySearch(c.AllowedStreams, stream)
+	return ok
+}
 
 // AllowsAddr reports whether remote is within the allowed CIDRs (empty list = any).
 func (c Connection) AllowsAddr(remote netip.Addr) bool {
@@ -68,7 +78,8 @@ func (c Connection) AllowsAddr(remote netip.Addr) bool {
 // ConnectionFromMeta converts a stored connection; invalid CIDRs or levels are errors.
 func ConnectionFromMeta(m meta.Connection) (Connection, error) {
 	c := Connection{ID: m.ID, Name: m.Name, DefaultStream: m.DefaultStream, AppliedProperties: m.AppliedProperties,
-		RateLimitEPS: m.RateLimitEPS, ExpiresAt: m.ExpiresAt, RevokedAt: m.RevokedAt}
+		RateLimitEPS: m.RateLimitEPS, ExpiresAt: m.ExpiresAt, RevokedAt: m.RevokedAt,
+		AllowedStreams: slices.Sorted(slices.Values(m.AllowedStreams))}
 	for _, p := range m.Protocols {
 		c.Protocols = append(c.Protocols, Protocol(p))
 	}

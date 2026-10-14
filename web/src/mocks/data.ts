@@ -29,6 +29,17 @@ import type {
   User,
 } from '../api/types';
 
+/** A team of the mock metadata (SPEC §15.10): member ids and granted stream names. */
+export interface MockTeam {
+  id: string;
+  name: string;
+  description: string;
+  memberIds: string[];
+  streams: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 /** Small deterministic PRNG (mulberry32) so every run renders the same data. */
 export function rng(seed: number): () => number {
   let a = seed >>> 0;
@@ -72,6 +83,11 @@ const STREAM_OF: Record<string, string> = {
   'payments-svc': 'payments',
   'notification-worker': 'workers',
 };
+
+/** Spans arrive through the OTLP collector except the payments service, which has its own key. */
+export function spanStreamOf(service: string): string {
+  return service === 'payments-svc' ? 'payments' : 'otel-traces';
+}
 
 interface Shape {
   service: string;
@@ -539,7 +555,7 @@ export const TRACE_SPANS: Span[] = SPAN_SEEDS.map((s) => ({
   traceId: TRACE_ID,
   spanId: s.id,
   parentSpanId: s.parent,
-  stream: 'otel-traces',
+  stream: spanStreamOf(s.service),
   service: s.service,
   name: s.name,
   kind: s.kind,
@@ -688,13 +704,13 @@ export const METRIC_NAMES: MetricName[] = [
     name: 'tidemark.ingest.events',
     kind: 'sum',
     unit: '{event}',
-    description: 'Events accepted by Tidemark.',
+    description: 'Events accepted by OpenTidemark.',
   },
   {
     name: 'tidemark.ingest.dropped',
     kind: 'sum',
     unit: '{event}',
-    description: 'Events dropped by Tidemark.',
+    description: 'Events dropped by OpenTidemark.',
   },
   {
     name: 'runtime.dotnet.gc.collections.count',
@@ -932,7 +948,7 @@ export const TEMPLATES: DashboardTemplate[] = [
   {
     id: 'ingestion-health',
     name: 'Ingestion health',
-    description: 'Tidemark self-metrics: accepted, dropped, queue depth.',
+    description: 'OpenTidemark self-metrics: accepted, dropped, queue depth.',
     doc: { version: 1, panels: [] },
   },
 ];
@@ -1111,6 +1127,7 @@ export const ALERTS: Alert[] = RULES.map(
       groupBy: group === '' ? [] : [group],
       muteUntil: muted === true ? iso(NOW + 3 * 3_600_000) : null,
     },
+    streams: id === 'a-decl' ? ['payments'] : null,
     state,
     stateSince: iso(NOW - (i + 1) * 7 * MIN),
     lastEvalAt: iso(NOW - 20_000),
@@ -1297,6 +1314,7 @@ const conn = (c: Partial<Connection> & Pick<Connection, 'id' | 'name'>): Connect
   protocols: ['seq'],
   defaultStream: 'default',
   allowedCidrs: [],
+  allowedStreams: [],
   minimumLevel: null,
   appliedProperties: {},
   rateLimitEps: 0,
@@ -1350,6 +1368,7 @@ export const CONNECTIONS: Connection[] = [
     keyPrefix: 'tmk_9a3f77',
     protocols: ['elastic'],
     defaultStream: 'api',
+    allowedStreams: ['api', 'legacy'],
     expiresAt: '2026-12-31T00:00:00Z',
     rotationGraceUntil: iso(NOW + 6 * 86_400_000),
     lastUsedAt: iso(NOW - 14 * MIN),
@@ -1365,7 +1384,8 @@ export const CONNECTIONS: Connection[] = [
   }),
 ];
 
-export const USERS: User[] = [
+/** Users without their teams (the handlers add `teams` from TEAMS). */
+export const USERS: Omit<User, 'teams'>[] = [
   {
     id: 'u-admin',
     username: 'admin',
@@ -1393,9 +1413,41 @@ export const USERS: User[] = [
     username: 'sam',
     displayName: 'Sam Lindqvist',
     role: 'viewer',
+    mustChangePassword: false,
+    disabled: false,
+    lastLoginAt: null,
+    createdAt: created,
+    updatedAt: created,
+  },
+  {
+    id: 'u-jonas',
+    username: 'jonas',
+    displayName: 'Jonas Weber',
+    role: 'viewer',
     mustChangePassword: true,
     disabled: false,
     lastLoginAt: null,
+    createdAt: created,
+    updatedAt: created,
+  },
+];
+
+export const TEAMS: MockTeam[] = [
+  {
+    id: 'tm-platform',
+    name: 'Platform',
+    description: 'Owns the checkout, inventory and notification services.',
+    memberIds: ['u-maria'],
+    streams: ['api', 'workers', 'otel-traces', 'otel-metrics'],
+    createdAt: created,
+    updatedAt: iso(NOW - 2 * 86_400_000),
+  },
+  {
+    id: 'tm-legacy',
+    name: 'Legacy migration',
+    description: 'Temporary access to the paused legacy stream.',
+    memberIds: [],
+    streams: ['legacy'],
     createdAt: created,
     updatedAt: created,
   },
@@ -1448,7 +1500,7 @@ export const AUDIT: AuditEntry[] = (
 }));
 
 export const SYSTEM: SystemReport = {
-  version: '0.9.1',
+  version: typeof __TM_DEMO_VERSION__ === 'string' ? __TM_DEMO_VERSION__ : 'dev',
   startedAt: iso(NOW - 3 * 86_400_000 - 4 * 3_600_000),
   uptimeSeconds: 3 * 86400 + 4 * 3600,
   queueDepth: { events: 412, spans: 88, metrics: 12 },

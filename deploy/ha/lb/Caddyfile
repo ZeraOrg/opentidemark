@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Caddy 2 in front of three Tidemark nodes (SPEC §17.5). Caddy obtains the certificate for the
+# Caddy 2 in front of three OpenTidemark nodes (SPEC §17.5). Caddy obtains the certificate for the
 # UI host itself (or use `tls <cert> <key>`). Active health checks use each node's /readyz on
 # port 8080, so a draining node leaves rotation immediately.
 # Set TIDEMARK_TRUSTED_PROXIES on the nodes to this host's address.

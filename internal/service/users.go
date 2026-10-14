@@ -60,8 +60,14 @@ type Users struct {
 	settings SettingsStore
 	hasher   *auth.PasswordHasher
 	policy   *auth.PasswordPolicy
+	teams    UserTeamLister
 	audit    *Auditor
 	now      func() time.Time
+}
+
+// UserTeamLister lists the teams of a user (recorded when the user is deleted).
+type UserTeamLister interface {
+	UserTeams(ctx context.Context, userID string) ([]meta.TeamRef, error)
 }
 
 // UsersDeps bundles the collaborators of Users.
@@ -72,6 +78,7 @@ type UsersDeps struct {
 	Settings SettingsStore
 	Hasher   *auth.PasswordHasher
 	Policy   *auth.PasswordPolicy
+	Teams    UserTeamLister // optional
 	Audit    *Auditor
 	Now      func() time.Time
 }
@@ -79,7 +86,7 @@ type UsersDeps struct {
 // NewUsers returns the user service.
 func NewUsers(d UsersDeps) *Users {
 	return &Users{store: d.Store, sessions: d.Sessions, tokens: d.Tokens, settings: d.Settings, hasher: d.Hasher,
-		policy: d.Policy, audit: d.Audit, now: d.Now}
+		policy: d.Policy, teams: d.Teams, audit: d.Audit, now: d.Now}
 }
 
 // NewUser is the input of Create.
@@ -240,10 +247,22 @@ func (s *Users) Delete(ctx context.Context, actor Actor, callerID, id string) er
 	if err := s.guardAdmins(ctx, u, true); err != nil {
 		return err
 	}
+	details := map[string]any{"username": u.Username}
+	if s.teams != nil {
+		refs, err := s.teams.UserTeams(ctx, id)
+		if err != nil {
+			return err
+		}
+		names := make([]string, 0, len(refs))
+		for _, r := range refs {
+			names = append(names, r.Name)
+		}
+		details["teams"] = names
+	}
 	if err := s.store.Delete(ctx, id); err != nil {
 		return err
 	}
-	s.audit.Record(ctx, actor, ActionUserDelete, id, map[string]any{"username": u.Username})
+	s.audit.Record(ctx, actor, ActionUserDelete, id, details)
 	return nil
 }
 

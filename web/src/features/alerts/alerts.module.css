@@ -236,6 +236,12 @@
   min-width: 240px;
 }
 
+.streamsField {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 @media (max-width: 1199px) {
   .withDrawer {
     padding-right: 0;

@@ -1,10 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# Releases (SPEC §17.6). In the main public repository a release is made automatically when ci
-# succeeds for a push to main whose VERSION file names a version without a tag v<VERSION> yet:
-# `make dist` builds the archives and checksums.txt, their build provenance is attested, the
+# Releases (SPEC §17.6). In the main public repository ci calls this workflow (workflow_call) as
+# its last job after its other jobs succeeded for a push to main. A release is made when VERSION
+# names a version without a tag v<VERSION> yet:
+# `make dist` builds the archives and `make docs-offline` the offline documentation bundle
+# (tidemark_<VERSION>_docs.zip), all listed in checksums.txt; their build provenance is attested, the image
+# is scanned with Trivy (HIGH/CRITICAL with a fix fail the release), the
 # multi-arch image is pushed to ghcr.io/zeraorg/tidemark, and finally the tag v<VERSION> and the
-# GitHub release (notes = the CHANGELOG.md section of the version) are created on that commit.
+# GitHub release (notes = the CHANGELOG.md section of the version plus an Install section,
+# scripts/release-notes.sh) are created on that commit.
 # When the tag already exists the run ends after its first, cheap step. workflow_dispatch on main
 # runs the same logic again (recovery after a failure).
 # Other repositories: manual draft test builds only (workflow_dispatch): the archives and
@@ -13,10 +17,7 @@
 name: release
 
 on:
-  workflow_run:
-    workflows: [ci]
-    types: [completed]
-    branches: [main]
+  workflow_call:
   workflow_dispatch:
 
 permissions: {}
@@ -27,20 +28,20 @@ defaults:
 
 env:
   IMAGE: ghcr.io/zeraorg/tidemark
+  TRIVY_VERSION: v0.75.0 # same as security.yml (internal/repotest)
   PUBLIC: ${{ github.repository == 'ZeraOrg/tidemark' }}
 
 jobs:
   prepare:
     name: decide
-    # Automatic runs only in the main public repository, after a successful ci run of a push to
-    # its main; manual runs everywhere.
+    # Automatic runs only in the main public repository, called by ci after its other jobs
+    # succeeded for a push to main; manual runs everywhere.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.repository == 'ZeraOrg/tidemark' &&
-       github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.event == 'push' &&
-       github.event.workflow_run.head_repository.full_name == github.repository)
+       github.event_name == 'push' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     permissions:
       contents: read
       actions: read
@@ -59,7 +60,7 @@ jobs:
         id: decide
         env:
           GH_TOKEN: ${{ github.token }}
-          SOURCE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          SOURCE_SHA: ${{ github.sha }}
         run: |
           semver='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$'
           version="$(gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/VERSION?ref=$SOURCE_SHA")"
@@ -78,16 +79,25 @@ jobs:
               reason="releases are made from main only (started on $GITHUB_REF)"
             elif [[ "$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" != "$SOURCE_SHA" ]]; then
               reason="${SOURCE_SHA::12} is no longer the tip of main; the newer commit releases itself"
-            else
-              ci="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$SOURCE_SHA&event=push&per_page=1" \
-                --jq '.workflow_runs[0] | "\(.status)/\(.conclusion)"')"
-              if [[ "$ci" != completed/success ]]; then
-                reason="ci for ${SOURCE_SHA::12} is $ci; releases wait for a green ci"
+            elif [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+              # When ci calls this workflow, its gate jobs have just succeeded. A manual run checks
+              # them in the latest push ci run of the commit; ci's own release jobs (named
+              # "release / …") may have failed, which is what a manual run recovers from.
+              run="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$SOURCE_SHA&event=push&per_page=1" \
+                --jq '.workflow_runs[0].id // empty')"
+              if [[ -z "$run" ]]; then
+                reason="no push ci run exists for ${SOURCE_SHA::12}; releases wait for a green ci"
+              else
+                gate="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/jobs?per_page=100" \
+                  --jq '[.jobs[] | select(.name | startswith("release") | not)] | "\(length) \(map(select(.conclusion != "success")) | length)"')"
+                if [[ "${gate%% *}" == 0 || "${gate##* }" != 0 ]]; then
+                  reason="the gate jobs of ci run $run for ${SOURCE_SHA::12} did not all succeed; releases wait for a green ci"
+                fi
               fi
             fi
-            name="$tag"
+            name="OpenTidemark $tag"
           else
-            name="$tag (private test build ${SOURCE_SHA::7})"
+            name="OpenTidemark $tag (private test build ${SOURCE_SHA::7})"
           fi
           prerelease=false
           [[ "$version" == *-* ]] && prerelease=true
@@ -135,6 +145,7 @@ jobs:
     needs: prepare
     if: needs.prepare.outputs.proceed == 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     permissions:
       contents: read
       id-token: write # build provenance attestation (main public repository)
@@ -154,6 +165,17 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - name: make dist
         run: scripts/ci-annotate.sh "make dist" -- make dist
+      # The offline documentation bundle joins the archives (and checksums.txt) before the
+      # attestation, so it is covered by the same checksums and provenance.
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: docs-site/requirements.txt
+      - name: install MkDocs
+        run: pip install --require-hashes -r docs-site/requirements.txt
+      - name: offline documentation bundle
+        run: scripts/ci-annotate.sh "make docs-offline" -- make docs-offline
       - name: attest build provenance
         if: env.PUBLIC == 'true'
         uses: actions/attest-build-provenance@v4
@@ -171,6 +193,7 @@ jobs:
     needs: [prepare, build]
     if: needs.prepare.outputs.proceed == 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     concurrency:
       group: release-image-${{ needs.prepare.outputs.version }}
       cancel-in-progress: false
@@ -187,6 +210,22 @@ jobs:
       - uses: docker/setup-qemu-action@v4
         if: env.PUBLIC == 'true'
       - uses: docker/setup-buildx-action@v4
+      # The image is scanned before anything is pushed or tagged: a HIGH/CRITICAL finding with a
+      # fix stops the release (same scanner and version as security.yml). The linux/amd64 build
+      # is loaded into the local Docker daemon; its layers are reused by the push build below.
+      - name: build linux/amd64 for the vulnerability scan
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: tidemark:release-scan
+          build-args: VERSION=${{ needs.prepare.outputs.version }}
+      - name: Trivy image scan
+        run: |
+          scripts/ci-annotate.sh trivy -- docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            "aquasec/trivy:${TRIVY_VERSION#v}" image --exit-code 1 --severity HIGH,CRITICAL \
+            --ignore-unfixed --no-progress tidemark:release-scan
       - uses: docker/login-action@v4
         if: env.PUBLIC == 'true'
         with:
@@ -203,7 +242,7 @@ jobs:
           tags: ${{ needs.prepare.outputs.image-tags }}
           build-args: VERSION=${{ needs.prepare.outputs.version }}
           labels: |
-            org.opencontainers.image.title=Tidemark
+            org.opencontainers.image.title=OpenTidemark
             org.opencontainers.image.description=Open-source, self-hosted observability for logs, traces and metrics
             org.opencontainers.image.version=${{ needs.prepare.outputs.version }}
             org.opencontainers.image.revision=${{ needs.prepare.outputs.sha }}
@@ -229,6 +268,7 @@ jobs:
     needs: [prepare, build, image]
     if: needs.prepare.outputs.proceed == 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     concurrency:
       group: release-${{ needs.prepare.outputs.version }}
       cancel-in-progress: false

@@ -174,7 +174,7 @@ func SlackMessage(n Notification) map[string]any {
 	}
 	if n.URL != "" {
 		blocks = append(blocks, map[string]any{"type": "actions", "elements": []map[string]any{{"type": "button",
-			"text": map[string]any{"type": "plain_text", "text": "Open in Tidemark"}, "url": n.URL}}})
+			"text": map[string]any{"type": "plain_text", "text": "Open in OpenTidemark"}, "url": n.URL}}})
 	}
 	return map[string]any{"text": summary(n), "blocks": blocks}
 }
@@ -214,7 +214,7 @@ func TeamsMessage(n Notification) map[string]any {
 	card := map[string]any{"$schema": "http://adaptivecards.io/schemas/adaptive-card.json", "type": "AdaptiveCard",
 		"version": "1.4", "body": body}
 	if n.URL != "" {
-		card["actions"] = []map[string]any{{"type": "Action.OpenUrl", "title": "Open in Tidemark", "url": n.URL}}
+		card["actions"] = []map[string]any{{"type": "Action.OpenUrl", "title": "Open in OpenTidemark", "url": n.URL}}
 	}
 	return map[string]any{"type": "message", "attachments": []map[string]any{{
 		"contentType": "application/vnd.microsoft.card.adaptive", "content": card}}}

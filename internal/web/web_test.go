@@ -16,7 +16,7 @@ func TestPlaceholder(t *testing.T) {
 	}
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest("GET", "/events/123", nil))
-	if w.Code != 200 || !strings.Contains(w.Body.String(), "Tidemark") {
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "OpenTidemark") {
 		t.Errorf("%d %s", w.Code, w.Body.String())
 	}
 }

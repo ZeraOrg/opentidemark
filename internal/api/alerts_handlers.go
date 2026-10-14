@@ -46,11 +46,12 @@ type alertRequest struct {
 	Name    string          `json:"name"`
 	Enabled *bool           `json:"enabled"`
 	Doc     json.RawMessage `json:"doc"`
+	Streams []string        `json:"streams"` // null or absent: every stream
 	Version int             `json:"version"`
 }
 
 func (r alertRequest) input() service.AlertInput {
-	return service.AlertInput{Name: r.Name, Enabled: r.Enabled, Doc: r.Doc, Version: r.Version}
+	return service.AlertInput{Name: r.Name, Enabled: r.Enabled, Doc: r.Doc, Streams: r.Streams, Version: r.Version}
 }
 
 type groupView struct {
@@ -65,6 +66,7 @@ type alertView struct {
 	Name       string          `json:"name"`
 	Enabled    bool            `json:"enabled"`
 	Doc        json.RawMessage `json:"doc"`
+	Streams    []string        `json:"streams"` // null: every stream
 	State      string          `json:"state"`
 	StateSince *time.Time      `json:"stateSince"`
 	LastEvalAt *time.Time      `json:"lastEvalAt"`
@@ -90,13 +92,13 @@ func toGroupViews(s alerting.RuleState) []groupView {
 }
 
 func toAlertView(r *meta.AlertRule) alertView {
-	return alertView{ID: r.ID, Name: r.Name, Enabled: r.Enabled, Doc: r.Doc, State: r.State, StateSince: r.StateSince,
+	return alertView{ID: r.ID, Name: r.Name, Enabled: r.Enabled, Doc: r.Doc, Streams: r.Streams, State: r.State, StateSince: r.StateSince,
 		LastEvalAt: r.LastEvalAt, LastValue: r.LastValue, LastError: r.LastError,
 		Groups: toGroupViews(alerting.DecodeRuleState(r.EvalState)), Version: r.Version, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}
 }
 
 func (a *AlertsAPI) list(w http.ResponseWriter, r *http.Request) error {
-	rules, err := a.Alerts.List(r.Context())
+	rules, err := a.Alerts.List(r.Context(), principal(r))
 	if err != nil {
 		return err
 	}
@@ -113,7 +115,7 @@ func (a *AlertsAPI) create(w http.ResponseWriter, r *http.Request) error {
 	if err := decode(r, &in); err != nil {
 		return err
 	}
-	rule, err := a.Alerts.Create(r.Context(), actor(r, a.ClientIP), in.input())
+	rule, err := a.Alerts.Create(r.Context(), actor(r, a.ClientIP), principal(r), in.input())
 	if err != nil {
 		return err
 	}
@@ -122,7 +124,7 @@ func (a *AlertsAPI) create(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (a *AlertsAPI) get(w http.ResponseWriter, r *http.Request) error {
-	rule, err := a.Alerts.Get(r.Context(), r.PathValue("id"))
+	rule, err := a.Alerts.Get(r.Context(), principal(r), r.PathValue("id"))
 	if err != nil {
 		return err
 	}
@@ -135,7 +137,7 @@ func (a *AlertsAPI) update(w http.ResponseWriter, r *http.Request) error {
 	if err := decode(r, &in); err != nil {
 		return err
 	}
-	rule, err := a.Alerts.Update(r.Context(), actor(r, a.ClientIP), r.PathValue("id"), in.input())
+	rule, err := a.Alerts.Update(r.Context(), actor(r, a.ClientIP), principal(r), r.PathValue("id"), in.input())
 	if err != nil {
 		return err
 	}
@@ -144,7 +146,7 @@ func (a *AlertsAPI) update(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (a *AlertsAPI) delete(w http.ResponseWriter, r *http.Request) error {
-	if err := a.Alerts.Delete(r.Context(), actor(r, a.ClientIP), r.PathValue("id")); err != nil {
+	if err := a.Alerts.Delete(r.Context(), actor(r, a.ClientIP), principal(r), r.PathValue("id")); err != nil {
 		return err
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -172,7 +174,7 @@ type testView struct {
 }
 
 func (a *AlertsAPI) test(w http.ResponseWriter, r *http.Request) error {
-	out, err := a.Alerts.Test(r.Context(), r.PathValue("id"))
+	out, err := a.Alerts.Test(r.Context(), principal(r), r.PathValue("id"))
 	if err != nil {
 		return err
 	}
@@ -208,7 +210,7 @@ func (a *AlertsAPI) mute(w http.ResponseWriter, r *http.Request) error {
 	if err := decode(r, &in); err != nil {
 		return err
 	}
-	rule, err := a.Alerts.Mute(r.Context(), actor(r, a.ClientIP), r.PathValue("id"), in.Until)
+	rule, err := a.Alerts.Mute(r.Context(), actor(r, a.ClientIP), principal(r), r.PathValue("id"), in.Until)
 	if err != nil {
 		return err
 	}
@@ -235,7 +237,7 @@ func (a *AlertsAPI) history(w http.ResponseWriter, r *http.Request) error {
 		}
 		limit = n
 	}
-	hs, err := a.Alerts.History(r.Context(), r.PathValue("id"), limit)
+	hs, err := a.Alerts.History(r.Context(), principal(r), r.PathValue("id"), limit)
 	if err != nil {
 		return err
 	}

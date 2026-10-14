@@ -5,7 +5,7 @@
 // attributes, events, linked logs and raw JSON.
 
 import { useQuery } from '@tanstack/react-query';
-import { Copy, List, X } from 'lucide-react';
+import { Copy, EyeOff, List, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { errorMessage } from '../../api/client';
@@ -96,6 +96,12 @@ function Waterfall({
               <ServiceDot service={r.span.service} />
               <span className={s.wfService}>{r.span.service}</span>
               <span className={s.wfSpan}>{r.span.name}</span>
+              {r.depth === 0 && r.span.parentSpanId !== '' ? (
+                <span className={s.orphan} title="The parent span is in a stream you cannot see">
+                  <EyeOff size={11} aria-hidden="true" />
+                  <span>parent span not visible</span>
+                </span>
+              ) : null}
             </span>
             <span className={s.track}>
               {[0.25, 0.5, 0.75].map((f) => (
@@ -233,7 +239,11 @@ function SpanDrawer({
             <span className={l.sectionLabel}>Kind</span>
             <strong>{span.kind === '' ? '—' : span.kind}</strong>
             <span className={s.statNote}>
-              {parent !== undefined ? `parent: ${parent.name}` : 'root span'}
+              {parent !== undefined
+                ? `parent: ${parent.name}`
+                : span.parentSpanId !== ''
+                  ? 'parent span not visible'
+                  : 'root span'}
             </span>
           </div>
         </div>

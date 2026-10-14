@@ -237,6 +237,33 @@
   text-overflow: ellipsis;
 }
 
+/* A root whose parent is in a stream the caller cannot see (SPEC §15.10). */
+.orphan {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 1 auto;
+  min-width: 22px;
+  height: 18px;
+  padding: 0 6px;
+  border: 1px solid var(--tm-color-border);
+  border-radius: var(--tm-radius-sm);
+  font-family: var(--tm-font-sans);
+  font-size: var(--tm-text-2xs);
+  line-height: 16px;
+  color: var(--tm-color-fg-subtle);
+}
+
+.orphan svg {
+  flex: none;
+}
+
+.orphan span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .track {
   position: relative;
   height: 100%;

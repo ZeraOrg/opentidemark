@@ -1,51 +1,57 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# Quality gate (SPEC §17.1, §17.4, §18): lint, unit tests and builds on Linux and Windows,
-# integration tests against a ClickHouse service container, licence notices, and the web UI when
-# present. Failing steps publish their output as annotations through scripts/ci-annotate.sh.
+# Quality gate (SPEC §17.1, §17.4, §18): lint, unit tests and govulncheck on Linux and Windows,
+# integration tests against a ClickHouse service container, the licence allow-list and notices,
+# and the whole web gate (lint, format, typecheck, unit tests, build, CSP check, Playwright e2e
+# against the mock build, npm audit, Go embed of web/dist). After a green push to main the
+# release workflow is called (SPEC §17.6). Jobs run automatically only in the main public
+# repository ZeraOrg/tidemark; anywhere else they run only when started by hand
+# (workflow_dispatch). Failing steps publish their output as annotations (scripts/ci-annotate.sh,
+# web/scripts/ci-annotate.mjs).
 name: ci
 
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Superseded pull-request runs are cancelled; runs of main always finish, so a release that
+  # has started is never cut off by the next push.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   GOLANGCI_LINT_VERSION: v2.14.0
   GOVULNCHECK_VERSION: v1.9.0
   CGO_ENABLED: "0"
+  NODE_VERSION: "22"
 
 jobs:
   go:
     name: go (${{ matrix.os }})
-    # Pull requests run in the main public repository only; pushes to main run everywhere
-    # (SPEC §17.4).
-    if: github.event_name != 'pull_request' || github.repository == 'zeraOrg/tidemark'
+    if: github.repository == 'ZeraOrg/tidemark' || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
-        # The Windows job (the slowest) runs in the main public repository; elsewhere the Linux job
-        # still cross-compiles for Windows (SPEC §17.4).
-        os: ${{ fromJSON(github.repository == 'zeraOrg/tidemark' && '["ubuntu-24.04","windows-latest"]' || '["ubuntu-24.04"]') }}
+        os: [ubuntu-24.04, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@v7 # caches modules and the build cache (go.sum)
         with:
           go-version-file: go.mod
       - name: gofmt
         run: |
-          unformatted="$(gofmt -l $(git ls-files '*.go'))"
+          unformatted="$(git ls-files -z '*.go' | xargs -0 gofmt -l)"
           if [ -n "$unformatted" ]; then echo "::error title=gofmt needed::${unformatted//$'\n'/%0A}"; exit 1; fi
       - name: go vet
         run: |
@@ -70,22 +76,24 @@ jobs:
         if: runner.os == 'Windows'
         run: scripts/ci-annotate.sh "unit tests" -- go test ./...
       - name: govulncheck
+        if: runner.os == 'Linux'
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}
+          go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
           scripts/ci-annotate.sh govulncheck -- govulncheck ./...
-      - name: cross-compile
-        run: |
-          for target in linux/amd64 linux/arm64 windows/amd64; do
-            GOOS="${target%/*}" GOARCH="${target#*/}" \
-              scripts/ci-annotate.sh "build ${target}" -- go build -trimpath -o /dev/null ./cmd/tidemark
-          done
+      # linux/amd64 and windows/amd64 are built and tested natively by the two matrix jobs;
+      # linux/arm64 is the only release target nothing else compiles before a release.
+      - name: build linux/arm64
+        if: runner.os == 'Linux'
+        env:
+          GOOS: linux
+          GOARCH: arm64
+        run: scripts/ci-annotate.sh "build linux/arm64" -- go build -trimpath -o /dev/null ./cmd/tidemark
 
   integration:
     name: integration (ClickHouse)
-    # Pull requests run in the main public repository only; pushes to main run everywhere
-    # (SPEC §17.4).
-    if: github.event_name != 'pull_request' || github.repository == 'zeraOrg/tidemark'
+    if: github.repository == 'ZeraOrg/tidemark' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     services:
       clickhouse:
         image: clickhouse/clickhouse-server:25.8
@@ -109,7 +117,7 @@ jobs:
           go-version-file: go.mod
       # Same users and grants as deploy/clickhouse/users.d/tidemark.xml, created through SQL because
       # service containers start before the checkout.
-      - name: create the Tidemark ClickHouse users
+      - name: create the OpenTidemark ClickHouse users
         run: |
           docker exec -i "${{ job.services.clickhouse.id }}" \
             clickhouse-client --user ci_admin --password ci-admin-password --multiquery <<SQL
@@ -126,46 +134,109 @@ jobs:
         run: scripts/ci-annotate.sh "integration tests" -- go test -tags integration -p 1 -count=1 ./...
 
   notices:
-    name: licence notices
-    # Pull requests run in the main public repository only; pushes to main run everywhere
-    # (SPEC §17.4).
-    if: github.event_name != 'pull_request' || github.repository == 'zeraOrg/tidemark'
+    name: licences and notices
+    if: github.repository == 'ZeraOrg/tidemark' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       - uses: actions/setup-node@v7
-        if: hashFiles('web/package.json') != ''
         with:
-          node-version: 22
-      - name: regenerate THIRD_PARTY_NOTICES.md
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      # `make notices` runs `make licences` (the Go allow-list, SPEC §19.1) first.
+      - name: licence allow-list and THIRD_PARTY_NOTICES.md
         run: scripts/ci-annotate.sh "make notices" -- make notices
       - name: notices are up to date
         run: scripts/ci-annotate.sh "THIRD_PARTY_NOTICES.md is stale" -- git diff --exit-code THIRD_PARTY_NOTICES.md
 
   web:
-    name: web
-    # Pull requests run in the main public repository only; pushes to main run everywhere
-    # (SPEC §17.4).
-    if: github.event_name != 'pull_request' || github.repository == 'zeraOrg/tidemark'
+    name: web (lint, test, build, e2e, embed)
+    if: github.repository == 'ZeraOrg/tidemark' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: web
     steps:
       - uses: actions/checkout@v7
-      - name: detect web/
-        id: detect
-        run: |
-          if [ -f web/package.json ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; fi
       - uses: actions/setup-node@v7
-        if: steps.detect.outputs.present == 'true'
         with:
-          node-version: 22
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - name: lint, typecheck, test, build, audit
-        if: steps.detect.outputs.present == 'true'
-        run: scripts/ci-annotate.sh "make web-check" -- make web-check
-      - name: skipped
-        if: steps.detect.outputs.present != 'true'
-        run: echo "web/package.json not found; web checks skipped"
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: install
+        run: node scripts/ci-annotate.mjs run "npm ci" -- npm ci --no-audit --no-fund
+      # Every check runs even when an earlier one failed (!cancelled()), so one run reports every
+      # problem; the job still fails on any of them.
+      - name: lint
+        if: ${{ !cancelled() }}
+        run: node scripts/ci-annotate.mjs run "lint" -- npm run lint
+      - name: format
+        if: ${{ !cancelled() }}
+        run: node scripts/ci-annotate.mjs run "format" -- npm run format:check
+      - name: typecheck
+        if: ${{ !cancelled() }}
+        run: node scripts/ci-annotate.mjs run "typecheck" -- npm run typecheck
+      - name: unit tests (coverage)
+        if: ${{ !cancelled() }}
+        run: node scripts/ci-annotate.mjs run "unit tests" -- npm run test:coverage
+      - name: build
+        if: ${{ !cancelled() }}
+        run: node scripts/ci-annotate.mjs run "build" -- npm run build
+      - name: CSP check of the production bundle
+        if: ${{ !cancelled() }}
+        run: node scripts/ci-annotate.mjs run "CSP check" -- npm run check:csp
+      - name: Go embed of web/dist
+        if: ${{ !cancelled() }}
+        working-directory: .
+        run: |
+          rm -rf internal/web/assets/dist
+          cp -R web/dist internal/web/assets/dist
+          test -f internal/web/assets/dist/index.html
+          scripts/ci-annotate.sh "go build (embedded web/dist)" -- go build ./...
+          scripts/ci-annotate.sh "go embed tests" -- go test ./internal/web/... ./internal/repotest/
+      - name: npm audit
+        if: ${{ !cancelled() }}
+        run: node scripts/ci-annotate.mjs run "npm audit" -- npm audit --audit-level=high
+      - name: build (mock mode)
+        if: ${{ !cancelled() }}
+        run: node scripts/ci-annotate.mjs run "build mock" -- npm run build:mock
+      - name: install Playwright browser
+        if: ${{ !cancelled() }}
+        run: npx playwright install --with-deps chromium
+      - name: e2e + screenshots
+        if: ${{ !cancelled() }}
+        run: node scripts/ci-annotate.mjs run "e2e" -- npm run e2e
+      - name: upload screenshots and the Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright
+          path: |
+            web/e2e/screenshots
+            web/playwright-report
+            web/test-results
+          if-no-files-found: warn
+          retention-days: 14
+
+  release:
+    name: release
+    needs: [go, integration, notices, web]
+    # A green push to main of the main public repository may release (SPEC §17.6): the called
+    # workflow ends after one cheap step unless VERSION names a version without a tag yet.
+    if: github.repository == 'ZeraOrg/tidemark' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write # tag and GitHub release
+      packages: write # image push to ghcr.io
+      id-token: write # provenance attestations
+      attestations: write
+      actions: read # the called workflow reads ci runs on manual starts
+    uses: ./.github/workflows/release.yml

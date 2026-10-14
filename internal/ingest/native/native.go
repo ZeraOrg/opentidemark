@@ -145,7 +145,7 @@ type requestError struct{ msg string }
 func (e *requestError) Error() string { return e.msg }
 func (e *requestError) Unwrap() error { return ingest.ErrBadRequest }
 
-// writeError writes the Tidemark API error shape (SPEC §11.1).
+// writeError writes the OpenTidemark API error shape (SPEC §11.1).
 func writeError(w http.ResponseWriter, err error) {
 	ingest.SetRetryHeaders(w, err)
 	status := ingest.Status(err)

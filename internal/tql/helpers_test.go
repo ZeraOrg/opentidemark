@@ -49,3 +49,16 @@ func TestBuiltinFields(t *testing.T) {
 		t.Errorf("metric builtins %v", metrics)
 	}
 }
+
+// TestConnectionIDBuiltin: every source can filter by the ingesting connection (SPEC §10.4).
+func TestConnectionIDBuiltin(t *testing.T) {
+	for _, src := range sources() {
+		found := false
+		for _, f := range BuiltinFields(src) {
+			found = found || f.Name == "connection_id"
+		}
+		if !found {
+			t.Errorf("%s: no connection_id built-in", src)
+		}
+	}
+}

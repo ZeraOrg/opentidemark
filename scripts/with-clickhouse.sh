@@ -7,7 +7,7 @@
 #
 # When TIDEMARK_TEST_CLICKHOUSE_ADDR is already set the command runs unchanged. Otherwise a
 # local ClickHouse binary ($CLICKHOUSE_BIN, /opt/clickhouse/clickhouse or `clickhouse` on PATH)
-# is started on a free loopback port with a temporary data directory and the Tidemark users of
+# is started on a free loopback port with a temporary data directory and the OpenTidemark users of
 # deploy/clickhouse/users.d (random passwords), the TIDEMARK_TEST_CLICKHOUSE_* variables are
 # exported for the command, and the server is stopped and removed afterwards. Without a binary
 # the command still runs and the integration tests skip themselves.

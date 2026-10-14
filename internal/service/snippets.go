@@ -21,8 +21,12 @@ type Snippet struct {
 	Content  string `json:"content"`
 }
 
+// nativeIngestPath is the native JSON endpoint (SPEC §9.5) that Logstash's http output posts to.
+const nativeIngestPath = "/api/v1/ingest/logs"
+
 // Snippets renders client configurations for a connection using the public URL (SPEC §11.5).
-// Seq clients use the base URL, Elasticsearch shippers <base>/es and OTLP <base>/otlp.
+// Seq clients use the base URL, Elasticsearch shippers <base>/es, OTLP <base>/otlp and Logstash
+// the native endpoint through its http output (SPEC §9.3).
 func Snippets(c meta.Connection, public *url.URL) []Snippet {
 	base := strings.TrimSuffix(public.String(), "/")
 	host := public.Hostname()
@@ -48,8 +52,8 @@ func Snippets(c meta.Connection, public *url.URL) []Snippet {
 			fmt.Sprintf("[sinks.tidemark]\ntype = \"elasticsearch\"\ninputs = [\"*\"]\nendpoints = [%q]\napi_version = \"v8\"\nbulk.index = %q\nauth.strategy = \"basic\"\nauth.user = \"tidemark\"\nauth.password = %q",
 				base+"/es", c.DefaultStream, KeyPlaceholder)},
 		{"logstash", "Logstash", "ruby",
-			fmt.Sprintf("output {\n  elasticsearch {\n    hosts => [%q]\n    user => \"tidemark\"\n    password => %q\n    index => %q\n    ilm_enabled => false\n    manage_template => false\n  }\n}",
-				base+"/es", KeyPlaceholder, c.DefaultStream)},
+			fmt.Sprintf("output {\n  http {\n    url => %q\n    http_method => \"post\"\n    format => \"json_batch\"\n    headers => { \"X-Tidemark-Key\" => %q }\n  }\n}",
+				base+nativeIngestPath, KeyPlaceholder)},
 	}
 }
 

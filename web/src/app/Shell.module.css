@@ -119,6 +119,12 @@
   font-weight: var(--tm-font-weight-semibold);
 }
 
+.emptyLink {
+  margin-top: 4px;
+  font-size: var(--tm-text-sm);
+  font-weight: var(--tm-font-weight-medium);
+}
+
 /* ---- Banners (§5.16) -------------------------------------------------------------------------- */
 .banner {
   display: flex;

@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { errorMessage } from '../../api/client';
 import { search } from '../../api/endpoints';
+import { useDataScope } from '../../app/scope';
 import { useApi, usePalette, useServices } from '../../app/services';
 import { useTopbarStatus } from '../../app/shellContext';
 import { patchParams, useTimeRange } from '../../app/url';
@@ -27,13 +28,14 @@ export default function TracesPage() {
   const palette = usePalette();
   const { now } = useServices();
   const { range } = useTimeRange();
+  const scope = useDataScope();
   const [params, setParams] = useSearchParams();
   const q = params.get('q') ?? '';
   const [draft, setDraft] = useState(q);
   useEffect(() => setDraft(q), [q]);
   const traces = useQuery({
-    queryKey: ['traces', q, range.from, range.to],
-    queryFn: ({ signal }) => search.traces(api, { q, ...range, limit: LIMIT }, signal),
+    queryKey: ['traces', q, range.from, range.to, scope.key],
+    queryFn: ({ signal }) => search.traces(api, { q, ...range, limit: LIMIT, ...scope.params }, signal),
   });
   const list = traces.data ?? [];
   const longest = Math.max(1, ...list.map((t) => t.durationMs));
@@ -52,6 +54,7 @@ export default function TracesPage() {
           placeholder="service:checkout-api and duration > 250ms"
           error={errorFromApi(q, traces.error)}
           className={s.searchBar}
+          scope={scope.params}
         />
         <Button variant="primary" onClick={() => run(draft)}>
           Search

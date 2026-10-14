@@ -3,7 +3,7 @@
 // Layout primitives: page heads, cards, tabs, empty states, notices and code blocks.
 
 import { AlertCircle, AlertTriangle, CheckCircle2, Info, Search } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useId, type ReactNode } from 'react';
 import { cx } from '../lib/cx';
 import s from './layout.module.css';
 
@@ -55,11 +55,19 @@ export function Card({
   flush?: boolean;
   headExtra?: ReactNode;
 }) {
+  const titleId = useId();
   return (
-    <section className={cx(s.card, className)}>
+    <section
+      className={cx(s.card, className)}
+      aria-labelledby={typeof title === 'string' ? titleId : undefined}
+    >
       {title !== undefined || actions !== undefined ? (
         <header className={s.cardHead}>
-          {title !== undefined ? <h2 className={s.cardTitle}>{title}</h2> : null}
+          {title !== undefined ? (
+            <h2 id={titleId} className={s.cardTitle}>
+              {title}
+            </h2>
+          ) : null}
           {subtitle !== undefined ? <span className={s.cardSubtitle}>{subtitle}</span> : null}
           {headExtra}
           {actions !== undefined ? <div className={s.cardActions}>{actions}</div> : null}

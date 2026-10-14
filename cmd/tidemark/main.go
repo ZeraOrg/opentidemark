@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Command tidemark runs the Tidemark server (SPEC §6.1):
+// Command tidemark runs the OpenTidemark server (SPEC §6.1):
 //
 //	tidemark [serve] [flags]                      run the server (default)
 //	tidemark version                              print the version

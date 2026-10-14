@@ -38,6 +38,7 @@ type FacetsRequest struct {
 	Fields  []string
 	Top     int
 	Signals []string
+	Select  Selection
 }
 
 // reIdentifier matches field names that need no backticks (SPEC §10.2).
@@ -58,7 +59,7 @@ func (s *Search) Facets(ctx context.Context, p auth.Principal, req FacetsRequest
 	if req.Top < 1 || req.Top > MaxFacetTop {
 		return nil, invalid("top", fmt.Sprintf("must be between 1 and %d", MaxFacetTop))
 	}
-	pr, err := s.prepare(ctx, p, req.Q, "", req.Signals)
+	pr, err := s.prepare(ctx, p, req.Q, "", req.Signals, req.Select)
 	if err != nil {
 		return nil, err
 	}
@@ -190,8 +191,10 @@ func facetText(v any) string {
 var reSourceName = regexp.MustCompile(`(?i)^\s*source\s+(logs|spans|metrics)\b`)
 
 // Complete returns autocomplete suggestions (SPEC §10.7): the syntactic suggestions of
-// tql.Complete with catalog fields, plus the top values of the field in value position.
-func (s *Search) Complete(ctx context.Context, p auth.Principal, q string, pos int, src model.Source) (tql.Completion, error) {
+// tql.Complete with catalog fields, plus the top values of the field in value position, both
+// from the streams p may see (narrowed by sel).
+func (s *Search) Complete(ctx context.Context, p auth.Principal, q string, pos int, src model.Source,
+	sel Selection) (tql.Completion, error) {
 	if len(q) > tql.MaxQueryBytes {
 		return tql.Completion{}, invalid("q", "query too long")
 	}
@@ -201,8 +204,12 @@ func (s *Search) Complete(ctx context.Context, p auth.Principal, q string, pos i
 	if !src.Valid() {
 		return tql.Completion{}, invalid("source", "must be logs, spans or metrics")
 	}
+	scope, err := s.scope(ctx, p, sel)
+	if err != nil {
+		return tql.Completion{}, err
+	}
 	now := s.d.Now()
-	props, err := s.d.Store.Fields(ctx, src, store.TimeRange{From: now.Add(-completeFieldsRange), To: now})
+	props, err := s.d.Store.Fields(ctx, scope, src, store.TimeRange{From: now.Add(-completeFieldsRange), To: now})
 	if err != nil {
 		return tql.Completion{}, err
 	}
@@ -214,7 +221,7 @@ func (s *Search) Complete(ctx context.Context, p auth.Principal, q string, pos i
 	if comp.Field == "" || isLevelField(comp.Field) {
 		return comp, nil
 	}
-	values, err := s.completeValues(ctx, p, comp, q[comp.From:max(comp.From, min(pos, len(q)))], src, now)
+	values, err := s.completeValues(ctx, p, comp, q[comp.From:max(comp.From, min(pos, len(q)))], src, now, sel)
 	if err != nil {
 		return tql.Completion{}, err
 	}
@@ -226,8 +233,8 @@ func (s *Search) Complete(ctx context.Context, p auth.Principal, q string, pos i
 }
 
 func (s *Search) completeValues(ctx context.Context, p auth.Principal, comp tql.Completion, typed string,
-	src model.Source, now time.Time) ([]tql.Suggestion, error) {
-	pr, err := s.prepare(ctx, p, "*", src, nil)
+	src model.Source, now time.Time, sel Selection) ([]tql.Suggestion, error) {
+	pr, err := s.prepare(ctx, p, "*", src, nil, sel)
 	if err != nil {
 		return nil, err
 	}

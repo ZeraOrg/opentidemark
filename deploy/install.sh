@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 #
-# Tidemark installer for Linux (and macOS for the Docker mode) — SPEC §17.2, §17.3.
+# OpenTidemark installer for Linux (and macOS for the Docker mode) — SPEC §17.2, §17.3.
 #
 #   ./install.sh docker [--no-start]
 #       Creates deploy/.env from .env.example on first run (random ClickHouse passwords and a

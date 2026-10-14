@@ -37,7 +37,7 @@ func newSearchEnv(t *testing.T) *searchEnv {
 	t.Helper()
 	db := openDB(t)
 	e := &searchEnv{db: db, q: &testutil.FakeQuerier{}, now: searchNow}
-	e.s = NewSearch(SearchDeps{Store: e.q, Signals: meta.NewSignals(db), Indexed: meta.NewIndexedFields(db),
+	e.s = NewSearch(SearchDeps{Store: e.q, Access: NewAccess(meta.NewTeams(db), meta.NewSettings(db)), Signals: meta.NewSignals(db), Indexed: meta.NewIndexedFields(db),
 		Audit: NewAuditor(meta.NewAuditLog(db), quiet(), time.Now), Database: "tidemark", MaxRows: 100,
 		TailLag: 2 * time.Second, Now: func() time.Time { return e.now }})
 	e.signals = NewSignals(meta.NewSignals(db))
@@ -179,23 +179,23 @@ func TestFieldsEventsTraces(t *testing.T) {
 	e := newSearchEnv(t)
 	ctx := context.Background()
 	e.q.FieldList = []store.FieldInfo{{Name: "Message", Hits: 3}, {Name: "user.id", Numeric: true, Hits: 2}}
-	fs, err := e.s.Fields(ctx, model.SourceSpans, lastHour)
+	fs, err := e.s.Fields(ctx, viewerUser, model.SourceSpans, lastHour, Selection{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !fs[0].Builtin || fs[len(fs)-1].Name != "user.id" || fs[len(fs)-2].Name != "Message" {
 		t.Errorf("fields %+v", fs)
 	}
-	if _, err := e.s.Fields(ctx, "nope", lastHour); err == nil {
+	if _, err := e.s.Fields(ctx, viewerUser, "nope", lastHour, Selection{}); err == nil {
 		t.Error("bad source accepted")
 	}
-	if _, err := e.s.Event(ctx, "nope"); err == nil {
+	if _, err := e.s.Event(ctx, viewerUser, "nope"); err == nil {
 		t.Error("bad id accepted")
 	}
-	if _, err := e.s.Context(ctx, "nope", 1, MaxContextEvents+1); err == nil {
+	if _, err := e.s.Context(ctx, viewerUser, "nope", 1, MaxContextEvents+1); err == nil {
 		t.Error("context limit not enforced")
 	}
-	if _, _, err := e.s.Trace(ctx, "ABC"); err == nil {
+	if _, _, err := e.s.Trace(ctx, viewerUser, "ABC"); err == nil {
 		t.Error("short trace id accepted")
 	}
 	if _, err := e.s.Traces(ctx, viewerUser, TracesRequest{Q: "status:error", Range: lastHour}); err != nil {
@@ -207,7 +207,7 @@ func TestFieldsEventsTraces(t *testing.T) {
 	if _, err := e.s.Traces(ctx, viewerUser, TracesRequest{Q: "*", Range: lastHour, Limit: MaxTraceLimit + 1}); err == nil {
 		t.Error("trace limit not enforced")
 	}
-	if _, err := e.s.MetricNames(ctx, strings.Repeat("x", MaxMetricNameFilter+1), lastHour); err == nil {
+	if _, err := e.s.MetricNames(ctx, viewerUser, strings.Repeat("x", MaxMetricNameFilter+1), lastHour, Selection{}); err == nil {
 		t.Error("metric filter length not enforced")
 	}
 }
@@ -229,7 +229,7 @@ func TestValidateQuery(t *testing.T) {
 func TestTailPolling(t *testing.T) {
 	e := newSearchEnv(t)
 	ctx := context.Background()
-	tail, err := e.s.OpenTail(ctx, viewerUser, "service:api", nil)
+	tail, err := e.s.OpenTail(ctx, viewerUser, "service:api", nil, Selection{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,14 +252,14 @@ func TestTailPolling(t *testing.T) {
 	}
 	tail.Close()
 	tail.Close()
-	if _, err := e.s.OpenTail(ctx, viewerUser, "source spans | *", nil); err == nil {
+	if _, err := e.s.OpenTail(ctx, viewerUser, "source spans | *", nil, Selection{}); err == nil {
 		t.Error("spans tail accepted")
 	}
-	if _, err := e.s.OpenTail(ctx, viewerUser, "level:", nil); err == nil {
+	if _, err := e.s.OpenTail(ctx, viewerUser, "level:", nil, Selection{}); err == nil {
 		t.Error("invalid tail query accepted")
 	}
 	e.q.Err = errors.New("down")
-	t2, _ := e.s.OpenTail(ctx, viewerUser, "*", nil)
+	t2, _ := e.s.OpenTail(ctx, viewerUser, "*", nil, Selection{})
 	e.now = e.now.Add(time.Second)
 	if _, _, err := t2.Poll(ctx); err == nil {
 		t.Error("poll error swallowed")
@@ -302,7 +302,7 @@ func TestCompleteValues(t *testing.T) {
 		return store.Result{Rows: [][]any{{"/api/a b", uint64(3)}, {"true", uint64(1)}, {"zeta", uint64(1)}}}, nil
 	}
 	q := "source spans | RequestPath:/api"
-	c, err := e.s.Complete(ctx, viewerUser, q, len(q), model.SourceLogs)
+	c, err := e.s.Complete(ctx, viewerUser, q, len(q), model.SourceLogs, Selection{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -310,17 +310,17 @@ func TestCompleteValues(t *testing.T) {
 		c.Suggestions[0].Kind != tql.SuggestValue {
 		t.Errorf("values %+v", c)
 	}
-	c, _ = e.s.Complete(ctx, viewerUser, "level:", 6, model.SourceLogs)
+	c, _ = e.s.Complete(ctx, viewerUser, "level:", 6, model.SourceLogs, Selection{})
 	if len(c.Suggestions) == 0 || len(e.q.Compiled) != 2 {
 		t.Errorf("level values should not query: %+v (%d queries)", c, len(e.q.Compiled))
 	}
-	if c, err := e.s.Complete(ctx, viewerUser, "@timestamp:", 11, model.SourceLogs); err != nil || len(c.Suggestions) != 1 {
+	if c, err := e.s.Complete(ctx, viewerUser, "@timestamp:", 11, model.SourceLogs, Selection{}); err != nil || len(c.Suggestions) != 1 {
 		t.Errorf("unfaceted field: %+v %v", c, err)
 	}
-	if _, err := e.s.Complete(ctx, viewerUser, strings.Repeat("a", tql.MaxQueryBytes+1), 0, model.SourceLogs); err == nil {
+	if _, err := e.s.Complete(ctx, viewerUser, strings.Repeat("a", tql.MaxQueryBytes+1), 0, model.SourceLogs, Selection{}); err == nil {
 		t.Error("long query accepted")
 	}
-	if _, err := e.s.Complete(ctx, viewerUser, "x", 1, "nope"); err == nil {
+	if _, err := e.s.Complete(ctx, viewerUser, "x", 1, "nope", Selection{}); err == nil {
 		t.Error("bad source accepted")
 	}
 }

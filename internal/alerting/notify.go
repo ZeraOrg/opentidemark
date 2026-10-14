@@ -24,7 +24,7 @@ const (
 	dedupeSweepAfter  = 1000
 	UserAgent         = "Tidemark-Alerting/1"
 	maxResponseDrain  = 64 * 1024
-	testRuleName      = "Tidemark test notification"
+	testRuleName      = "OpenTidemark test notification"
 	testRuleID        = "test"
 	stateTestDelivery = "test"
 )
@@ -211,6 +211,6 @@ func (d *Dispatcher) Test(ctx context.Context, ch meta.Channel, publicURL string
 	defer cancel()
 	n := Notification{RuleID: testRuleID, RuleName: testRuleName, Severity: SeverityInfo, State: stateTestDelivery,
 		PreviousState: string(StateOK), At: d.now().UTC(), URL: publicURL,
-		Message: "This is a test notification from Tidemark."}
+		Message: "This is a test notification from OpenTidemark."}
 	return notifier.Notify(ctx, ch, n)
 }

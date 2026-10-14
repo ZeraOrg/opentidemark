@@ -19,9 +19,10 @@ const (
 	pinStreamKeyAlt = "_stream"
 )
 
-// Drop reasons reported to the Observer.
+// Drop and reroute reasons reported to the Observer.
 const (
-	DropBelowMinimumLevel = "below_minimum_level"
+	DropBelowMinimumLevel   = "below_minimum_level"
+	RerouteStreamNotAllowed = "stream_not_allowed"
 )
 
 // Request is an authenticated ingestion request.
@@ -30,6 +31,8 @@ type Request struct {
 	Protocol auth.Protocol
 	Remote   netip.Addr
 	policy   connPolicy
+	observer Observer
+	rerouted int // items whose stream was not allowed, not yet reported
 }
 
 // connPolicy is the per-request view of the connection's ingest rules.
@@ -59,7 +62,7 @@ func (d *Deps) AuthenticateRaw(ctx context.Context, key string, p auth.Protocol,
 		}
 		return nil, err
 	}
-	return &Request{Conn: conn, Protocol: p, Remote: remote, policy: newConnPolicy(conn)}, nil
+	return &Request{Conn: conn, Protocol: p, Remote: remote, policy: newConnPolicy(conn), observer: d.Observer}, nil
 }
 
 func newConnPolicy(c auth.Connection) connPolicy {
@@ -80,16 +83,28 @@ func newConnPolicy(c auth.Connection) connPolicy {
 }
 
 // Stream picks the stream: pinned by the connection, else the explicit value, else the
-// connection default (SPEC §9.1).
+// connection default (SPEC §9.1). An explicit stream outside the connection's allowed
+// streams is replaced by the default and counted (reported by flushRerouted).
 func (r *Request) Stream(explicit string) string {
 	switch {
 	case r.policy.pinnedStream != "":
 		return r.policy.pinnedStream
 	case explicit != "":
-		return model.NormalizeStream(explicit)
-	default:
-		return model.NormalizeStream(r.Conn.DefaultStream)
+		s := model.NormalizeStream(explicit)
+		if r.Conn.AllowsStream(s) {
+			return s
+		}
+		r.rerouted++
 	}
+	return model.NormalizeStream(r.Conn.DefaultStream)
+}
+
+// flushRerouted reports the items rerouted since the last call.
+func (r *Request) flushRerouted() {
+	if r.rerouted > 0 && r.observer != nil {
+		r.observer.Rerouted(string(r.Protocol), RerouteStreamNotAllowed, r.rerouted)
+	}
+	r.rerouted = 0
 }
 
 // CheckRate enforces the connection's events/s limit for n items.
@@ -126,6 +141,7 @@ func (d *Deps) PrepareEvents(r *Request, events []model.Event) ([]model.Event, i
 	if dropped > 0 && d.Observer != nil {
 		d.Observer.Dropped(string(r.Protocol), DropBelowMinimumLevel, dropped)
 	}
+	r.flushRerouted()
 	return kept, dropped
 }
 
@@ -159,6 +175,7 @@ func (r *Request) PrepareSpans(spans []model.Span) {
 			s.Service = s.Stream
 		}
 	}
+	r.flushRerouted()
 }
 
 // PrepareMetrics applies stream selection, applied properties and the connection id.
@@ -172,6 +189,7 @@ func (r *Request) PrepareMetrics(points []model.MetricPoint) {
 			p.Service = p.Stream
 		}
 	}
+	r.flushRerouted()
 }
 
 func (r *Request) mergeApplied(attrs map[string]any) map[string]any {

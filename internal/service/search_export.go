@@ -25,6 +25,7 @@ type ExportRequest struct {
 	Range   Range
 	Format  string
 	Signals []string
+	Select  Selection
 }
 
 // Export runs an events query page by page (newest first) and hands each page to emit, up to
@@ -37,7 +38,7 @@ func (s *Search) Export(ctx context.Context, actor Actor, p auth.Principal, req 
 	if err := req.Range.valid(); err != nil {
 		return 0, err
 	}
-	pr, err := s.prepare(ctx, p, req.Q, "", req.Signals)
+	pr, err := s.prepare(ctx, p, req.Q, "", req.Signals, req.Select)
 	if err != nil {
 		return 0, err
 	}
@@ -51,7 +52,8 @@ func (s *Search) Export(ctx context.Context, actor Actor, p auth.Principal, req 
 		return 0, invalid("q", "export supports event queries only (no stats)")
 	}
 	s.d.Audit.Record(ctx, actor, ActionExport, string(c.Source), map[string]any{"q": req.Q, "from": req.Range.From,
-		"to": req.Range.To, "format": req.Format, "signals": req.Signals})
+		"to": req.Range.To, "format": req.Format, "signals": req.Signals, "streams": req.Select.Streams,
+		"environments": req.Select.Environments})
 	total := 0
 	for {
 		res, err := s.d.Store.Run(ctx, c)

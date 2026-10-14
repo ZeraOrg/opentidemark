@@ -35,6 +35,7 @@ var contractCases = []struct {
 	{"alert_rules", contractAlertRules},
 	{"streams_indexed_purge", contractStreamsIndexedPurge},
 	{"audit_settings", contractAuditAndSettings},
+	{"teams", contractTeams},
 	{"leases", contractLeases},
 	{"import_jobs", contractImportJobs},
 	{"imported_signals", contractImportedSignals},

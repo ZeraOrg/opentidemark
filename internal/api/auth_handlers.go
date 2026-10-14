@@ -29,6 +29,8 @@ type AuthAPI struct {
 	Login         LoginService
 	Sessions      SessionRevoker
 	Users         *service.Users
+	Access        StreamAccessResolver
+	Teams         *service.Teams
 	Audit         *service.Auditor
 	SecureCookies bool
 	ClientIP      func(*http.Request) netip.Addr
@@ -112,10 +114,27 @@ func (a *AuthAPI) me(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	acc, err := a.Access.Resolve(r.Context(), p)
+	if err != nil {
+		return err
+	}
+	teams, err := a.Teams.UserTeams(r.Context(), p.UserID)
+	if err != nil {
+		return err
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"id": u.ID, "username": u.Username, "displayName": u.DisplayName,
 		"role": string(p.Role), "mustChangePassword": u.MustChangePassword,
-		"defaultCredentials": a.Users.DefaultCredentials(r.Context())})
+		"defaultCredentials": a.Users.DefaultCredentials(r.Context()),
+		"allStreams":         acc.Scope.All(),
+		"streams":            nonNil(acc.Scope.Names()),
+		"teams":              toTeamRefViews(teams),
+		"streamAccess":       acc.Mode})
 	return nil
+}
+
+// StreamAccessResolver resolves the stream access of a principal (service.Access).
+type StreamAccessResolver interface {
+	Resolve(ctx context.Context, p auth.Principal) (service.StreamAccess, error)
 }
 
 type passwordRequest struct {

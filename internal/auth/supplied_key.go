@@ -9,7 +9,7 @@ import (
 )
 
 // Admin-supplied connection keys (SPEC §9.9, §15.3): existing Seq API keys or Elasticsearch
-// API-key secrets may be reused as Tidemark connection keys during a migration.
+// API-key secrets may be reused as OpenTidemark connection keys during a migration.
 const (
 	SuppliedKeyMinLen     = 20
 	SuppliedKeyMaxLen     = 256

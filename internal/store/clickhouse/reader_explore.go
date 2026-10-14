@@ -49,6 +49,9 @@ func histogramGroup(src model.Source) string {
 
 // Histogram counts rows per bucket; every bucket of the range is present (zero filled).
 func (r *Reader) Histogram(ctx context.Context, f store.Filter, span time.Duration) (store.Histogram, error) {
+	if err := checkFilter(f); err != nil {
+		return store.Histogram{}, err
+	}
 	if span < time.Second || span%time.Second != 0 {
 		return store.Histogram{}, fmt.Errorf("histogram: span must be whole seconds")
 	}
@@ -113,6 +116,9 @@ func mod(a, b int64) int64 {
 // Newest counts the rows matching f and, when there are more than n, finds the time of the
 // n-th newest row.
 func (r *Reader) Newest(ctx context.Context, f store.Filter, n uint64) (store.Sample, error) {
+	if err := checkFilter(f); err != nil {
+		return store.Sample{}, err
+	}
 	table, timeCol := r.table(f.Source)
 	var s store.Sample
 	if err := r.count(ctx, f.Source, "SELECT count() FROM "+table+" WHERE "+f.Where, f.Args, &s.Total); err != nil {
@@ -131,18 +137,22 @@ func (r *Reader) Newest(ctx context.Context, f store.Filter, n uint64) (store.Sa
 	return s, nil
 }
 
-// Fields lists property keys seen in r: field_catalog for logs and spans, attribute keys of
-// metric points for metrics. Ordered by hits, at most maxCatalogFields.
-func (r *Reader) Fields(ctx context.Context, src model.Source, rng store.TimeRange) ([]store.FieldInfo, error) {
+// Fields lists property keys seen in r inside scope: field_catalog for logs and spans,
+// attribute keys of metric points for metrics. Ordered by hits, at most maxCatalogFields.
+func (r *Reader) Fields(ctx context.Context, scope model.StreamScope, src model.Source, rng store.TimeRange) ([]store.FieldInfo, error) {
+	cond, scopeArgs, err := streamCond(scope)
+	if err != nil {
+		return nil, err
+	}
 	sql := "SELECT key, max(numeric) = 1, sum(hits) AS h FROM " + r.cfg.Database + ".field_catalog " +
-		"WHERE source = ? AND hour >= toStartOfHour(toDateTime64(?, 9, 'UTC')) AND hour < toDateTime64(?, 9, 'UTC') " +
+		"WHERE " + cond + " AND source = ? AND hour >= toStartOfHour(toDateTime64(?, 9, 'UTC')) AND hour < toDateTime64(?, 9, 'UTC') " +
 		"GROUP BY key ORDER BY h DESC, key LIMIT ?"
-	args := []any{string(src), rng.From, rng.To, maxCatalogFields}
+	args := concatArgs(scopeArgs, []any{string(src), rng.From, rng.To, maxCatalogFields})
 	if src == model.SourceMetrics {
 		sql = "SELECT k, false, count() AS h FROM " + r.cfg.Database + ".metric_points ARRAY JOIN mapKeys(attrs) AS k " +
-			"WHERE timestamp >= toDateTime64(?, 3, 'UTC') AND timestamp < toDateTime64(?, 3, 'UTC') " +
+			"WHERE " + cond + " AND timestamp >= toDateTime64(?, 3, 'UTC') AND timestamp < toDateTime64(?, 3, 'UTC') " +
 			"GROUP BY k ORDER BY h DESC, k LIMIT ?"
-		args = []any{rng.From, rng.To, maxCatalogFields}
+		args = concatArgs(scopeArgs, []any{rng.From, rng.To, maxCatalogFields})
 	}
 	rows, cancel, err := r.query(ctx, maxCatalogFields, nil, src, sql, args)
 	if err != nil {
@@ -164,12 +174,16 @@ func (r *Reader) Fields(ctx context.Context, src model.Source, rng store.TimeRan
 	return out, nil
 }
 
-// MetricNames lists metric names containing substr seen in rng.
-func (r *Reader) MetricNames(ctx context.Context, substr string, rng store.TimeRange, limit int) ([]store.MetricName, error) {
+// MetricNames lists metric names containing substr seen in rng inside scope.
+func (r *Reader) MetricNames(ctx context.Context, scope model.StreamScope, substr string, rng store.TimeRange, limit int) ([]store.MetricName, error) {
+	cond, args, err := streamCond(scope)
+	if err != nil {
+		return nil, err
+	}
 	sql := "SELECT name, any(kind), any(unit), any(description) FROM " + r.cfg.Database + ".metric_points " +
-		"WHERE timestamp >= toDateTime64(?, 3, 'UTC') AND timestamp < toDateTime64(?, 3, 'UTC') " +
+		"WHERE " + cond + " AND timestamp >= toDateTime64(?, 3, 'UTC') AND timestamp < toDateTime64(?, 3, 'UTC') " +
 		"AND positionCaseInsensitiveUTF8(name, ?) > 0 GROUP BY name ORDER BY name LIMIT ?"
-	rows, cancel, err := r.query(ctx, limit, nil, model.SourceMetrics, sql, []any{rng.From, rng.To, substr, limit})
+	rows, cancel, err := r.query(ctx, limit, nil, model.SourceMetrics, sql, append(args, rng.From, rng.To, substr, limit))
 	if err != nil {
 		return nil, err
 	}

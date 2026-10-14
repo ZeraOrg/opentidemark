@@ -231,13 +231,18 @@ func WholeDayPartitions(from, to time.Time) []string {
 	return out
 }
 
-// Mappings lists the property keys of a stream from the field catalog (SPEC §12.4).
-func (a *Admin) Mappings(ctx context.Context, stream string) ([]store.FieldMapping, error) {
+// Mappings lists the property keys of a stream from the field catalog (SPEC §12.4); a stream
+// outside scope has no mappings.
+func (a *Admin) Mappings(ctx context.Context, scope model.StreamScope, stream string) ([]store.FieldMapping, error) {
+	cond, args, err := streamCond(scope)
+	if err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithTimeout(ctx, adminTimeout)
 	defer cancel()
 	rows, err := a.conn.Query(ctx, "SELECT source, key, groupUniqArray(numeric), sum(hits), min(hour), max(hour) FROM "+
-		a.qualified("field_catalog")+" WHERE stream = ? GROUP BY source, key ORDER BY sum(hits) DESC, key LIMIT "+
-		strconv.Itoa(maxMappings), stream)
+		a.qualified("field_catalog")+" WHERE "+cond+" AND stream = ? GROUP BY source, key ORDER BY sum(hits) DESC, key LIMIT "+
+		strconv.Itoa(maxMappings), append(args, stream)...)
 	if err != nil {
 		return nil, fmt.Errorf("query mappings: %w", err)
 	}

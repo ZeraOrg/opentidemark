@@ -1,0 +1,108 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Documentation site (SPEC §17.4): MkDocs + Material for MkDocs builds the user docs in docs/ into
+# site/ and .github/workflows/docs.yml publishes it to GitHub Pages. Local build:
+#   pip install --require-hashes -r docs-site/requirements.txt && mkdocs build --strict
+site_name: OpenTidemark
+site_url: https://zeraorg.github.io/tidemark/
+site_description: >-
+  OpenTidemark is an open-source, self-hosted log management, metrics and distributed tracing
+  platform: OpenTelemetry (OTLP), Seq/Serilog and Elasticsearch _bulk ingestion, ClickHouse
+  storage, one query language, dashboards and alerts. A self-hosted alternative to Seq and
+  Elasticsearch/Kibana.
+site_author: The Tidemark Authors
+repo_url: https://github.com/ZeraOrg/tidemark
+repo_name: ZeraOrg/tidemark
+edit_uri: edit/main/docs/
+copyright: >-
+  Copyright 2026 The Tidemark Authors · Apache-2.0 ·
+  <a href="https://github.com/ZeraOrg/tidemark/blob/main/LICENSING.md#trademarks">Trademarks</a>
+
+docs_dir: docs
+site_dir: site
+# Only the pages at the top of docs/, the manual in docs/manual/ and docs/images/ are part of the
+# site (docs-site/hooks.py). mkdocs.offline.yml inherits this file for the offline bundle.
+
+nav:
+  - Home: index.md
+  - Quick start: quickstart.md
+  - Installation: installation.md
+  - Sending data: ingestion.md
+  - Query language: query-language.md
+  - Configuration: configuration.md
+  - Migration:
+      - From Seq: migrate-from-seq.md
+      - From Elasticsearch and Kibana: migrate-from-elastic.md
+  - Operations manual:
+      - Overview: manual/index.md
+      - Deployment: manual/deploy.md
+      - Security hardening: manual/security-hardening.md
+      - Users and access: manual/users-access.md
+      - Ingestion: manual/ingestion.md
+      - Integrations: manual/integrations.md
+      - Metrics: manual/metrics.md
+      - Streams and retention: manual/streams-retention.md
+      - Querying: manual/querying.md
+      - Dashboards: manual/dashboards.md
+      - Alerting: manual/alerting.md
+      - Operations: manual/operations.md
+      - API for automation: manual/api.md
+      - Guide for agents: manual/agents.md
+
+theme:
+  name: material
+  custom_dir: docs-site/overrides
+  logo: assets/logo.svg # copied from web/public/favicon.svg by docs-site/hooks.py
+  favicon: assets/logo.svg
+  font: false # no third-party font requests; the system font stack is used
+  palette:
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+  features:
+    - navigation.instant
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.tabs.link # a tab chosen in one group (Linux / Windows / Docker) is chosen in all of them
+
+hooks:
+  - docs-site/hooks.py
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true # content tabs (=== "Linux") of the operations manual
+  - pymdownx.tasklist:
+      custom_checkbox: true # the manual's checklists ("- [ ]")
+
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn

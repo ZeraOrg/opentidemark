@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package config loads Tidemark's configuration (SPEC §7, §17.3): an optional env file,
+// Package config loads OpenTidemark's configuration (SPEC §7, §17.3): an optional env file,
 // then environment variables, then command-line flags; secrets may come from <VAR>_FILE.
 package config
 

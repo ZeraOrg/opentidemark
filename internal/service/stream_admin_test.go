@@ -48,7 +48,7 @@ func (f *fakeStreamStorage) calls() int {
 	return f.statsCalls
 }
 
-func (f *fakeStreamStorage) Mappings(context.Context, string) ([]store.FieldMapping, error) {
+func (f *fakeStreamStorage) Mappings(context.Context, model.StreamScope, string) ([]store.FieldMapping, error) {
 	return f.mappings, nil
 }
 
@@ -103,6 +103,7 @@ type streamEnv struct {
 	sync     *countingSyncer
 	registry *StreamRegistry
 	repo     *meta.Streams
+	teams    *meta.Teams
 	indexed  *IndexedFields
 	now      *time.Time
 }
@@ -116,10 +117,11 @@ func newStreamEnv(t *testing.T, maxStreams int) *streamEnv {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)
-	e := &streamEnv{storage: &fakeStreamStorage{}, sync: &countingSyncer{}, registry: reg, repo: repo, now: &now}
+	e := &streamEnv{storage: &fakeStreamStorage{}, sync: &countingSyncer{}, registry: reg, repo: repo, teams: meta.NewTeams(db),
+		now: &now}
 	audit := NewAuditor(meta.NewAuditLog(db), quiet(), time.Now)
 	e.indexed = NewIndexedFields(meta.NewIndexedFields(db), e.storage, audit)
-	e.svc = NewStreamAdmin(StreamAdminDeps{Repo: repo, Registry: reg, Storage: e.storage, Retention: e.sync, Indexed: e.indexed,
+	e.svc = NewStreamAdmin(StreamAdminDeps{Repo: repo, Registry: reg, Storage: e.storage, Grants: e.teams, Access: NewAccess(e.teams, meta.NewSettings(db)), Retention: e.sync, Indexed: e.indexed,
 		Audit: audit, Leader: fakeLeader{true}, Now: func() time.Time { return *e.now }, Logger: quiet()})
 	return e
 }
@@ -223,9 +225,19 @@ func TestStreamDelete(t *testing.T) {
 		t.Error("gate must be restored after a failed delete")
 	}
 	e.storage.deleteErr = nil
+	team := &meta.Team{Name: "payments"}
+	if err := e.teams.Create(ctx, team); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.teams.SetStreams(ctx, team.ID, []string{"old", "keep"}); err != nil {
+		t.Fatal(err)
+	}
 	syncs := e.sync.n
 	if err := e.svc.Delete(ctx, SystemActor, "old", "old"); err != nil {
 		t.Fatal(err)
+	}
+	if grants, _ := e.teams.Streams(ctx, team.ID); len(grants) != 1 || grants[0] != "keep" {
+		t.Errorf("grants of the deleted stream must be revoked: %v", grants)
 	}
 	if len(e.storage.deleted) != 1 || e.sync.n != syncs+1 {
 		t.Errorf("deleted %v sync %d", e.storage.deleted, e.sync.n)
@@ -239,17 +251,17 @@ func TestStreamStatsCache(t *testing.T) {
 	e := newStreamEnv(t, 10)
 	ctx := context.Background()
 	e.storage.stats = []store.StreamStats{{Stream: "default", Source: model.SourceLogs, Rows: 5}, {Stream: "gone", Source: model.SourceLogs}}
-	list, at, err := e.svc.List(ctx)
+	list, at, err := e.svc.List(ctx, viewerUser)
 	if err != nil || len(list) != 1 || list[0].Stats[model.SourceLogs].Rows != 5 || !at.Equal(*e.now) {
 		t.Fatalf("%+v %v %v", list, at, err)
 	}
-	_, _, _ = e.svc.List(ctx)
+	_, _, _ = e.svc.List(ctx, viewerUser)
 	if e.storage.calls() != 1 {
 		t.Errorf("cache miss: %d calls", e.storage.calls())
 	}
 	*e.now = e.now.Add(StatsInterval)
 	e.storage.statsErr = errors.New("down")
-	list, at, _ = e.svc.List(ctx)
+	list, at, _ = e.svc.List(ctx, viewerUser)
 	if e.storage.calls() != 2 || list[0].Stats[model.SourceLogs].Rows != 5 || at.Equal(*e.now) {
 		t.Errorf("stale cache must be kept on error: calls %d at %v", e.storage.calls(), at)
 	}
@@ -284,11 +296,11 @@ func TestStreamFields(t *testing.T) {
 	if _, err := e.indexed.Create(ctx, SystemActor, model.SourceLogs, "user.id"); err != nil {
 		t.Fatal(err)
 	}
-	got, err := e.svc.Fields(ctx, model.DefaultStream)
+	got, err := e.svc.Fields(ctx, viewerUser, model.DefaultStream)
 	if err != nil || len(got) != 2 || !got[0].Indexed || got[1].Indexed {
 		t.Errorf("%+v %v", got, err)
 	}
-	if _, err := e.svc.Fields(ctx, "missing"); !errors.Is(err, meta.ErrNotFound) {
+	if _, err := e.svc.Fields(ctx, viewerUser, "missing"); !errors.Is(err, meta.ErrNotFound) {
 		t.Errorf("missing: %v", err)
 	}
 }
@@ -496,4 +508,30 @@ func TestPurgeRequestedOnOtherNodeRuns(t *testing.T) {
 	defer cancel()
 	go leader.Run(rctx)
 	waitStatus(t, repo, out.Job.ID, meta.PurgeDone)
+}
+
+func TestStreamListAndFieldsFollowScope(t *testing.T) {
+	e := newStreamEnv(t, 10)
+	ctx := context.Background()
+	for _, n := range []string{"a", "b"} {
+		if _, err := e.svc.Create(ctx, SystemActor, StreamInput{Name: n}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	scope := &fixedScope{scope: model.OnlyStreams("a")}
+	e.svc.d.Access = scope
+	list, _, err := e.svc.List(ctx, viewerUser)
+	if err != nil || len(list) != 1 || list[0].Name != "a" {
+		t.Errorf("list %+v %v", list, err)
+	}
+	if _, err := e.svc.Fields(ctx, viewerUser, "b"); !errors.Is(err, meta.ErrNotFound) {
+		t.Errorf("fields of a hidden stream: %v", err)
+	}
+	if _, err := e.svc.Fields(ctx, viewerUser, "a"); err != nil {
+		t.Errorf("fields of a visible stream: %v", err)
+	}
+	scope.err = errors.New("meta down")
+	if _, _, err := e.svc.List(ctx, viewerUser); err == nil {
+		t.Error("list without a scope")
+	}
 }

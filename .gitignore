@@ -4,11 +4,13 @@
 .claude/settings.local.json
 
 # Build output (SPEC §17.4)
+__pycache__/
 /bin/
 /vendor/
 /tidemark
 /tidemark.exe
 /dist/
+/site/
 /internal/web/assets/dist/
 web/dist/
 web/dist-mock/

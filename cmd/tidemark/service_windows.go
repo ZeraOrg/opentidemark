@@ -18,7 +18,7 @@ import (
 // Windows service settings (SPEC §17.3).
 const (
 	serviceName        = "Tidemark"
-	serviceDisplayName = "Tidemark observability"
+	serviceDisplayName = "OpenTidemark observability"
 	serviceDescription = "Self-hosted logs, traces and metrics (https://github.com/ZeraOrg/tidemark)"
 	serviceAccount     = `NT SERVICE\Tidemark`
 	restartDelay       = 5 * time.Second
@@ -80,7 +80,7 @@ func logEvent(err error) {
 		_ = el.Error(1, err.Error()) // best effort: the event log is diagnostic only
 		return
 	}
-	_ = el.Info(1, "Tidemark stopped") // best effort
+	_ = el.Info(1, "OpenTidemark stopped") // best effort
 }
 
 // serviceCommand implements "service install|uninstall|start|stop".

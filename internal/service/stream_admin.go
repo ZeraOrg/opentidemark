@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ZeraOrg/tidemark/internal/auth"
 	"github.com/ZeraOrg/tidemark/internal/meta"
 	"github.com/ZeraOrg/tidemark/internal/model"
 	"github.com/ZeraOrg/tidemark/internal/retention"
@@ -56,8 +57,13 @@ type StreamRepo interface {
 // StreamStorage is the subset of store.StreamAdmin used for streams.
 type StreamStorage interface {
 	Stats(ctx context.Context) ([]store.StreamStats, error)
-	Mappings(ctx context.Context, stream string) ([]store.FieldMapping, error)
+	Mappings(ctx context.Context, scope model.StreamScope, stream string) ([]store.FieldMapping, error)
 	DeleteStream(ctx context.Context, name string) error
+}
+
+// StreamGrants removes the team grants of a deleted stream (SPEC §12.7, §15.10).
+type StreamGrants interface {
+	RevokeStream(ctx context.Context, stream string) ([]string, error)
 }
 
 // RetentionSyncer applies the retention policy after stream changes.
@@ -70,6 +76,8 @@ type StreamAdminDeps struct {
 	Repo      StreamRepo
 	Registry  *StreamRegistry
 	Storage   StreamStorage
+	Grants    StreamGrants
+	Access    ScopeResolver
 	Retention RetentionSyncer
 	Indexed   IndexedFieldLister
 	Audit     *Auditor
@@ -109,8 +117,13 @@ type StreamWithStats struct {
 	Stats map[model.Source]store.StreamStats
 }
 
-// List returns all streams with cached statistics (refreshed when older than StatsInterval).
-func (s *StreamAdmin) List(ctx context.Context) ([]StreamWithStats, time.Time, error) {
+// List returns the streams p may see with cached statistics (refreshed when older than
+// StatsInterval).
+func (s *StreamAdmin) List(ctx context.Context, p auth.Principal) ([]StreamWithStats, time.Time, error) {
+	scope, err := s.d.Access.Scope(ctx, p)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
 	streams, err := s.d.Repo.List(ctx)
 	if err != nil {
 		return nil, time.Time{}, err
@@ -118,6 +131,9 @@ func (s *StreamAdmin) List(ctx context.Context) ([]StreamWithStats, time.Time, e
 	stats, at := s.Stats(ctx)
 	out := make([]StreamWithStats, 0, len(streams))
 	for i := range streams {
+		if !scope.Allows(streams[i].Name) {
+			continue
+		}
 		ws := StreamWithStats{Stream: streams[i], Stats: map[model.Source]store.StreamStats{}}
 		for j := range stats {
 			if stats[j].Stream == streams[i].Name {
@@ -251,13 +267,17 @@ func (s *StreamAdmin) Delete(ctx context.Context, actor Actor, name, confirm str
 	if err := s.d.Repo.Delete(ctx, name); err != nil {
 		return err
 	}
+	revoked, err := s.d.Grants.RevokeStream(ctx, name)
+	if err != nil {
+		return fmt.Errorf("revoke team grants: %w", err)
+	}
 	s.d.Registry.Forget(name)
 	if hasRetentionOverride(st) {
 		if err := s.d.Retention.Sync(ctx); err != nil {
 			return fmt.Errorf("apply retention: %w", err)
 		}
 	}
-	s.d.Audit.Record(ctx, actor, ActionStreamDelete, name, nil)
+	s.d.Audit.Record(ctx, actor, ActionStreamDelete, name, map[string]any{"revokedFromTeams": revoked})
 	return nil
 }
 
@@ -267,12 +287,20 @@ type FieldMappingView struct {
 	Indexed bool
 }
 
-// Fields lists the property keys of a stream (SPEC §12.4).
-func (s *StreamAdmin) Fields(ctx context.Context, name string) ([]FieldMappingView, error) {
+// Fields lists the property keys of a stream (SPEC §12.4); a stream p may not see is not
+// found.
+func (s *StreamAdmin) Fields(ctx context.Context, p auth.Principal, name string) ([]FieldMappingView, error) {
+	scope, err := s.d.Access.Scope(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	if !scope.Allows(name) {
+		return nil, meta.ErrNotFound
+	}
 	if _, err := s.d.Repo.GetByName(ctx, name); err != nil {
 		return nil, err
 	}
-	maps, err := s.d.Storage.Mappings(ctx, name)
+	maps, err := s.d.Storage.Mappings(ctx, scope, name)
 	if err != nil {
 		return nil, err
 	}

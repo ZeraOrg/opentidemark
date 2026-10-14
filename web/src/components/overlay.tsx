@@ -135,25 +135,28 @@ export function Modal({
   footer,
   onClose,
   wide,
+  sheet,
 }: {
   title: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
   onClose: () => void;
   wide?: boolean;
+  /** Below 600 px the dialog becomes a bottom sheet (DESIGN §8). */
+  sheet?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useFocusTrap(ref, true, onClose);
   return createPortal(
     <div
-      className={s.backdrop}
+      className={cx(s.backdrop, sheet === true && s.sheetBackdrop)}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
       <div
         ref={ref}
-        className={cx(s.modal, wide === true && s.modalWide)}
+        className={cx(s.modal, wide === true && s.modalWide, sheet === true && s.sheet)}
         role="dialog"
         aria-modal="true"
         aria-label={typeof title === 'string' ? title : undefined}
@@ -206,6 +209,7 @@ export function Popover({
   children,
   align = 'left',
   className,
+  anchorClassName,
   open: controlledOpen,
   onOpenChange,
 }: {
@@ -213,6 +217,8 @@ export function Popover({
   children: ReactNode | ((close: () => void) => ReactNode);
   align?: 'left' | 'right';
   className?: string;
+  /** Styles the anchor (e.g. to make a block-level trigger the panel's reference box). */
+  anchorClassName?: string;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }) {
@@ -228,7 +234,7 @@ export function Popover({
   const ref = useRef<HTMLSpanElement>(null);
   useDismiss(ref, open, () => setOpen(false));
   return (
-    <span ref={ref} className={s.popoverAnchor}>
+    <span ref={ref} className={cx(s.popoverAnchor, anchorClassName)}>
       {trigger({ open, toggle: () => setOpen(!open) })}
       {open ? (
         <div className={cx(s.popover, align === 'right' && s.popoverRight, className)}>

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -43,7 +44,7 @@ func searchModules(db *meta.DB, q *testutil.FakeQuerier, audit *service.Auditor,
 }
 
 func newTestSearch(db *meta.DB, q *testutil.FakeQuerier, audit *service.Auditor) *service.Search {
-	return service.NewSearch(service.SearchDeps{Store: q, Signals: meta.NewSignals(db), Indexed: meta.NewIndexedFields(db),
+	return service.NewSearch(service.SearchDeps{Store: q, Access: service.NewAccess(meta.NewTeams(db), meta.NewSettings(db)), Signals: meta.NewSignals(db), Indexed: meta.NewIndexedFields(db),
 		Audit: audit, Database: "tidemark", MaxRows: testMaxRows, TailLag: time.Second, Now: time.Now})
 }
 
@@ -341,11 +342,11 @@ func TestTailStream(t *testing.T) {
 	s := newTestSearch(e.db, q, nil)
 	p := auth.Principal{UserID: "u2"}
 	for range service.MaxTailsPerUser {
-		if _, err := s.OpenTail(context.Background(), p, "*", nil); err != nil {
+		if _, err := s.OpenTail(context.Background(), p, "*", nil, service.Selection{}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := s.OpenTail(context.Background(), p, "*", nil); !errors.Is(err, service.ErrTooManyTails) {
+	if _, err := s.OpenTail(context.Background(), p, "*", nil, service.Selection{}); !errors.Is(err, service.ErrTooManyTails) {
 		t.Errorf("tail limit: %v", err)
 	}
 	if w := e.do(e.sessions["viewer"], "GET", "/tail?q=*+|+stats+count()", nil); w.Code != 400 {
@@ -407,4 +408,38 @@ func TestSignals(t *testing.T) {
 	if w := e.do(editor, "GET", "/signals/"+sig.ID, nil); w.Code != 404 {
 		t.Errorf("deleted %d", w.Code)
 	}
+}
+
+func TestSearchSelectionParams(t *testing.T) {
+	e := newEnv(t)
+	viewer := e.sessions["viewer"]
+	if w := e.do(viewer, "POST", "/query", map[string]any{"q": "*", "streams": []string{"app"},
+		"environments": []string{"prod"}}); w.Code != 200 {
+		t.Fatalf("query %d %s", w.Code, w.Body.String())
+	}
+	if c := e.querier.LastCompiled(); !strings.Contains(c.SQL, "stream IN (?)") || !hasArg(c.Args, "app") || !hasArg(c.Args, "prod") {
+		t.Errorf("selection not applied: %s %v", c.SQL, c.Args)
+	}
+	if w := e.do(viewer, "GET", "/histogram?q=*&streams=app,web&env=prod&buckets=10", nil); w.Code != 200 {
+		t.Fatalf("histogram %d", w.Code)
+	}
+	if f := e.querier.LastFilter(); f.Streams.String() != model.OnlyStreams("app", "web").String() || !strings.Contains(f.Where, "environment") {
+		t.Errorf("histogram selection %v %s", f.Streams, f.Where)
+	}
+	for _, path := range []string{"/histogram?streams=Bad", "/facets?fields=service&streams=a%27b", "/fields?source=logs&streams=Bad",
+		"/metrics/names?streams=Bad", "/traces?streams=Bad", "/tql/complete?q=x&streams=Bad", "/tail?q=*&streams=Bad"} {
+		if w := e.do(viewer, "GET", path, nil); w.Code != 400 {
+			t.Errorf("%s: %d", path, w.Code)
+		}
+	}
+	if w := e.do(e.sessions["editor"], "GET", "/export?q=*&streams=Bad", nil); w.Code != 400 {
+		t.Errorf("export %d", w.Code)
+	}
+	if w := e.do(viewer, "POST", "/query", map[string]any{"q": "*", "environments": []string{""}}); w.Code != 400 {
+		t.Errorf("empty environment %d", w.Code)
+	}
+}
+
+func hasArg(args []any, want any) bool {
+	return slices.Contains(args, want)
 }

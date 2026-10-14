@@ -2,6 +2,7 @@
 //
 // Vite + Vitest configuration (SPEC §5, §16). `--mode mock` builds the MSW-backed demo into
 // dist-mock/ (CI e2e and screenshots only); the production build in dist/ never contains mocks.
+import { readFileSync } from 'node:fs';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 
@@ -13,11 +14,15 @@ const contentSecurityPolicy =
 
 const backend = 'http://localhost:8080';
 
+// The demo reports the release in the repository's VERSION file, so screenshots show it.
+const demoVersion = (): string => readFileSync(new URL('../VERSION', import.meta.url), 'utf8').trim();
+
 export default defineConfig(({ mode }) => {
   const mock = mode === 'mock';
   return {
     plugins: [react()],
     publicDir: mock ? 'mock-public' : 'public',
+    define: mock ? { __TM_DEMO_VERSION__: JSON.stringify(demoVersion()) } : {},
     build: {
       outDir: mock ? 'dist-mock' : 'dist',
       emptyOutDir: true,

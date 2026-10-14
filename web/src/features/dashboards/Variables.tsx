@@ -10,6 +10,7 @@ import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { search } from '../../api/endpoints';
 import type { DashboardDoc, Source, Variable } from '../../api/types';
+import { useDataScope } from '../../app/scope';
 import { useApi } from '../../app/services';
 import { patchParams, useTimeRange } from '../../app/url';
 import { Button, Checkbox, Field, Select, Tag, TextInput } from '../../components/controls';
@@ -24,8 +25,9 @@ const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 function useOptions(v: Variable): string[] {
   const api = useApi();
   const { range } = useTimeRange();
+  const scope = useDataScope();
   const facet = useQuery({
-    queryKey: ['var-options', v.source, v.field, range.from, range.to],
+    queryKey: ['var-options', v.source, v.field, range.from, range.to, scope.key],
     queryFn: ({ signal }) =>
       search.facets(
         api,
@@ -34,6 +36,7 @@ function useOptions(v: Variable): string[] {
           ...range,
           fields: [v.field ?? ''],
           top: 50,
+          ...scope.params,
         },
         signal,
       ),

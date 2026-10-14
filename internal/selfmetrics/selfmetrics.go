@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package selfmetrics exposes Prometheus metrics about Tidemark itself (SPEC §11.6). It uses
+// Package selfmetrics exposes Prometheus metrics about OpenTidemark itself (SPEC §11.6). It uses
 // its own registry (no global state) and implements the ingest and pipeline observer ports.
 package selfmetrics
 
@@ -23,6 +23,7 @@ type Metrics struct {
 	ingested     *prometheus.CounterVec
 	ingestDrops  *prometheus.CounterVec
 	ingestReject *prometheus.CounterVec
+	rerouted     *prometheus.CounterVec
 	enqueued     *prometheus.CounterVec
 	written      *prometheus.CounterVec
 	pipeDrops    *prometheus.CounterVec
@@ -40,6 +41,8 @@ func New() *Metrics {
 	m.ingested = m.counter("tidemark_ingest_items_total", "Items accepted by ingestion.", "protocol", "source")
 	m.ingestDrops = m.counter("tidemark_ingest_dropped_total", "Items dropped by connection policy.", "protocol", "reason")
 	m.ingestReject = m.counter("tidemark_ingest_rejected_requests_total", "Rejected ingestion requests.", "protocol", "reason")
+	m.rerouted = m.counter("tidemark_ingest_rerouted_total", "Items written to the connection's default stream instead of the requested one.",
+		"protocol", "reason")
 	m.enqueued = m.counter("tidemark_pipeline_enqueued_total", "Rows enqueued.", "signal")
 	m.written = m.counter("tidemark_pipeline_written_total", "Rows written to ClickHouse.", "signal")
 	m.pipeDrops = m.counter("tidemark_pipeline_dropped_total", "Rows dropped by the pipeline.", "signal", "reason")
@@ -80,6 +83,12 @@ func (m *Metrics) Rejected(protocol, reason string) {
 	m.add("ingest_rejected."+reason, 1)
 }
 
+// Rerouted implements ingest.Observer.
+func (m *Metrics) Rerouted(protocol, reason string, n int) {
+	m.rerouted.WithLabelValues(protocol, reason).Add(float64(n))
+	m.add("ingest_rerouted."+reason, float64(n))
+}
+
 // PipelineMetrics adapts Metrics to the pipeline.Metrics port (its Dropped has another shape).
 type PipelineMetrics struct{ m *Metrics }
 
@@ -115,6 +124,14 @@ func (p PipelineMetrics) WriteFailed(signal string) { p.m.writeErrors.WithLabelV
 // QueueDepth implements pipeline.Metrics.
 func (p PipelineMetrics) QueueDepth(signal string, n int) {
 	p.m.queueDepth.WithLabelValues(signal).Set(float64(n))
+}
+
+// WALBytes exposes the on-disk size of a signal's write-ahead log, read at scrape time, as
+// tidemark_wal_bytes{signal}: data acknowledged to clients but possibly not yet in ClickHouse.
+func (m *Metrics) WALBytes(signal string, size func() int64) {
+	m.reg.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{Name: "tidemark_wal_bytes",
+		Help: "Bytes of the write-ahead log segments on disk.", ConstLabels: prometheus.Labels{"signal": signal}},
+		func() float64 { return float64(size()) }))
 }
 
 // Totals returns a copy of the cumulative counters (for GET /api/v1/system).

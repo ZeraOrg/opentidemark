@@ -6,6 +6,7 @@ package clickhouse
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"path/filepath"
@@ -134,9 +135,15 @@ func TestIntegrationStreamStatsAndMappings(t *testing.T) {
 	if sum := api.CompressedBytes + byKey["web/logs"].CompressedBytes; sum > total || sum < total-2 {
 		t.Errorf("apportioned %d of %d", sum, total)
 	}
-	maps, err := e.admin.Mappings(ctx, "api")
+	maps, err := e.admin.Mappings(ctx, model.AllStreams(), "api")
 	if err != nil || len(maps) != 1 || maps[0].Key != "user.id" || maps[0].Type != "number" || maps[0].Hits != 3 || maps[0].Source != model.SourceLogs {
 		t.Errorf("mappings %+v %v", maps, err)
+	}
+	if maps, err := e.admin.Mappings(ctx, model.OnlyStreams("web"), "api"); err != nil || len(maps) != 0 {
+		t.Errorf("mappings outside scope %+v %v", maps, err)
+	}
+	if _, err := e.admin.Mappings(ctx, model.StreamScope{}, "api"); !errors.Is(err, store.ErrNoScope) {
+		t.Errorf("mappings without scope: %v", err)
 	}
 }
 
@@ -158,7 +165,7 @@ func TestIntegrationRetentionThroughService(t *testing.T) {
 	}
 	sync := service.NewRetentionSync(meta.NewSettings(db), streams, e.admin, logger)
 	audit := service.NewAuditor(meta.NewAuditLog(db), logger, time.Now)
-	svc := service.NewStreamAdmin(service.StreamAdminDeps{Repo: streams, Registry: registry, Storage: e.admin, Retention: sync,
+	svc := service.NewStreamAdmin(service.StreamAdminDeps{Repo: streams, Registry: registry, Storage: e.admin, Grants: meta.NewTeams(db), Retention: sync,
 		Indexed: service.NewIndexedFields(meta.NewIndexedFields(db), e.admin, audit), Audit: audit, Now: time.Now, Logger: logger})
 	days, spanDays := 90, 14
 	dp, sp := &days, &spanDays
@@ -218,7 +225,7 @@ func TestIntegrationIndexedField(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	opts := tql.Options{From: e.day0, To: time.Now(), IndexedFields: map[model.Source]map[string]string{model.SourceLogs: {"user.id": "f_user_id"}}}
+	opts := tql.Options{From: e.day0, To: time.Now(), Streams: model.AllStreams(), IndexedFields: map[model.Source]map[string]string{model.SourceLogs: {"user.id": "f_user_id"}}}
 	c, err := tql.Compile(q, opts)
 	if err != nil {
 		t.Fatal(err)
@@ -303,7 +310,7 @@ func TestIntegrationPurge(t *testing.T) {
 		t.Fatal(err)
 	}
 	from, to := e.day0, time.Now().UTC()
-	where, args, err := tql.CompileWhere(q, tql.Options{From: from, To: to})
+	where, args, err := tql.CompileWhere(q, tql.Options{From: from, To: to, Streams: model.AllStreams()})
 	if err != nil {
 		t.Fatal(err)
 	}

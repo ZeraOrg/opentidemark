@@ -8,6 +8,8 @@
   display: flex;
   flex-direction: column;
   background: var(--tm-color-bg-surface);
+  /* With many shown columns the header and the rows share a min-width and scroll together. */
+  overflow-x: auto;
 }
 
 .header {
@@ -34,7 +36,8 @@
 .scroller {
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   outline: none;
 }
 
@@ -91,6 +94,49 @@
   color: var(--tm-color-fg-muted);
   white-space: nowrap;
   font-feature-settings: 'tnum';
+}
+
+.pinnedHead {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pinnedHead > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hideColumn {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--tm-color-fg-muted);
+  opacity: 0;
+}
+
+.pinnedHead:hover .hideColumn,
+.hideColumn:focus-visible {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .hideColumn {
+    opacity: 1;
+  }
+}
+
+.hideColumn:hover {
+  background: var(--tm-color-bg-overlay);
+  color: var(--tm-color-fg);
 }
 
 .service,

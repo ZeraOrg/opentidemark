@@ -244,12 +244,29 @@ func TestConnections(t *testing.T) {
 	if strings.Contains(e.do(admin, "GET", "/connections/"+conn.ID, nil).Body.String(), conn.Key) {
 		t.Error("key returned after creation")
 	}
+	if conn.AllowedStreams == nil || len(conn.AllowedStreams) != 0 {
+		t.Errorf("allowed streams default %#v", conn.AllowedStreams)
+	}
+	w = e.do(admin, "PATCH", "/connections/"+conn.ID, map[string]any{"allowedStreams": []string{"web", "checkout", "web"}})
+	if got := decodeBody[connectionView](t, w); w.Code != 200 || strings.Join(got.AllowedStreams, ",") != "checkout,web" {
+		t.Errorf("allowed streams %d %s", w.Code, w.Body.String())
+	}
+	if w := e.do(admin, "PATCH", "/connections/"+conn.ID, map[string]any{"defaultStream": "db"}); w.Code != 400 ||
+		!strings.Contains(w.Body.String(), "allowedStreams") {
+		t.Errorf("default outside the allowed streams %d %s", w.Code, w.Body.String())
+	}
+	entries := decodeBody[[]auditView](t, e.do(admin, "GET", "/audit?action=connection.update", nil))
+	if len(entries) != 1 || !strings.Contains(string(entries[0].Details), `"allowedStreams":["checkout","web"]`) {
+		t.Errorf("audit %+v", entries)
+	}
 	bad := []map[string]any{
 		{}, {"name": "checkout"}, {"name": "x", "protocols": []string{"syslog"}}, {"name": "x", "protocols": []string{}},
 		{"name": "x", "defaultStream": "Bad Stream"}, {"name": "x", "allowedCidrs": []string{"nope"}},
 		{"name": "x", "minimumLevel": "loud"}, {"name": "x", "rateLimitEps": -1},
 		{"name": "x", "expiresAt": time.Now().Add(-time.Hour)}, {"name": "x", "appliedProperties": map[string]any{"@stream": "Bad!"}},
 		{"name": strings.Repeat("n", 200)}, {"name": "x", "description": strings.Repeat("d", 2000)},
+		{"name": "x", "allowedStreams": []string{"Bad!"}}, {"name": "x", "allowedStreams": []string{"web"}},
+		{"name": "x", "defaultStream": "web", "allowedStreams": []string{"web"}, "appliedProperties": map[string]any{"@stream": "db"}},
 	}
 	for _, b := range bad {
 		if w := e.do(admin, "POST", "/connections", b); w.Code != 400 {
@@ -331,22 +348,27 @@ func TestSettingsAuditSystem(t *testing.T) {
 	e := newEnv(t)
 	admin := e.sessions["admin"]
 	s := decodeBody[map[string]json.RawMessage](t, e.do(admin, "GET", "/settings", nil))
-	if string(s["retention"]) != `{"logsDays":30,"spansDays":7,"metricsDays":30}` || string(s["ui"]) != "{}" {
-		t.Errorf("settings %s %s", s["retention"], s["ui"])
+	if string(s["retention"]) != `{"logsDays":30,"spansDays":7,"metricsDays":30}` || string(s["ui"]) != "{}" ||
+		string(s["access"]) != `{"denyByDefault":false}` {
+		t.Errorf("settings %s %s %s", s["retention"], s["ui"], s["access"])
 	}
-	w := e.do(admin, "PATCH", "/settings", `{"retention":{"logsDays":14,"spansDays":3,"metricsDays":60},"ui":{"theme":"dark"}}`)
+	w := e.do(admin, "PATCH", "/settings", `{"retention":{"logsDays":14,"spansDays":3,"metricsDays":60},"ui":{"theme":"dark"},`+
+		`"access":{"denyByDefault":true}}`)
 	s = decodeBody[map[string]json.RawMessage](t, w)
-	if w.Code != 200 || string(s["retention"]) != `{"logsDays":14,"spansDays":3,"metricsDays":60}` || e.applier.calls != 1 {
+	if w.Code != 200 || string(s["retention"]) != `{"logsDays":14,"spansDays":3,"metricsDays":60}` || e.applier.calls != 1 ||
+		string(s["access"]) != `{"denyByDefault":true}` {
 		t.Errorf("patch %d %s calls=%d", w.Code, w.Body.String(), e.applier.calls)
 	}
 	for _, bad := range []string{`{"retention":{"logsDays":0,"spansDays":3,"metricsDays":60}}`, `{"retention":{"x":1}}`,
-		`{"unknown":1}`, `{"ui":[1]}`, `{"ui":"x"}`} {
+		`{"unknown":1}`, `{"ui":[1]}`, `{"ui":"x"}`, `{"access":{}}`, `{"access":{"denyByDefault":"yes"}}`,
+		`{"access":{"denyByDefault":true,"x":1}}`, `{"access":true}`} {
 		if w := e.do(admin, "PATCH", "/settings", bad); w.Code != 400 {
 			t.Errorf("%s: %d", bad, w.Code)
 		}
 	}
 	entries := decodeBody[[]auditView](t, e.do(admin, "GET", "/audit?action=settings.update", nil))
-	if len(entries) != 1 || entries[0].IP != "192.0.2.10" || !strings.HasPrefix(entries[0].Actor, "user:") {
+	if len(entries) != 1 || entries[0].IP != "192.0.2.10" || !strings.HasPrefix(entries[0].Actor, "user:") ||
+		!strings.Contains(string(entries[0].Details), `"access.denyByDefault":true`) {
 		t.Errorf("audit %+v", entries)
 	}
 	if w := e.do(admin, "GET", "/audit?from=yesterday", nil); w.Code != 400 {

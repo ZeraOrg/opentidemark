@@ -6,6 +6,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/ZeraOrg/tidemark/internal/model"
 	"github.com/ZeraOrg/tidemark/internal/store"
 	"github.com/ZeraOrg/tidemark/internal/tql"
 )
@@ -19,7 +20,7 @@ type fakeAdmin struct {
 
 func (f *fakeAdmin) Stats(context.Context) ([]store.StreamStats, error) { return f.stats, nil }
 
-func (f *fakeAdmin) Mappings(context.Context, string) ([]store.FieldMapping, error) {
+func (f *fakeAdmin) Mappings(context.Context, model.StreamScope, string) ([]store.FieldMapping, error) {
 	return f.mappings, nil
 }
 

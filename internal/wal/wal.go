@@ -246,7 +246,9 @@ func (l *Log) createSegment(seq uint64) error {
 }
 
 // Append writes payload and, in batch sync mode, returns once an fsync covers it. It returns
-// ErrFull when the size budget is exhausted (the caller answers with backpressure).
+// ErrFull when the size budget is exhausted (the caller answers with backpressure). ctx only
+// bounds the wait for the fsync: its error means the record was written and becomes durable
+// with the next group commit.
 func (l *Log) Append(ctx context.Context, payload []byte) (Pos, error) {
 	if len(payload) == 0 {
 		return Pos{}, ErrEmpty

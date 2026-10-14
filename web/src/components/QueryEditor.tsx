@@ -16,7 +16,7 @@ import { EditorView, keymap, placeholder as cmPlaceholder } from '@codemirror/vi
 import { AlertCircle, Search } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { search } from '../api/endpoints';
-import type { Source } from '../api/types';
+import type { ScopeParams, Source } from '../api/types';
 import { useApi } from '../app/services';
 import { cx } from '../lib/cx';
 import {
@@ -56,6 +56,8 @@ export interface QueryEditorProps {
   /** Receives the editor so the shell can focus it with `/`. */
   onView?: (view: EditorView | null) => void;
   showIcon?: boolean;
+  /** Narrows completions (field names and values) to the selected streams (SPEC §11.3). */
+  scope?: ScopeParams;
 }
 
 /** Extracts "did you mean 'x'?" suggestions from an error hint. */
@@ -100,6 +102,8 @@ export function QueryEditor(props: QueryEditorProps) {
   latest.current = props;
   const sourceRef = useRef(source);
   sourceRef.current = source;
+  const scopeRef = useRef(props.scope);
+  scopeRef.current = props.scope;
   const historyPos = useRef(-1);
   const [focused, setFocused] = useState(false);
   const [errorLeft, setErrorLeft] = useState(0);
@@ -114,7 +118,9 @@ export function QueryEditor(props: QueryEditorProps) {
       EditorView.contentAttributes.of({ 'aria-label': ariaLabel, spellcheck: 'false' }),
       autocompletion({
         override: [
-          tqlCompletionSource((q, pos, signal) => search.complete(api, q, pos, sourceRef.current, signal)),
+          tqlCompletionSource((q, pos, signal) =>
+            search.complete(api, { q, pos, source: sourceRef.current, ...scopeRef.current }, signal),
+          ),
         ],
         icons: false,
         maxRenderedOptions: 50,

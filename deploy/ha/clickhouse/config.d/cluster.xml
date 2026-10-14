@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <!--
-  Tidemark HA ClickHouse (SPEC §17.5): one shard, three replicas, ClickHouse Keeper embedded in
+  OpenTidemark HA ClickHouse (SPEC §17.5): one shard, three replicas, ClickHouse Keeper embedded in
   every server (Raft quorum of 3). Identical on every node; the node-specific values come from
   the environment of the clickhouse-server process (see ../nodes/clickhouse-nodeN.env):
     CH_REPLICA      this node's replica name (node1 | node2 | node3)
@@ -19,6 +19,9 @@
   <interserver_http_port>9009</interserver_http_port>
   <mysql_port remove="1"/>
   <postgresql_port remove="1"/>
+  <send_crash_reports>
+    <enabled>false</enabled>
+  </send_crash_reports>
 
   <macros>
     <shard>01</shard>

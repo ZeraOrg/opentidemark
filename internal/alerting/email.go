@@ -134,7 +134,7 @@ var emailHTML = template.Must(template.New("mail").Parse(`<!doctype html><html><
 <h2>{{.Summary}}</h2>
 <table cellpadding="4">{{range .Facts}}<tr><th align="left">{{index . 0}}</th><td>{{index . 1}}</td></tr>{{end}}</table>
 {{if .Text}}<p style="white-space:pre-wrap">{{.Text}}</p>{{end}}
-{{if .URL}}<p><a href="{{.URL}}">Open in Tidemark</a></p>{{end}}
+{{if .URL}}<p><a href="{{.URL}}">Open in OpenTidemark</a></p>{{end}}
 </body></html>`))
 
 // message renders the MIME message (multipart/alternative: text/plain + text/html).

@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -18,8 +19,11 @@ const (
 	DriverPostgres = "postgres"
 )
 
-// pgUniqueViolation is the SQLSTATE of a unique constraint violation.
-const pgUniqueViolation = "23505"
+// SQLSTATEs of constraint violations.
+const (
+	pgUniqueViolation     = "23505"
+	pgForeignKeyViolation = "23503"
+)
 
 // dialect is the small set of differences between SQLite and PostgreSQL (SPEC §8.4). Repository
 // SQL is written once with "?" placeholders and the shared subset of both dialects.
@@ -73,6 +77,24 @@ func (postgresDialect) rebind(q string) string {
 func (postgresDialect) isUniqueViolation(err error) bool {
 	var pe *pgconn.PgError
 	return errors.As(err, &pe) && pe.Code == pgUniqueViolation
+}
+
+// isForeignKeyViolation reports whether err is a foreign key violation of either dialect.
+func isForeignKeyViolation(err error) bool {
+	var pe *pgconn.PgError
+	if errors.As(err, &pe) {
+		return pe.Code == pgForeignKeyViolation
+	}
+	return strings.Contains(err.Error(), "FOREIGN KEY constraint failed")
+}
+
+// refErr maps a foreign key violation (a referenced row does not exist) to ErrNotFound and
+// every other error like mapErr.
+func refErr(err error) error {
+	if err != nil && isForeignKeyViolation(err) {
+		return fmt.Errorf("%w: %s", ErrNotFound, err.Error())
+	}
+	return mapErr(err)
 }
 
 // conn wraps *sql.DB so repositories keep the database/sql method names while queries are

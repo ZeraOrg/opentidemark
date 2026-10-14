@@ -1,17 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 //
-// Connections & keys (SPEC §11.5, §15.3, §16.4, DESIGN §9.9): the connections table with rotate /
-// revoke / delete, and the five-step wizard (name → protocols → stream → restrictions → key &
-// snippets). The key is shown exactly once; snippets come from the server with the placeholder
-// replaced by the new key in the browser only.
+// Connections & keys (SPEC §9.1, §11.5, §15.3, §16.4, DESIGN §9.9): the connections table with
+// edit / rotate / revoke / delete, the edit dialog, and the five-step wizard (name → protocols →
+// stream & allowed streams → restrictions → key & snippets). The key is shown exactly once;
+// snippets come from the server with the placeholder replaced by the new key in the browser only.
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Copy, Download, Lock, Plus, RotateCw, ShieldOff, Trash2 } from 'lucide-react';
+import { Check, Copy, Download, Lock, Pencil, Plus, RotateCw, ShieldOff, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { errorMessage } from '../../api/client';
 import { connections as connApi, streams as streamsApi } from '../../api/endpoints';
-import type { Connection, ConnectionInput, LevelName, Protocol, Snippet } from '../../api/types';
-import { LEVELS, PROTOCOLS } from '../../api/types';
+import type {
+  Connection,
+  ConnectionInput,
+  LevelName,
+  Protocol,
+  Snippet,
+  StreamsResponse,
+} from '../../api/types';
+import { isStreamName, LEVELS, PROTOCOLS } from '../../api/types';
 import { useApi, useServices } from '../../app/services';
 import { useTopbarStatus } from '../../app/shellContext';
 import {
@@ -27,18 +34,21 @@ import {
   TextInput,
 } from '../../components/controls';
 import { Card, CodeBlock, EmptyState, layoutStyles as l, Notice, Tabs } from '../../components/layout';
+import { MultiSelect } from '../../components/MultiSelect';
 import { Modal, useToast } from '../../components/overlay';
 import { cx } from '../../lib/cx';
 import { copyText, downloadText } from '../../lib/download';
 import { formatAge } from '../../lib/time';
 import s from './settings.module.css';
+import { streamNameProblem } from './TeamPage';
 
 export const KEY_PLACEHOLDER = '<YOUR_TIDEMARK_KEY>';
 const STEPS = ['Name', 'Protocols', 'Stream', 'Restrictions', 'Key & snippets'] as const;
+/** Protocol labels: third-party names are referential only (SPEC §19.1). */
 const PROTOCOL_LABEL: Record<Protocol, string> = {
   seq: 'seq',
   otlp: 'otlp',
-  elastic: 'elastic bulk',
+  elastic: 'elasticsearch _bulk',
   native: 'native json',
 };
 const MAX_GRACE_MINUTES = 1440;
@@ -62,10 +72,11 @@ export function connectionStatus(
   return { variant: 'ok', label: 'active' };
 }
 
-/** "10.4.0.0/16 · min level debug · rate 50 k/min · expires 2026-12-31" */
+/** "10.4.0.0/16 · streams api, payments · min level debug · rate 50 k/min · expires 2026-12-31" */
 export function restrictionsText(c: Connection): string {
   const parts: string[] = [];
   if (c.allowedCidrs.length > 0) parts.push(c.allowedCidrs.join(', '));
+  if (c.allowedStreams.length > 0) parts.push(`streams ${c.allowedStreams.join(', ')}`);
   if (c.minimumLevel !== null) parts.push(`min level ${c.minimumLevel.toLowerCase()}`);
   if (c.rateLimitEps > 0) parts.push(`rate ${Math.round((c.rateLimitEps * 60) / 1000)} k/min`);
   if (c.expiresAt !== null) parts.push(`expires ${c.expiresAt.slice(0, 10)}`);
@@ -75,7 +86,7 @@ export function restrictionsText(c: Connection): string {
 /** The `.env` file offered for download after creation. */
 export function envFile(c: Connection, key: string, base: string): string {
   return [
-    `# Tidemark connection "${c.name}" (stream ${c.defaultStream})`,
+    `# OpenTidemark connection "${c.name}" (stream ${c.defaultStream})`,
     `TIDEMARK_URL=${base}`,
     `TIDEMARK_KEY=${key}`,
     `OTEL_EXPORTER_OTLP_ENDPOINT=${base}/otlp`,
@@ -95,6 +106,7 @@ interface Draft {
   description: string;
   protocols: Protocol[];
   defaultStream: string;
+  allowedStreams: string[];
   cidrs: string;
   minimumLevel: string;
   rateLimitEps: string;
@@ -106,11 +118,167 @@ const EMPTY: Draft = {
   description: '',
   protocols: ['seq', 'otlp'],
   defaultStream: 'default',
+  allowedStreams: [],
   cidrs: '',
   minimumLevel: '',
   rateLimitEps: '',
   expiresAt: '',
 };
+
+/** The draft of an existing connection for the edit dialog. */
+export function draftOf(c: Connection): Draft {
+  return {
+    name: c.name,
+    description: c.description,
+    protocols: c.protocols,
+    defaultStream: c.defaultStream,
+    allowedStreams: c.allowedStreams,
+    cidrs: c.allowedCidrs.join(', '),
+    minimumLevel: c.minimumLevel ?? '',
+    rateLimitEps: c.rateLimitEps === 0 ? '' : String(c.rateLimitEps),
+    expiresAt: c.expiresAt === null ? '' : c.expiresAt.slice(0, 10),
+  };
+}
+
+/** Why the allowed streams cannot be saved (SPEC §9.1: they must include the default), or null. */
+export function allowedStreamsProblem(d: Pick<Draft, 'defaultStream' | 'allowedStreams'>): string | null {
+  const def = d.defaultStream.trim();
+  if (d.allowedStreams.length === 0 || d.allowedStreams.includes(def)) return null;
+  return `Must include the default stream ${def}.`;
+}
+
+const streamStepValid = (d: Draft): boolean =>
+  isStreamName(d.defaultStream.trim()) && allowedStreamsProblem(d) === null;
+
+/** The request body of a draft (`minimumLevel` is sent as '' = none on edit). */
+function bodyOf(d: Draft, edit: boolean): ConnectionInput {
+  return {
+    name: d.name.trim(),
+    description: d.description.trim(),
+    protocols: d.protocols,
+    defaultStream: d.defaultStream.trim(),
+    allowedCidrs: splitCidrs(d.cidrs),
+    allowedStreams: d.allowedStreams,
+    rateLimitEps: d.rateLimitEps === '' ? 0 : Number(d.rateLimitEps),
+    expiresAt: d.expiresAt === '' ? null : new Date(`${d.expiresAt}T00:00:00Z`).toISOString(),
+    ...(d.minimumLevel === '' && !edit ? {} : { minimumLevel: d.minimumLevel }),
+  };
+}
+
+function StreamFields({
+  d,
+  set,
+  streams,
+}: {
+  d: Draft;
+  set: (p: Partial<Draft>) => void;
+  streams: StreamsResponse | undefined;
+}) {
+  const known = (streams?.streams ?? []).map((st) => st.name);
+  const items = [...new Set([...known, ...d.allowedStreams])].map((n) => ({ value: n, label: n }));
+  return (
+    <>
+      <Field
+        label="Default stream"
+        help="Events without a stream property are written here. New names create the stream on first write."
+        error={
+          d.defaultStream.trim() !== '' && !isStreamName(d.defaultStream.trim())
+            ? 'Not a valid stream name.'
+            : undefined
+        }
+      >
+        {(id) => (
+          <>
+            <TextInput
+              id={id}
+              mono
+              list="tm-streams"
+              value={d.defaultStream}
+              onChange={(e) => set({ defaultStream: e.target.value })}
+            />
+            <datalist id="tm-streams">
+              {known.map((name) => (
+                <option key={name} value={name} />
+              ))}
+            </datalist>
+          </>
+        )}
+      </Field>
+      <Field
+        label="Allowed streams"
+        note="optional"
+        help="Data that names another stream is written to the default stream instead. Empty = any stream."
+        error={allowedStreamsProblem(d) ?? undefined}
+      >
+        {(id) => (
+          <MultiSelect
+            id={id}
+            label="Allowed streams"
+            mono
+            items={items}
+            value={d.allowedStreams}
+            onChange={(allowedStreams) => set({ allowedStreams })}
+            placeholder="Any stream"
+            emptyText="No streams have data yet; type a name below."
+            custom={{ validate: streamNameProblem, placeholder: 'stream name', note: 'no data yet' }}
+          />
+        )}
+      </Field>
+    </>
+  );
+}
+
+function RestrictionFields({ d, set }: { d: Draft; set: (p: Partial<Draft>) => void }) {
+  return (
+    <div className={s.wizardGrid}>
+      <Field label="Allowed source CIDRs" help="Comma or space separated; empty = any address.">
+        {(id) => (
+          <TextInput
+            id={id}
+            mono
+            value={d.cidrs}
+            placeholder="10.4.0.0/16"
+            onChange={(e) => set({ cidrs: e.target.value })}
+          />
+        )}
+      </Field>
+      <Field label="Minimum level">
+        {(id) => (
+          <Select
+            id={id}
+            options={[
+              { value: '', label: 'all levels' },
+              ...LEVELS.map((v: LevelName) => ({ value: v, label: v })),
+            ]}
+            value={d.minimumLevel}
+            onChange={(e) => set({ minimumLevel: e.target.value })}
+          />
+        )}
+      </Field>
+      <Field label="Rate limit (events/s)" help="0 or empty = no limit.">
+        {(id) => (
+          <TextInput
+            id={id}
+            type="number"
+            min={0}
+            value={d.rateLimitEps}
+            onChange={(e) => set({ rateLimitEps: e.target.value })}
+          />
+        )}
+      </Field>
+      <Field label="Expires">
+        {(id) => (
+          <TextInput
+            id={id}
+            type="date"
+            value={d.expiresAt}
+            onChange={(e) => set({ expiresAt: e.target.value })}
+          />
+        )}
+      </Field>
+    </div>
+  );
+}
 
 function StepStrip({ step }: { step: number }) {
   return (
@@ -207,10 +375,14 @@ function KeyStep({
           <dd>/api/events/raw</dd>
           <dt>OTLP/HTTP</dt>
           <dd>/otlp/v1/logs · /otlp/v1/traces · /otlp/v1/metrics</dd>
-          <dt>Elastic bulk</dt>
+          <dt>
+            Elasticsearch <code>_bulk</code>
+          </dt>
           <dd>/es/_bulk</dd>
           <dt>Source CIDRs</dt>
           <dd>{conn.allowedCidrs.length === 0 ? 'any' : conn.allowedCidrs.join(', ')}</dd>
+          <dt>Allowed streams</dt>
+          <dd>{conn.allowedStreams.length === 0 ? 'any' : conn.allowedStreams.join(', ')}</dd>
           <dt>Min level</dt>
           <dd>{conn.minimumLevel === null ? 'all' : <LevelChip level={conn.minimumLevel} />}</dd>
         </dl>
@@ -282,32 +454,14 @@ function Wizard({ onClose }: { onClose: () => void }) {
   const streams = useQuery({ queryKey: ['streams'], queryFn: () => streamsApi.list(api) });
   const set = (p: Partial<Draft>): void => setD((x) => ({ ...x, ...p }));
   const create = useMutation({
-    mutationFn: () => {
-      const body: ConnectionInput = {
-        name: d.name.trim(),
-        description: d.description.trim(),
-        protocols: d.protocols,
-        defaultStream: d.defaultStream.trim(),
-        allowedCidrs: splitCidrs(d.cidrs),
-        rateLimitEps: d.rateLimitEps === '' ? 0 : Number(d.rateLimitEps),
-        expiresAt: d.expiresAt === '' ? null : new Date(`${d.expiresAt}T00:00:00Z`).toISOString(),
-        ...(d.minimumLevel === '' ? {} : { minimumLevel: d.minimumLevel }),
-      };
-      return connApi.create(api, body);
-    },
+    mutationFn: () => connApi.create(api, bodyOf(d, false)),
     onSuccess: (c) => {
       void qc.invalidateQueries({ queryKey: ['connections'] });
       setCreated({ conn: c, key: c.key ?? '' });
       setStep(4);
     },
   });
-  const valid =
-    [
-      d.name.trim() !== '',
-      d.protocols.length > 0,
-      /^[a-z0-9][a-z0-9._-]{0,127}$/.test(d.defaultStream.trim()),
-      true,
-    ][step] ?? true;
+  const valid = [d.name.trim() !== '', d.protocols.length > 0, streamStepValid(d), true][step] ?? true;
   return (
     <Card title="New connection" headExtra={<StepStrip step={step} />}>
       {step === 0 ? (
@@ -353,78 +507,10 @@ function Wizard({ onClose }: { onClose: () => void }) {
       ) : null}
       {step === 2 ? (
         <div className={s.wizardBody}>
-          <Field
-            label="Default stream"
-            help="Events without a stream property are written here. New names create the stream on first write."
-          >
-            {(id) => (
-              <>
-                <TextInput
-                  id={id}
-                  mono
-                  list="tm-streams"
-                  value={d.defaultStream}
-                  onChange={(e) => set({ defaultStream: e.target.value })}
-                />
-                <datalist id="tm-streams">
-                  {(streams.data?.streams ?? []).map((st) => (
-                    <option key={st.name} value={st.name} />
-                  ))}
-                </datalist>
-              </>
-            )}
-          </Field>
+          <StreamFields d={d} set={set} streams={streams.data} />
         </div>
       ) : null}
-      {step === 3 ? (
-        <div className={s.wizardGrid}>
-          <Field label="Allowed source CIDRs" help="Comma or space separated; empty = any address.">
-            {(id) => (
-              <TextInput
-                id={id}
-                mono
-                value={d.cidrs}
-                placeholder="10.4.0.0/16"
-                onChange={(e) => set({ cidrs: e.target.value })}
-              />
-            )}
-          </Field>
-          <Field label="Minimum level">
-            {(id) => (
-              <Select
-                id={id}
-                options={[
-                  { value: '', label: 'all levels' },
-                  ...LEVELS.map((v: LevelName) => ({ value: v, label: v })),
-                ]}
-                value={d.minimumLevel}
-                onChange={(e) => set({ minimumLevel: e.target.value })}
-              />
-            )}
-          </Field>
-          <Field label="Rate limit (events/s)" help="0 or empty = no limit.">
-            {(id) => (
-              <TextInput
-                id={id}
-                type="number"
-                min={0}
-                value={d.rateLimitEps}
-                onChange={(e) => set({ rateLimitEps: e.target.value })}
-              />
-            )}
-          </Field>
-          <Field label="Expires">
-            {(id) => (
-              <TextInput
-                id={id}
-                type="date"
-                value={d.expiresAt}
-                onChange={(e) => set({ expiresAt: e.target.value })}
-              />
-            )}
-          </Field>
-        </div>
-      ) : null}
+      {step === 3 ? <RestrictionFields d={d} set={set} /> : null}
       {step === 4 && created !== null ? (
         <KeyStep
           conn={created.conn}
@@ -460,6 +546,87 @@ function Wizard({ onClose }: { onClose: () => void }) {
         </div>
       ) : null}
     </Card>
+  );
+}
+
+function EditDialog({ conn, onClose }: { conn: Connection; onClose: () => void }) {
+  const api = useApi();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [d, setD] = useState<Draft>(() => draftOf(conn));
+  const streams = useQuery({ queryKey: ['streams'], queryFn: () => streamsApi.list(api), staleTime: 60_000 });
+  const set = (p: Partial<Draft>): void => setD((x) => ({ ...x, ...p }));
+  const save = useMutation({
+    mutationFn: () => connApi.update(api, conn.id, bodyOf(d, true)),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['connections'] });
+      toast.push({ kind: 'success', title: `${d.name.trim()} saved` });
+      onClose();
+    },
+  });
+  const valid = d.name.trim() !== '' && d.protocols.length > 0 && streamStepValid(d);
+  return (
+    <Modal
+      title={`Edit ${conn.name}`}
+      onClose={onClose}
+      wide
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" busy={save.isPending} disabled={!valid} onClick={() => save.mutate()}>
+            Save
+          </Button>
+        </>
+      }
+    >
+      <div className={l.stack}>
+        <div className={s.wizardGrid}>
+          <Field label="Name">
+            {(id) => (
+              <TextInput
+                id={id}
+                value={d.name}
+                maxLength={128}
+                onChange={(e) => set({ name: e.target.value })}
+                data-autofocus
+              />
+            )}
+          </Field>
+          <Field label="Description">
+            {(id) => (
+              <TextInput
+                id={id}
+                value={d.description}
+                onChange={(e) => set({ description: e.target.value })}
+              />
+            )}
+          </Field>
+        </div>
+        <div role="group" aria-label="Protocols" className={l.row}>
+          {PROTOCOLS.map((p) => (
+            <Checkbox
+              key={p}
+              checked={d.protocols.includes(p)}
+              onChange={(on) =>
+                set({ protocols: on ? [...d.protocols, p] : d.protocols.filter((x) => x !== p) })
+              }
+            >
+              <span className={s.mono}>{PROTOCOL_LABEL[p]}</span>
+            </Checkbox>
+          ))}
+        </div>
+        <div className={s.wizardGrid}>
+          <StreamFields d={d} set={set} streams={streams.data} />
+        </div>
+        <RestrictionFields d={d} set={set} />
+        <p className={s.footnote}>
+          The key is unchanged; rotate it from the table. Changes apply to the next request.
+        </p>
+        {save.isError ? <Notice kind="danger">{errorMessage(save.error)}</Notice> : null}
+      </div>
+    </Modal>
   );
 }
 
@@ -545,6 +712,7 @@ export default function ConnectionsPage() {
   const qc = useQueryClient();
   const { now } = useServices();
   const [wizard, setWizard] = useState(false);
+  const [editing, setEditing] = useState<Connection | null>(null);
   const [rotating, setRotating] = useState<Connection | null>(null);
   const [confirm, setConfirm] = useState<{ conn: Connection; action: 'revoke' | 'delete' } | null>(null);
   const list = useQuery({ queryKey: ['connections'], queryFn: () => connApi.list(api) });
@@ -633,6 +801,15 @@ export default function ConnectionsPage() {
                             size="sm"
                             variant="ghost"
                             iconOnly
+                            icon={<Pencil size={14} />}
+                            aria-label={`Edit ${c.name}`}
+                            title="Edit"
+                            onClick={() => setEditing(c)}
+                          />
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            iconOnly
                             icon={<RotateCw size={14} />}
                             aria-label={`Rotate key of ${c.name}`}
                             title="Rotate"
@@ -667,6 +844,7 @@ export default function ConnectionsPage() {
         </div>
       )}
       {wizard ? <Wizard onClose={() => setWizard(false)} /> : null}
+      {editing !== null ? <EditDialog conn={editing} onClose={() => setEditing(null)} /> : null}
       {rotating !== null ? <RotateDialog conn={rotating} onClose={() => setRotating(null)} /> : null}
       {confirm !== null ? (
         <Modal

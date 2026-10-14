@@ -149,21 +149,122 @@
   color: var(--tm-color-fg-muted);
 }
 
+.columnSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.columnHeading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--tm-text-xs);
+  font-weight: var(--tm-font-weight-semibold);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--tm-color-fg-subtle);
+}
+
+.columnHeading .count {
+  font-family: var(--tm-font-mono);
+  font-weight: var(--tm-font-weight-regular);
+  letter-spacing: 0;
+}
+
+.columnEmpty {
+  margin: 0;
+  font-size: var(--tm-text-sm);
+  color: var(--tm-color-fg-subtle);
+}
+
+.shownList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.shownList li {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 30px;
+  padding: 0 4px 0 10px;
+  border: 1px solid var(--tm-color-border);
+  border-radius: var(--tm-radius-md);
+  background: var(--tm-color-bg-surface);
+}
+
+.shownName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--tm-font-mono);
+  font-size: var(--tm-text-mono);
+}
+
+.columnFilter {
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--tm-color-border);
+  border-radius: var(--tm-radius-md);
+  background: var(--tm-color-bg-input);
+  color: var(--tm-color-fg);
+  font-size: var(--tm-text-md);
+}
+
+.columnFilter:focus-visible {
+  border-color: var(--tm-color-accent);
+  box-shadow: 0 0 0 3px var(--tm-color-accent-soft);
+}
+
 .columnList {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px 16px;
-  font-family: var(--tm-font-mono);
-  font-size: var(--tm-text-mono);
+  gap: 2px 8px;
+  max-height: 280px;
+  overflow: auto;
 }
 
-.columnList label {
+.columnAdd {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--tm-radius-sm);
+  background: none;
+  color: var(--tm-color-fg);
+  font-family: var(--tm-font-mono);
+  font-size: var(--tm-text-mono);
+  text-align: left;
+}
+
+.columnAdd span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.columnAdd svg {
+  flex: none;
+  color: var(--tm-color-fg-subtle);
+}
+
+.columnAdd:hover {
+  background: var(--tm-color-bg-hover);
 }
 
 @media (max-width: 599px) {

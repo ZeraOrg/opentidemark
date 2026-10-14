@@ -2,7 +2,8 @@
 //
 // End-to-end smoke tests against the mock-mode build served with the production CSP (SPEC §18):
 // login, query, detail, analytics, traces, dashboards (create + edit), alerts, streams,
-// connection creation, settings, light theme and the 390 px layout. Every test also fails on a
+// connection creation, settings, teams and stream access (scope picker, a restricted viewer,
+// deny by default), light theme and the 390 px layout. Every test also fails on a
 // Content-Security-Policy violation or an uncaught page error. Screenshots for the design review
 // are written to e2e/screenshots/.
 
@@ -25,11 +26,40 @@ async function guard(page: Page): Promise<string[]> {
   return problems;
 }
 
-async function login(page: Page, password = PASSWORD): Promise<void> {
+async function login(page: Page, password = PASSWORD, username = 'admin'): Promise<void> {
   await page.goto('/login');
-  await page.getByLabel('Username').fill('admin');
+  await page.getByLabel('Username').fill(username);
   await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Sign in' }).click();
+}
+
+/**
+ * Switches to another seeded user without a page load: the mock server keeps its state (teams,
+ * settings) in the page, so the sign-out goes through the user menu and the sign-in through the
+ * form that the client-side redirect shows.
+ */
+async function switchUser(page: Page, username: string): Promise<void> {
+  await page.getByRole('button', { name: /^User menu for / }).click();
+  await page.getByRole('menuitem', { name: 'Sign out' }).click();
+  await expect(page).toHaveURL(/\/login/);
+  await page.getByLabel('Username').fill(username);
+  await page.getByLabel('Password', { exact: true }).fill(PASSWORD);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page).toHaveURL(/\/events/);
+}
+
+/** Client-side navigation through the left nav (keeps the mock state). */
+async function navTo(page: Page, label: string): Promise<void> {
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: label }).click();
+}
+
+/**
+ * Signs in and waits for the redirect to the explorer. In mock mode the login handler stores the
+ * session from inside the page, so navigating away before the redirect can lose the sign-in.
+ */
+async function signIn(page: Page): Promise<void> {
+  await login(page);
+  await expect(page).toHaveURL(/\/events/);
 }
 
 async function settle(page: Page): Promise<void> {
@@ -65,8 +95,7 @@ test('login, default-credentials banner and password prompt', async ({ page }) =
 
 test.describe('signed in', () => {
   test.beforeEach(async ({ page }) => {
-    await login(page);
-    await expect(page).toHaveURL(/\/events/);
+    await signIn(page);
   });
 
   test('log explorer: query, facets, autocomplete, detail', async ({ page }) => {
@@ -92,6 +121,32 @@ test.describe('signed in', () => {
     await settle(page);
     await snap(page, '02-event-detail');
 
+    // Show a built-in field and a property as columns, then hide one from its header.
+    const header = page
+      .locator('[role="row"]')
+      .filter({ has: page.getByRole('columnheader', { name: 'Timestamp' }) });
+    // Row actions appear on hover, as for a person using the mouse.
+    const hoverProp = (name: string) =>
+      page
+        .getByRole('term')
+        .filter({ hasText: new RegExp(`^${name}$`) })
+        .hover();
+    await hoverProp('host');
+    await page.getByRole('button', { name: 'Show host in column' }).click();
+    await hoverProp('Provider');
+    await page.getByRole('button', { name: 'Show Provider in column' }).click();
+    await expect(page.getByRole('button', { name: 'Hide column Provider' })).toBeVisible();
+    await expect(header.getByRole('columnheader', { name: /^host/ })).toBeVisible();
+    await expect(header.getByRole('columnheader', { name: /^Provider/ })).toBeVisible();
+    // The provider now appears twice in the row: highlighted in the message and in its column.
+    await expect(row.getByText('stripe', { exact: true })).toHaveCount(2);
+    await settle(page);
+    await snap(page, '02-show-in-column');
+    await header.getByRole('button', { name: 'Remove column host' }).click();
+    await expect(header.getByRole('columnheader', { name: /^host/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Show host in column' })).toBeVisible();
+
+    await hoverProp('service');
     await page
       .getByRole('button', { name: /^Filter service = / })
       .first()
@@ -172,8 +227,17 @@ test.describe('signed in', () => {
     await expect(page.getByRole('dialog', { name: 'Edit rule Checkout errors spike' })).toBeVisible();
     await expect(page.getByRole('img', { name: /Alert preview/ })).toBeVisible();
     await expect(page.getByText('Recent transitions')).toBeVisible();
+    await expect(page.getByRole('checkbox', { name: 'All streams' })).toBeChecked();
     await settle(page);
     await snap(page, '07-alerts');
+    // Limiting the rule to streams reveals the picker; an empty choice cannot be saved.
+    await page.getByRole('checkbox', { name: 'All streams' }).uncheck();
+    await expect(page.getByText('Choose at least one stream, or read every stream.')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Save rule' })).toBeDisabled();
+    await page.getByRole('button', { name: /^Streams:/ }).click();
+    await page.getByRole('dialog', { name: 'Streams' }).getByLabel('payments').check();
+    await page.getByRole('dialog', { name: 'Streams' }).getByRole('button', { name: 'Done' }).click();
+    await expect(page.getByRole('button', { name: 'Save rule' })).toBeEnabled();
   });
 
   test('streams: retention, mappings and purge dry run', async ({ page }) => {
@@ -193,12 +257,23 @@ test.describe('signed in', () => {
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByLabel('Default stream').fill('payments');
+    // Allowed streams must include the default stream (SPEC §9.1).
+    await page.getByRole('button', { name: /^Allowed streams:/ }).click();
+    const allowed = page.getByRole('dialog', { name: 'Allowed streams' });
+    await allowed.getByLabel('api').check();
+    await allowed.getByRole('button', { name: 'Done' }).click();
+    await expect(page.getByText('Must include the default stream payments.')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Next' })).toBeDisabled();
+    await page.getByRole('button', { name: /^Allowed streams:/ }).click();
+    await allowed.getByLabel('payments').check();
+    await allowed.getByRole('button', { name: 'Done' }).click();
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByLabel('Allowed source CIDRs').fill('10.4.0.0/16');
     await page.getByLabel('Minimum level').selectOption('Information');
     await page.getByRole('button', { name: 'Create connection' }).click();
     await expect(page.getByText('Connection key — shown once')).toBeVisible();
     await expect(page.locator('pre').first()).toContainText('tmk_');
+    await expect(page.getByText('api, payments', { exact: true })).toBeVisible();
     await settle(page);
     await snap(page, '09-connections', true);
   });
@@ -206,6 +281,7 @@ test.describe('signed in', () => {
   test('settings pages', async ({ page }) => {
     for (const [path, name, heading] of [
       ['/settings/users', '16-users', 'Users'],
+      ['/settings/teams', '22-teams', 'Teams'],
       ['/settings/tokens', '17-tokens', 'API tokens'],
       ['/settings/channels', '18-channels', 'Channels'],
       ['/settings/audit', '19-audit', 'Audit log'],
@@ -220,6 +296,118 @@ test.describe('signed in', () => {
     await expect(
       page.getByRole('navigation', { name: 'Settings' }).getByRole('link', { name: 'Import' }),
     ).toBeVisible();
+  });
+
+  test('scope picker narrows the explorer and is remembered', async ({ page }) => {
+    await page.goto('/events');
+    const grid = page.getByRole('grid', { name: 'Events' });
+    await expect(grid.getByRole('row').filter({ hasText: 'checkout-api' }).first()).toBeVisible();
+    const trigger = page.getByRole('button', { name: /^Data scope: all streams, all environments/ });
+    await trigger.click();
+    const dialog = page.getByRole('dialog', { name: 'Data scope' });
+    await expect(dialog.getByLabel('production')).toBeVisible();
+    await settle(page);
+    await snap(page, '23-scope-picker');
+    await dialog.getByLabel('payments').check();
+    await dialog.getByLabel('production').check();
+    await dialog.getByRole('button', { name: 'Apply' }).click();
+    await expect(page).toHaveURL(/streams=payments&env=production/);
+    await expect(grid.getByRole('row').filter({ hasText: 'payments-svc' }).first()).toBeVisible();
+    await expect(grid.getByRole('row').filter({ hasText: 'checkout-api' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /^Data scope: streams payments/ })).toHaveText(
+      /payments · production/,
+    );
+    // The choice follows into the other views and comes back after a reload without parameters.
+    await navTo(page, 'Traces');
+    await expect(page).toHaveURL(/\/traces\?.*streams=payments/);
+    await page.goto('/events');
+    await expect(page).toHaveURL(/streams=payments/);
+    await page.getByRole('button', { name: /^Data scope/ }).click();
+    await page.getByRole('dialog', { name: 'Data scope' }).getByRole('button', { name: 'Reset' }).click();
+    await page.getByRole('dialog', { name: 'Data scope' }).getByRole('button', { name: 'Apply' }).click();
+    await expect(page).not.toHaveURL(/streams=/);
+  });
+
+  test('teams: the admin creates Payments, grants it to a viewer who then sees only payments', async ({
+    page,
+  }) => {
+    await page.goto('/settings/teams');
+    await expect(page.getByRole('switch', { name: 'Deny by default' })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    );
+    await page.getByRole('button', { name: 'New team' }).click();
+    await page.getByRole('dialog', { name: 'New team' }).getByLabel('Name').fill('Payments');
+    await page.getByRole('button', { name: 'Create team' }).click();
+    await expect(page.getByRole('heading', { level: 1, name: 'Payments' })).toBeVisible();
+
+    const members = page.getByRole('region', { name: 'Members' });
+    await members.getByRole('button', { name: /^Users:/ }).click();
+    await page.getByRole('dialog', { name: 'Users' }).getByLabel('Sam Lindqvist').check();
+    await page.getByRole('dialog', { name: 'Users' }).getByRole('button', { name: 'Done' }).click();
+    await expect(members.getByText('Unsaved changes')).toBeVisible();
+    await members.getByRole('button', { name: 'Save' }).click();
+    await expect(members.getByText('Saved')).toBeVisible();
+
+    const streams = page.getByRole('region', { name: 'Streams' });
+    await expect(streams.getByText('This team grants no streams')).toBeVisible();
+    await streams.getByRole('button', { name: /^Streams:/ }).click();
+    await page.getByRole('dialog', { name: 'Streams' }).getByLabel('payments').check();
+    await page.getByRole('dialog', { name: 'Streams' }).getByRole('button', { name: 'Done' }).click();
+    await streams.getByRole('button', { name: 'Save' }).click();
+    await expect(streams.getByText('Saved')).toBeVisible();
+    await settle(page);
+    await snap(page, '22-team-detail');
+
+    await switchUser(page, 'sam');
+    await expect(page.getByTitle('The only stream you can see').first()).toHaveText('payments');
+    await expect(page.getByRole('button', { name: /^Data scope/ })).toHaveCount(0);
+    const grid = page.getByRole('grid', { name: 'Events' });
+    await expect(grid.getByRole('row').filter({ hasText: 'payments-svc' }).first()).toBeVisible();
+    await expect(grid.getByRole('row').filter({ hasText: 'checkout-api' })).toHaveCount(0);
+    await settle(page);
+    await snap(page, '23-viewer-events');
+
+    await navTo(page, 'Traces');
+    const rows = page.getByRole('table').getByRole('row');
+    await expect(rows.filter({ hasText: 'payments-svc' }).first()).toBeVisible();
+    await expect(rows.filter({ hasText: 'checkout-api' })).toHaveCount(0);
+    await page
+      .getByRole('link', { name: /POST \/api\/v1\/orders/ })
+      .first()
+      .click();
+    await expect(page.getByText('parent span not visible').first()).toBeVisible();
+    await settle(page);
+    await snap(page, '23-viewer-trace');
+
+    await navTo(page, 'Settings');
+    await expect(page.getByText('You see 1 stream.')).toBeVisible();
+  });
+
+  test('deny by default: a user in no team gets the empty state and no query', async ({ page }) => {
+    await page.goto('/settings/teams');
+    await page.getByRole('switch', { name: 'Deny by default' }).click();
+    const confirm = page.getByRole('dialog', { name: 'Turn on deny by default?' });
+    await expect(confirm).toContainText('in no team will see no logs');
+    await confirm.getByRole('button', { name: 'Turn on' }).click();
+    await expect(page.getByRole('switch', { name: 'Deny by default' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    await settle(page);
+    await snap(page, '22-teams-deny');
+    const queries: string[] = [];
+    page.on('request', (r) => {
+      if (/\/api\/v1\/(query|histogram|facets|traces|fields|tail)/.test(r.url())) queries.push(r.url());
+    });
+    await switchUser(page, 'sam');
+    await expect(page.getByText("You don't have access to any streams yet")).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Data scope/ })).toHaveCount(0);
+    await settle(page);
+    await snap(page, '24-no-access');
+    await navTo(page, 'Traces');
+    await expect(page.getByText("You don't have access to any streams yet")).toBeVisible();
+    expect(queries).toEqual([]);
   });
 
   test('light theme with a query error and comfortable rows', async ({ page }) => {
@@ -257,7 +445,7 @@ test.describe('phone (390 px)', () => {
   test.use({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true });
 
   test('explorer on a phone', async ({ page }) => {
-    await login(page);
+    await signIn(page);
     await page.goto('/events?signals=sig-errors,sig-slow');
     await expect(page.getByRole('navigation', { name: 'Tabs' })).toBeVisible();
     await expect(page.getByRole('grid', { name: 'Events' }).getByRole('row').first()).toBeVisible();
@@ -267,5 +455,23 @@ test.describe('phone (390 px)', () => {
     await expect(page.getByRole('img', { name: /^Request rate/ })).toBeVisible();
     await settle(page);
     await snap(page, '12-dashboard-mobile');
+  });
+
+  test('scope sheet and teams on a phone', async ({ page }) => {
+    await signIn(page);
+    await page.goto('/events');
+    await page.getByRole('button', { name: /^Data scope/ }).click();
+    const sheet = page.getByRole('dialog', { name: 'Data scope' });
+    await expect(sheet.getByLabel('All my streams')).toBeChecked();
+    await settle(page);
+    await snap(page, '12-scope-mobile');
+    await sheet.getByLabel('payments').check();
+    await sheet.getByRole('button', { name: 'Apply' }).click();
+    await expect(page).toHaveURL(/streams=payments/);
+    await expect(sheet).toBeHidden();
+    await page.goto('/settings/teams/tm-platform');
+    await expect(page.getByRole('heading', { level: 1, name: 'Platform' })).toBeVisible();
+    await settle(page);
+    await snap(page, '12-team-mobile', true);
   });
 });

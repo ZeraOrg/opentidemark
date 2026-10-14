@@ -1,0 +1,22 @@
+{
+  "comment": "Fixture for SPEC §8.5 item 6: metadata DB of the 0.1.0 release (migrations 0001, 0002 and 0006; before 0007 teams), made by migrating meta-0.4.0.db with that release. Test credentials only.",
+  "adminUsername": "admin",
+  "adminPassword": "Upgrade-Fixture-Pass-2026",
+  "adminHashParams": "m=19456,t=2,p=1",
+  "connectionKey": "tmk_FixtureKey0123456789abcdefghijABCDEFGHIJ",
+  "apiToken": "tmt_FixtureToken0123456789abcdefghijABCDEFGH",
+  "rowCounts": {
+    "users": 2,
+    "connections": 1,
+    "api_tokens": 1,
+    "signals": 1,
+    "dashboards": 1,
+    "alert_rules": 1,
+    "alert_history": 1,
+    "channels": 1,
+    "streams": 1,
+    "settings": 1,
+    "audit_log": 1,
+    "sessions": 1
+  }
+}

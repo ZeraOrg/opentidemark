@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //
-// Application shell (SPEC §16.1, DESIGN §5.16, §5.20, §8): top bar with the global time picker,
-// refresh, Live toggle, status text, theme toggle and user menu; collapsible left nav; banners
-// (default credentials); mobile top bar and bottom tab bar; global shortcuts.
+// Application shell (SPEC §16.1, DESIGN §5.16, §5.20, §8): top bar with the scope picker, the
+// global time picker, refresh, Live toggle, status text, theme toggle and user menu; collapsible
+// left nav; banners (default credentials); mobile top bar and bottom tab bar; global shortcuts;
+// the empty state for users who can see no stream (SPEC §15.10).
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -14,6 +15,7 @@ import {
   ChevronsRight,
   Database,
   KeyRound,
+  Layers,
   LayoutGrid,
   List,
   LogOut,
@@ -32,6 +34,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { admin } from '../api/endpoints';
 import { Kbd, Toggle } from '../components/controls';
+import { EmptyState } from '../components/layout';
 import { LogoMark, Wordmark } from '../components/Logo';
 import { MenuItem, MenuSeparator, Modal, Popover, overlayStyles as o, useToast } from '../components/overlay';
 import { cx } from '../lib/cx';
@@ -39,6 +42,8 @@ import { STORAGE_KEYS } from '../lib/storage';
 import { CHEATSHEET } from '../tql/cheatsheet';
 import { TqlText } from '../components/TqlText';
 import { useGlobalHotkeys } from './hotkeys';
+import { usesScope } from './scope';
+import { ScopePicker, useRememberedScope } from './ScopePicker';
 import { useApi, useServices } from './services';
 import { useMe, useSession } from './session';
 import { ShellProvider, useShell } from './shellContext';
@@ -81,7 +86,7 @@ function pageTitle(pathname: string): string {
   const seg = pathname.split('/')[1] ?? '';
   const item = NAV.find((n) => n.to === `/${seg}`);
   if (item !== undefined) return item.label;
-  return seg === 'settings' ? 'Settings' : 'Tidemark';
+  return seg === 'settings' ? 'Settings' : 'OpenTidemark';
 }
 
 const THEME_ICON: Record<ThemePref, LucideIcon> = { dark: Moon, light: Sun, system: Monitor };
@@ -232,6 +237,7 @@ function TimeControls({ compact }: { compact?: boolean }) {
   const { refreshLabel } = useShell();
   return (
     <>
+      <ScopePicker compact={compact} />
       <TimePicker range={range} onChange={setRange} compact={compact} />
       {compact === true ? null : (
         <button
@@ -264,6 +270,22 @@ function Banners() {
       </Link>
       <span className={s.bannerNote}>· cannot be dismissed</span>
     </div>
+  );
+}
+
+/** Shown instead of a data view when the caller can see no stream (SPEC §15.10, §16.6). */
+function NoStreamsAccess() {
+  return (
+    <EmptyState
+      icon={<Layers size={20} aria-hidden="true" />}
+      title="You don't have access to any streams yet"
+      hint="Ask an admin to add you to a team. Teams decide which streams' data you can see."
+      action={
+        <Link to="/settings/users#account" className={s.emptyLink}>
+          See your account
+        </Link>
+      }
+    />
   );
 }
 
@@ -418,6 +440,7 @@ function SignInPrompt() {
 function ShellFrame({ children }: { children: ReactNode }) {
   const loc = useLocation();
   const navigate = useNavigate();
+  const me = useMe();
   const { status, focusTarget } = useShell();
   const { store } = useServices();
   const [collapsed, setCollapsed] = useState(() => store.get(STORAGE_KEYS.nav) === '1');
@@ -425,8 +448,11 @@ function ShellFrame({ children }: { children: ReactNode }) {
   const [more, setMore] = useState(false);
   const [mobileNav, setMobileNav] = useState(false);
   const timed = usesTimeRange(loc.pathname);
+  const scoped = usesScope(loc.pathname);
+  const noAccess = scoped && !me.allStreams && me.streams.length === 0;
   const events = loc.pathname.startsWith('/events');
   const tv = new URLSearchParams(loc.search).get('tv') === '1';
+  useRememberedScope(scoped && !noAccess);
 
   useGlobalHotkeys({
     navigate,
@@ -449,13 +475,13 @@ function ShellFrame({ children }: { children: ReactNode }) {
     <div className={cx(s.shell, collapsed && s.collapsed, tv && s.tv)}>
       <header className={s.topbar}>
         <div className={s.brandSlot}>
-          <Link to="/events" className={s.brandLink} aria-label="Tidemark home">
+          <Link to="/events" className={s.brandLink} aria-label="OpenTidemark home">
             <Wordmark />
           </Link>
         </div>
         <div className={s.topControls}>
-          {timed ? <TimeControls /> : null}
-          {events ? <LiveToggle /> : null}
+          {timed && !noAccess ? <TimeControls /> : null}
+          {events && !noAccess ? <LiveToggle /> : null}
         </div>
         <div className={s.topRight}>
           {status !== null ? <span className={s.status}>{status}</span> : null}
@@ -470,8 +496,8 @@ function ShellFrame({ children }: { children: ReactNode }) {
         <LogoMark size={26} />
         <span className={s.mobileTitle}>{pageTitle(loc.pathname)}</span>
         <span className={s.mobileSpacer} />
-        {timed ? <TimeControls compact /> : null}
-        {events ? <LiveToggle compact /> : null}
+        {timed && !noAccess ? <TimeControls compact /> : null}
+        {events && !noAccess ? <LiveToggle compact /> : null}
       </header>
       <Banners />
       <div className={s.body}>
@@ -506,7 +532,7 @@ function ShellFrame({ children }: { children: ReactNode }) {
           </div>
         </nav>
         <main className={s.main} id="main">
-          {children}
+          {noAccess ? <NoStreamsAccess /> : children}
         </main>
       </div>
       <nav className={s.tabbar} aria-label="Tabs">

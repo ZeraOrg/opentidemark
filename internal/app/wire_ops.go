@@ -25,6 +25,8 @@ type opsDeps struct {
 	audit     *service.Auditor
 	leader    service.Leader
 	streams   *meta.Streams
+	teams     *meta.Teams
+	access    service.ScopeResolver
 	clientIP  func(*http.Request) netip.Addr
 	querier   alerting.Querier // store.Querier of the query module; nil ⇒ evaluations fail with alerting.ErrNoQuerier
 }
@@ -41,7 +43,7 @@ func (a *App) wireOps(d opsDeps) ([]api.Registrar, []background, error) {
 	}
 	indexed := service.NewIndexedFields(meta.NewIndexedFields(a.meta), admin, d.audit)
 	streams := service.NewStreamAdmin(service.StreamAdminDeps{Repo: d.streams, Registry: d.registry, Storage: admin,
-		Retention: d.retention, Indexed: indexed, Audit: d.audit, Leader: d.leader, Now: time.Now, Logger: a.logger})
+		Grants: d.teams, Access: d.access, Retention: d.retention, Indexed: indexed, Audit: d.audit, Leader: d.leader, Now: time.Now, Logger: a.logger})
 	purges := service.NewPurges(meta.NewPurgeJobs(a.meta), admin, d.streams, d.audit, a.logger)
 	dashboards, err := service.NewDashboards(meta.NewDashboards(a.meta), d.audit)
 	if err != nil {
@@ -92,7 +94,8 @@ func (a *App) wireAlerting(d opsDeps, indexed alerting.IndexedColumns) (*api.Ale
 	evaluator := alerting.NewEvaluator(alerting.EvaluatorDeps{Rules: rules, Querier: d.querier, Notify: dispatcher,
 		Clock: auth.SystemClock{}, Leader: d.leader, Indexed: indexed, Database: a.cfg.ClickHouse.Database,
 		PublicURL: publicURL, Logger: a.logger})
-	alerts := service.NewAlerts(rules, channels, evaluator, d.audit, time.Now)
+	alerts := service.NewAlerts(service.AlertsDeps{Repo: rules, Channels: channels, Evaluator: evaluator, Access: d.access,
+		Audit: d.audit, Now: time.Now})
 	jobs := []background{
 		dispatcher.Run,
 		func(ctx context.Context) { evaluator.Run(ctx, alerting.TickInterval) },

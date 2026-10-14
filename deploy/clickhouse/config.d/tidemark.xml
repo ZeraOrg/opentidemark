@@ -1,15 +1,19 @@
 <?xml version="1.0"?>
 <!-- SPDX-License-Identifier: Apache-2.0 -->
-<!-- Tidemark server settings: quieter logs, no listeners beyond the internal network defaults,
-     and the 'backups' disk used by `tidemark backup` (SPEC §8.5 item 8). -->
+<!-- OpenTidemark server settings (SPEC §17.2, §17.3): quieter logs, no MySQL/PostgreSQL protocol
+     ports, no crash reports sent to the ClickHouse developers, and the 'backups' disk used by
+     `tidemark backup` (SPEC §8.5 item 8). The listen address is left at ClickHouse's default
+     (loopback on a native install); the Docker Compose stack adds docker-listen.xml. -->
 <clickhouse>
   <logger>
     <level>warning</level>
     <console>1</console>
   </logger>
-  <listen_host>0.0.0.0</listen_host>
   <mysql_port remove="1"/>
   <postgresql_port remove="1"/>
+  <send_crash_reports>
+    <enabled>false</enabled>
+  </send_crash_reports>
   <storage_configuration>
     <disks>
       <backups>

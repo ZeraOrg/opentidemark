@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package cluster makes Tidemark nodes interchangeable (SPEC §17.5): lease-based leader election
+// Package cluster makes OpenTidemark nodes interchangeable (SPEC §17.5): lease-based leader election
 // for singleton work, cache invalidation across nodes (PostgreSQL LISTEN/NOTIFY) and the
 // graceful drain state used by readiness probes.
 package cluster

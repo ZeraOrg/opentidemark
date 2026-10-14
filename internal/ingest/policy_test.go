@@ -197,3 +197,30 @@ func TestWriteJSONAndSplitLines(t *testing.T) {
 		t.Errorf("%+v", lines)
 	}
 }
+
+// TestAllowedStreams checks that an explicit stream outside the connection's allowed streams
+// goes to the default stream and is counted (SPEC §9.1).
+func TestAllowedStreams(t *testing.T) {
+	conn := testutil.AllProtocolsConn()
+	conn.AllowedStreams = []string{"app", "orders"}
+	obs := testutil.NewObserver()
+	d := testutil.NewDeps(&testutil.FakeAuth{Conn: conn}, &testutil.Sink{}, obs, nil)
+	req := authed(t, d, auth.ProtocolOTLP)
+	for in, want := range map[string]string{"": "app", "Orders": "orders", "payments": "app"} {
+		if got := req.Stream(in); got != want {
+			t.Errorf("Stream(%q) = %q want %q", in, got, want)
+		}
+	}
+	spans := []model.Span{{Stream: "secret"}, {Stream: "orders"}}
+	req.PrepareSpans(spans)
+	points := []model.MetricPoint{{Stream: "secret"}}
+	req.PrepareMetrics(points)
+	events := []model.Event{{Stream: "secret", Message: "m"}}
+	d.PrepareEvents(req, events)
+	if spans[0].Stream != "app" || spans[1].Stream != "orders" || points[0].Stream != "app" || events[0].Stream != "app" {
+		t.Errorf("rerouted %q %q %q %q", spans[0].Stream, spans[1].Stream, points[0].Stream, events[0].Stream)
+	}
+	if n := obs.Reroutes["otlp/"+ingest.RerouteStreamNotAllowed]; n != 4 {
+		t.Errorf("rerouted count %d (the Stream calls above count once)", n)
+	}
+}

@@ -5,6 +5,7 @@
 
 import type { ApiClient } from './client';
 import type {
+  AccessSettings,
   Alert,
   AlertHistoryEntry,
   AlertTestResult,
@@ -40,6 +41,7 @@ import type {
   RetentionSettings,
   Role,
   RuleDoc,
+  ScopeParams,
   Settings,
   Signal,
   Snippet,
@@ -47,6 +49,9 @@ import type {
   Stream,
   StreamsResponse,
   SystemReport,
+  Team,
+  TeamsAccess,
+  TeamSummary,
   TokenScope,
   TraceResponse,
   TraceSummary,
@@ -88,6 +93,9 @@ export const users = {
   create: (api: ApiClient, u: NewUser) => api.post<User>('/users', u),
   update: (api: ApiClient, id: string, patch: UserPatch) => api.patch<User>(`/users/${enc(id)}`, patch),
   remove: (api: ApiClient, id: string) => api.delete(`/users/${enc(id)}`),
+  /** Replaces the user's teams (SPEC §11.2). */
+  setTeams: (api: ApiClient, id: string, teamIds: readonly string[]) =>
+    api.put<User>(`/users/${enc(id)}/teams`, { teamIds }),
 };
 
 export const tokens = {
@@ -103,6 +111,10 @@ export interface RangeParams {
   to: string;
 }
 
+/**
+ * Every GET search route takes the selection as `streams` and `env` (SPEC §11.3); the by-id
+ * routes (`/events/{id}`, `/context`, `/traces/{traceId}`) take none.
+ */
 export const search = {
   query: (api: ApiClient, req: QueryRequest, signal?: AbortSignal) =>
     api.post<QueryResponse>('/query', req, { signal, timeoutMs: 120_000 }),
@@ -110,29 +122,36 @@ export const search = {
     api.post<ValidateResponse>('/query/validate', { q }, { signal }),
   histogram: (
     api: ApiClient,
-    p: RangeParams & { q: string; buckets?: number; signals?: readonly string[] },
+    p: RangeParams & ScopeParams & { q: string; buckets?: number; signals?: readonly string[] },
     signal?: AbortSignal,
   ) => api.get<HistogramResponse>('/histogram', { query: { ...p }, signal }),
   facets: (
     api: ApiClient,
-    p: RangeParams & { q: string; fields: readonly string[]; top?: number; signals?: readonly string[] },
+    p: RangeParams &
+      ScopeParams & { q: string; fields: readonly string[]; top?: number; signals?: readonly string[] },
     signal?: AbortSignal,
   ) => api.get<Facet[]>('/facets', { query: { ...p }, signal }),
-  fields: (api: ApiClient, p: RangeParams & { source: Source }, signal?: AbortSignal) =>
+  fields: (api: ApiClient, p: RangeParams & ScopeParams & { source: Source }, signal?: AbortSignal) =>
     api.get<FieldInfo[]>('/fields', { query: { ...p }, signal }),
   event: (api: ApiClient, id: string) => api.get<LogEvent>(`/events/${enc(id)}`),
   context: (api: ApiClient, id: string, before = 5, after = 5) =>
     api.get<EventContext>(`/events/${enc(id)}/context`, { query: { before, after } }),
-  traces: (api: ApiClient, p: RangeParams & { q: string; limit?: number }, signal?: AbortSignal) =>
-    api.get<TraceSummary[]>('/traces', { query: { ...p }, signal }),
+  traces: (
+    api: ApiClient,
+    p: RangeParams & ScopeParams & { q: string; limit?: number },
+    signal?: AbortSignal,
+  ) => api.get<TraceSummary[]>('/traces', { query: { ...p }, signal }),
   trace: (api: ApiClient, traceId: string) => api.get<TraceResponse>(`/traces/${enc(traceId)}`),
-  metricNames: (api: ApiClient, q: string, signal?: AbortSignal) =>
-    api.get<MetricName[]>('/metrics/names', { query: { q }, signal }),
-  complete: (api: ApiClient, q: string, pos: number, source: Source, signal?: AbortSignal) =>
-    api.get<Completion>('/tql/complete', { query: { q, pos, source }, signal }),
+  metricNames: (api: ApiClient, p: ScopeParams & { q: string }, signal?: AbortSignal) =>
+    api.get<MetricName[]>('/metrics/names', { query: { ...p }, signal }),
+  complete: (
+    api: ApiClient,
+    p: ScopeParams & { q: string; pos: number; source: Source },
+    signal?: AbortSignal,
+  ) => api.get<Completion>('/tql/complete', { query: { ...p }, signal }),
   exportUrl: (
     api: ApiClient,
-    p: RangeParams & { q: string; format: 'ndjson' | 'csv'; signals?: readonly string[] },
+    p: RangeParams & ScopeParams & { q: string; format: 'ndjson' | 'csv'; signals?: readonly string[] },
   ) => api.url('/export', { ...p }),
 };
 
@@ -181,6 +200,8 @@ export interface AlertInput {
   name: string;
   enabled: boolean;
   doc: RuleDoc;
+  /** `null` = every stream (only for callers who see every stream, SPEC §14.1). */
+  streams: string[] | null;
 }
 
 export const alerts = {
@@ -253,14 +274,31 @@ export const streams = {
 
 export const admin = {
   settings: (api: ApiClient) => api.get<Settings>('/settings'),
-  patchSettings: (api: ApiClient, patch: { retention?: RetentionSettings; ui?: Record<string, unknown> }) =>
-    api.patch<Settings>('/settings', patch),
+  patchSettings: (
+    api: ApiClient,
+    patch: { retention?: RetentionSettings; access?: AccessSettings; ui?: Record<string, unknown> },
+  ) => api.patch<Settings>('/settings', patch),
   audit: (
     api: ApiClient,
     p: { from?: string; to?: string; actor?: string; action?: string; limit?: number },
   ) => api.get<AuditEntry[]>('/audit', { query: { ...p } }),
   system: (api: ApiClient) => api.get<SystemReport>('/system'),
   product: (api: ApiClient) => api.get<ProductInfo>('/api', { absolute: true, skipAuthRedirect: true }),
+};
+
+// ---- §11.5 teams (§15.10) ---------------------------------------------------------------------
+export const teams = {
+  list: (api: ApiClient) => api.get<TeamSummary[]>('/teams'),
+  access: (api: ApiClient) => api.get<TeamsAccess>('/teams/access'),
+  get: (api: ApiClient, id: string) => api.get<Team>(`/teams/${enc(id)}`),
+  create: (api: ApiClient, t: { name: string; description?: string }) => api.post<Team>('/teams', t),
+  update: (api: ApiClient, id: string, t: { name?: string; description?: string }) =>
+    api.patch<Team>(`/teams/${enc(id)}`, t),
+  remove: (api: ApiClient, id: string) => api.delete(`/teams/${enc(id)}`),
+  setMembers: (api: ApiClient, id: string, userIds: readonly string[]) =>
+    api.put<Team>(`/teams/${enc(id)}/members`, { userIds }),
+  setStreams: (api: ApiClient, id: string, streams: readonly string[]) =>
+    api.put<Team>(`/teams/${enc(id)}/streams`, { streams }),
 };
 
 // ---- §11.5 imports (§9.9) --------------------------------------------------------------------

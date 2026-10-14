@@ -37,6 +37,9 @@ const (
 	completeFieldsRange     = 24 * time.Hour
 	completeValuesRange     = time.Hour
 	completeValueCount      = 10
+	MaxSelectedStreams      = 100
+	MaxSelectedEnvironments = 20
+	MaxEnvironmentLen       = 256
 )
 
 // ErrIndexedFields is wrapped when the indexed-field list cannot be loaded.
@@ -55,6 +58,7 @@ type IndexedFieldRows interface {
 // SearchDeps are the collaborators of Search.
 type SearchDeps struct {
 	Store    store.Querier
+	Access   ScopeResolver // the caller's stream scope (SPEC §15.10)
 	Signals  SignalReader
 	Indexed  IndexedFieldRows // optional
 	Audit    *Auditor
@@ -93,15 +97,75 @@ func (r Range) valid() error {
 
 func (r Range) store() store.TimeRange { return store.TimeRange{From: r.From, To: r.To} }
 
-// prepared is a parsed query with its active signals.
+// Selection narrows a request to some streams and, for logs, some environments (SPEC
+// §11.3). The selected streams are intersected with the caller's scope, so a selection never
+// widens access; environments are a filter, not a security boundary (§15.10). The zero value
+// selects everything the caller may see.
+type Selection struct {
+	Streams      []string
+	Environments []string
+}
+
+func (sel Selection) validate() error {
+	if len(sel.Streams) > MaxSelectedStreams {
+		return invalid("streams", fmt.Sprintf("at most %d streams", MaxSelectedStreams))
+	}
+	for _, s := range sel.Streams {
+		if !model.ValidStreamName(s) {
+			return invalid("streams", fmt.Sprintf("%q is not a valid stream name", s))
+		}
+	}
+	if len(sel.Environments) > MaxSelectedEnvironments {
+		return invalid("env", fmt.Sprintf("at most %d environments", MaxSelectedEnvironments))
+	}
+	for _, e := range sel.Environments {
+		if e == "" || len(e) > MaxEnvironmentLen {
+			return invalid("env", fmt.Sprintf("environments must be 1 to %d bytes", MaxEnvironmentLen))
+		}
+	}
+	return nil
+}
+
+// scope validates sel and returns the caller's stream scope narrowed to the selected streams.
+func (s *Search) scope(ctx context.Context, p auth.Principal, sel Selection) (model.StreamScope, error) {
+	if err := sel.validate(); err != nil {
+		return model.StreamScope{}, err
+	}
+	sc, err := s.d.Access.Scope(ctx, p)
+	if err != nil {
+		return model.StreamScope{}, err
+	}
+	if len(sel.Streams) > 0 {
+		sc = sc.Intersect(model.OnlyStreams(sel.Streams...))
+	}
+	return sc, nil
+}
+
+// environmentFilter is the extra filter `environment in [...]` of a logs query (nil when no
+// environment is selected or the source has no environment column).
+func environmentFilter(src model.Source, envs []string) *tql.Query {
+	if len(envs) == 0 || src != model.SourceLogs {
+		return nil
+	}
+	vals := make([]tql.Value, len(envs))
+	for i, e := range envs {
+		vals[i] = tql.Value{Kind: tql.ValueString, Text: e}
+	}
+	return &tql.Query{Source: src, Filter: &tql.In{Field: tql.Field{Name: "environment"}, Values: vals}}
+}
+
+// prepared is a parsed query with its active signals and stream scope.
 type prepared struct {
 	q       *tql.Query
 	extra   []*tql.Query
 	indexed map[model.Source]map[string]string
+	streams model.StreamScope
 }
 
-// prepare parses text (forcing src when it is set) and loads the signals visible to p.
-func (s *Search) prepare(ctx context.Context, p auth.Principal, text string, src model.Source, signals []string) (*prepared, error) {
+// prepare parses text (forcing src when it is set), loads the signals visible to p and
+// resolves p's stream scope narrowed by sel.
+func (s *Search) prepare(ctx context.Context, p auth.Principal, text string, src model.Source, signals []string,
+	sel Selection) (*prepared, error) {
 	var q *tql.Query
 	var err error
 	if src != "" {
@@ -113,8 +177,14 @@ func (s *Search) prepare(ctx context.Context, p auth.Principal, text string, src
 		return nil, err
 	}
 	out := &prepared{q: q}
+	if out.streams, err = s.scope(ctx, p, sel); err != nil {
+		return nil, err
+	}
 	if out.extra, err = s.signalFilters(ctx, p, q.Source, signals); err != nil {
 		return nil, err
+	}
+	if env := environmentFilter(q.Source, sel.Environments); env != nil {
+		out.extra = append(out.extra, env)
 	}
 	if out.indexed, err = s.indexedFields(ctx); err != nil {
 		return nil, err
@@ -168,7 +238,7 @@ func (s *Search) indexedFields(ctx context.Context) (map[model.Source]map[string
 
 func (s *Search) options(pr *prepared, r Range) tql.Options {
 	return tql.Options{Database: s.d.Database, From: r.From, To: r.To, Now: s.d.Now(), MaxRows: s.d.MaxRows,
-		IndexedFields: pr.indexed, ExtraFilters: pr.extra}
+		IndexedFields: pr.indexed, ExtraFilters: pr.extra, Streams: pr.streams}
 }
 
 // filter compiles the WHERE condition of pr for r.
@@ -177,7 +247,7 @@ func (s *Search) filter(pr *prepared, r Range) (store.Filter, error) {
 	if err != nil {
 		return store.Filter{}, err
 	}
-	return store.Filter{Source: pr.q.Source, Where: where, Args: args, Range: r.store()}, nil
+	return store.Filter{Source: pr.q.Source, Where: where, Args: args, Range: r.store(), Streams: pr.streams}, nil
 }
 
 // QueryRequest is the body of POST /query.
@@ -188,6 +258,7 @@ type QueryRequest struct {
 	Cursor  *tql.Cursor
 	Span    string // "", "auto" or a duration such as "5m"
 	Signals []string
+	Select  Selection
 }
 
 // Query compiles and runs a query.
@@ -202,7 +273,7 @@ func (s *Search) Query(ctx context.Context, p auth.Principal, req QueryRequest) 
 	if err != nil {
 		return store.Result{}, err
 	}
-	pr, err := s.prepare(ctx, p, req.Q, "", req.Signals)
+	pr, err := s.prepare(ctx, p, req.Q, "", req.Signals, req.Select)
 	if err != nil {
 		return store.Result{}, err
 	}
@@ -250,7 +321,8 @@ func (s *Search) compileOnly(q string, r Range) (*tql.Compiled, error) {
 	if err != nil {
 		return nil, err
 	}
-	return tql.Compile(pq, tql.Options{Database: s.d.Database, From: r.From, To: r.To, Now: s.d.Now(), MaxRows: s.d.MaxRows})
+	return tql.Compile(pq, tql.Options{Database: s.d.Database, From: r.From, To: r.To, Now: s.d.Now(), MaxRows: s.d.MaxRows,
+		Streams: model.NoStreams()}) // compile-only: no data is read
 }
 
 func validation(c *tql.Compiled, err error) Validation {
@@ -266,6 +338,7 @@ type HistogramRequest struct {
 	Range   Range
 	Buckets int
 	Signals []string
+	Select  Selection
 }
 
 // Histogram counts matching rows over time with a span chosen so the bucket count is at most
@@ -280,7 +353,7 @@ func (s *Search) Histogram(ctx context.Context, p auth.Principal, req HistogramR
 	if req.Buckets < 1 || req.Buckets > MaxHistogramBuckets {
 		return store.Histogram{}, invalid("buckets", fmt.Sprintf("must be between 1 and %d", MaxHistogramBuckets))
 	}
-	pr, err := s.prepare(ctx, p, req.Q, "", req.Signals)
+	pr, err := s.prepare(ctx, p, req.Q, "", req.Signals, req.Select)
 	if err != nil {
 		return store.Histogram{}, err
 	}
@@ -291,15 +364,20 @@ func (s *Search) Histogram(ctx context.Context, p auth.Principal, req HistogramR
 	return s.d.Store.Histogram(ctx, f, tql.AutoSpan(req.Range.To.Sub(req.Range.From), req.Buckets))
 }
 
-// Fields lists built-in fields followed by the property keys seen in r (by hits).
-func (s *Search) Fields(ctx context.Context, src model.Source, r Range) ([]store.FieldInfo, error) {
+// Fields lists built-in fields followed by the property keys seen in r (by hits) in the
+// streams p may see (narrowed by sel).
+func (s *Search) Fields(ctx context.Context, p auth.Principal, src model.Source, r Range, sel Selection) ([]store.FieldInfo, error) {
 	if !src.Valid() {
 		return nil, invalid("source", "must be logs, spans or metrics")
 	}
 	if err := r.valid(); err != nil {
 		return nil, err
 	}
-	props, err := s.d.Store.Fields(ctx, src, r.store())
+	scope, err := s.scope(ctx, p, sel)
+	if err != nil {
+		return nil, err
+	}
+	props, err := s.d.Store.Fields(ctx, scope, src, r.store())
 	if err != nil {
 		return nil, err
 	}
@@ -317,13 +395,17 @@ func (s *Search) Fields(ctx context.Context, src model.Source, r Range) ([]store
 	return out, nil
 }
 
-// Event returns one event by id.
-func (s *Search) Event(ctx context.Context, id string) (model.Event, error) {
+// Event returns one event by id; an event in a stream p may not see is not found.
+func (s *Search) Event(ctx context.Context, p auth.Principal, id string) (model.Event, error) {
 	uid, err := uuid.Parse(id)
 	if err != nil {
 		return model.Event{}, invalid("id", "must be an event UUID")
 	}
-	return s.d.Store.Event(ctx, uid)
+	scope, err := s.scope(ctx, p, Selection{})
+	if err != nil {
+		return model.Event{}, err
+	}
+	return s.d.Store.Event(ctx, scope, uid)
 }
 
 // EventContext is an event with its surrounding events.
@@ -333,16 +415,25 @@ type EventContext struct {
 	After  []model.Event
 }
 
-// Context returns up to before/after events of the same service and host around an event.
-func (s *Search) Context(ctx context.Context, id string, before, after int) (EventContext, error) {
+// Context returns up to before/after events of the same service and host around an event,
+// all in streams p may see.
+func (s *Search) Context(ctx context.Context, p auth.Principal, id string, before, after int) (EventContext, error) {
 	if before < 0 || before > MaxContextEvents || after < 0 || after > MaxContextEvents {
 		return EventContext{}, invalid("before", fmt.Sprintf("before and after must be between 0 and %d", MaxContextEvents))
 	}
-	ev, err := s.Event(ctx, id)
+	uid, err := uuid.Parse(id)
+	if err != nil {
+		return EventContext{}, invalid("id", "must be an event UUID")
+	}
+	scope, err := s.scope(ctx, p, Selection{})
 	if err != nil {
 		return EventContext{}, err
 	}
-	older, newer, err := s.d.Store.Context(ctx, ev, before, after)
+	ev, err := s.d.Store.Event(ctx, scope, uid)
+	if err != nil {
+		return EventContext{}, err
+	}
+	older, newer, err := s.d.Store.Context(ctx, scope, ev, before, after)
 	if err != nil {
 		return EventContext{}, err
 	}
@@ -351,9 +442,10 @@ func (s *Search) Context(ctx context.Context, id string, before, after int) (Eve
 
 // TracesRequest is the input of Traces.
 type TracesRequest struct {
-	Q     string
-	Range Range
-	Limit int
+	Q      string
+	Range  Range
+	Limit  int
+	Select Selection // environments do not apply to spans
 }
 
 // Traces searches traces with a span matching q (source spans).
@@ -367,7 +459,7 @@ func (s *Search) Traces(ctx context.Context, p auth.Principal, req TracesRequest
 	if req.Limit < 1 || req.Limit > MaxTraceLimit {
 		return nil, invalid("limit", fmt.Sprintf("must be between 1 and %d", MaxTraceLimit))
 	}
-	pr, err := s.prepare(ctx, p, req.Q, model.SourceSpans, nil)
+	pr, err := s.prepare(ctx, p, req.Q, model.SourceSpans, nil, req.Select)
 	if err != nil {
 		return nil, err
 	}
@@ -378,13 +470,18 @@ func (s *Search) Traces(ctx context.Context, p auth.Principal, req TracesRequest
 	return s.d.Store.Traces(ctx, f, req.Limit)
 }
 
-// Trace returns the spans and events of one trace.
-func (s *Search) Trace(ctx context.Context, traceID string) ([]model.Span, []model.Event, error) {
+// Trace returns the spans and events of one trace that are in streams p may see; a trace
+// with nothing visible is not found.
+func (s *Search) Trace(ctx context.Context, p auth.Principal, traceID string) ([]model.Span, []model.Event, error) {
 	id := strings.ToLower(traceID)
 	if !isHex(id, traceIDLen) {
 		return nil, nil, invalid("traceId", "must be 32 hexadecimal characters")
 	}
-	return s.d.Store.Trace(ctx, id)
+	scope, err := s.scope(ctx, p, Selection{})
+	if err != nil {
+		return nil, nil, err
+	}
+	return s.d.Store.Trace(ctx, scope, id)
 }
 
 const traceIDLen = 32
@@ -401,13 +498,17 @@ func isHex(s string, n int) bool {
 	return true
 }
 
-// MetricNames lists metric names containing substr.
-func (s *Search) MetricNames(ctx context.Context, substr string, r Range) ([]store.MetricName, error) {
+// MetricNames lists metric names containing substr in the streams p may see (narrowed by sel).
+func (s *Search) MetricNames(ctx context.Context, p auth.Principal, substr string, r Range, sel Selection) ([]store.MetricName, error) {
 	if err := r.valid(); err != nil {
 		return nil, err
 	}
 	if len(substr) > MaxMetricNameFilter {
 		return nil, invalid("q", fmt.Sprintf("must be at most %d bytes", MaxMetricNameFilter))
 	}
-	return s.d.Store.MetricNames(ctx, substr, r.store(), MaxMetricNames)
+	scope, err := s.scope(ctx, p, sel)
+	if err != nil {
+		return nil, err
+	}
+	return s.d.Store.MetricNames(ctx, scope, substr, r.store(), MaxMetricNames)
 }

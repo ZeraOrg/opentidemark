@@ -39,6 +39,7 @@ func TestSecurityHeaders(t *testing.T) {
 			"Permissions-Policy":           "camera=(), microphone=(), geolocation=()",
 			"Cross-Origin-Opener-Policy":   "same-origin",
 			"Cross-Origin-Resource-Policy": "same-origin",
+			"X-Frame-Options":              "DENY",
 		}
 		for k, v := range want {
 			if w.Header().Get(k) != v {

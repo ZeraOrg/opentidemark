@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Per-browser preferences in localStorage (DESIGN §10: tm.theme, tm.density, tm.columns.*,
-// query history). Storage can be unavailable (private mode, blocked site data), so every access
-// is guarded and falls back to the default.
+// query history, tm.scope). Storage can be unavailable (private mode, blocked site data), so
+// every access is guarded and falls back to the default.
 
 export interface KeyValueStore {
   get(key: string): string | null;
@@ -65,4 +65,5 @@ export const STORAGE_KEYS = {
   columns: 'tm.columns.logs',
   nav: 'tm.nav.collapsed',
   passwordPromptDismissed: 'tm.passwordPrompt',
+  scope: 'tm.scope',
 } as const;

@@ -10,3 +10,7 @@ source spans | * | stats rate() span auto
 source spans | trace_id:ABC and parent_span_id:x and status_code:ok and kind:server
 source spans | @timestamp > now-1h
 %cursor source spans | status:error
+# stream scope (SPEC §15.10)
+%streams team-a source spans | duration > 250ms
+# connection id built-in
+source spans | connection_id:abc

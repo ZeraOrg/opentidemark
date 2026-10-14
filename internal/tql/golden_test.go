@@ -29,6 +29,7 @@ func goldenOptions() Options {
 		IndexedFields: map[model.Source]map[string]string{
 			model.SourceLogs: {"RequestPath": "f_requestpath"},
 		},
+		Streams: model.AllStreams(),
 	}
 }
 
@@ -62,6 +63,14 @@ func goldenEntry(line string) string {
 	if rest, ok := strings.CutPrefix(q, "%cursor "); ok {
 		q = rest
 		opts.Cursor = &Cursor{Timestamp: goldenTime.Add(-time.Minute), ID: "0192f0a0-0000-7000-8000-000000000001"}
+	}
+	if rest, ok := strings.CutPrefix(q, "%streams "); ok {
+		var names string
+		names, q, _ = strings.Cut(rest, " ")
+		opts.Streams = model.NoStreams()
+		if names != "none" {
+			opts.Streams = model.OnlyStreams(strings.Split(names, ",")...)
+		}
 	}
 	if rest, ok := strings.CutPrefix(q, "%where "); ok {
 		q, whereOnly = rest, true

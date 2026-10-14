@@ -22,7 +22,8 @@ type Connection struct {
 	Protocols         []string
 	DefaultStream     string
 	AllowedCIDRs      []string
-	MinimumLevel      string // "" = accept all levels
+	AllowedStreams    []string // streams the connection may write to; empty = any (SPEC §9.1)
+	MinimumLevel      string   // "" = accept all levels
 	AppliedProperties map[string]any
 	RateLimitEPS      int
 	ExpiresAt         *time.Time
@@ -42,15 +43,15 @@ func NewConnections(db *DB) *Connections { return &Connections{db: db} }
 
 const connCols = `id, name, description, key_prefix, key_hash, prev_key_hash, prev_key_expires_at, protocols,
 	default_stream, allowed_cidrs, minimum_level, applied_properties, rate_limit_eps, expires_at, revoked_at,
-	last_used_at, last_used_ip, events_received, created_at, updated_at`
+	last_used_at, last_used_ip, events_received, created_at, updated_at, allowed_streams`
 
 func scanConnection(r rowScanner) (Connection, error) {
 	var c Connection
 	var prevHash, prevExp, expires, revoked, lastUsed sql.NullString
-	var protocols, cidrs, applied, created, updated string
+	var protocols, cidrs, applied, created, updated, streams string
 	err := r.Scan(&c.ID, &c.Name, &c.Description, &c.KeyPrefix, &c.KeyHash, &prevHash, &prevExp, &protocols,
 		&c.DefaultStream, &cidrs, &c.MinimumLevel, &applied, &c.RateLimitEPS, &expires, &revoked, &lastUsed,
-		&c.LastUsedIP, &c.EventsReceived, &created, &updated)
+		&c.LastUsedIP, &c.EventsReceived, &created, &updated, &streams)
 	if err != nil {
 		return Connection{}, mapErr(err)
 	}
@@ -60,6 +61,7 @@ func scanConnection(r rowScanner) (Connection, error) {
 	c.CreatedAt, c.UpdatedAt = decodeTime(created), decodeTime(updated)
 	if err := unmarshalAll(
 		jsonField{protocols, &c.Protocols}, jsonField{cidrs, &c.AllowedCIDRs}, jsonField{applied, &c.AppliedProperties},
+		jsonField{streams, &c.AllowedStreams},
 	); err != nil {
 		return Connection{}, fmt.Errorf("connection %s: %w", c.ID, err)
 	}
@@ -73,31 +75,41 @@ func (r *Connections) Create(ctx context.Context, c *Connection) error {
 	}
 	now := r.db.now()
 	c.CreatedAt, c.UpdatedAt = now, now
-	protocols, cidrs, applied, err := c.jsonColumns()
+	cols, err := c.jsonColumns()
 	if err != nil {
 		return err
 	}
-	_, err = r.db.sql.ExecContext(ctx, `INSERT INTO connections (`+connCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err = r.db.sql.ExecContext(ctx, `INSERT INTO connections (`+connCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		c.ID, c.Name, c.Description, c.KeyPrefix, c.KeyHash, nullString(c.PrevKeyHash), encodeTimePtr(c.PrevKeyExpiresAt),
-		protocols, c.DefaultStream, cidrs, c.MinimumLevel, applied, c.RateLimitEPS, encodeTimePtr(c.ExpiresAt),
+		cols.protocols, c.DefaultStream, cols.cidrs, c.MinimumLevel, cols.applied, c.RateLimitEPS, encodeTimePtr(c.ExpiresAt),
 		encodeTimePtr(c.RevokedAt), encodeTimePtr(c.LastUsedAt), c.LastUsedIP, c.EventsReceived,
-		encodeTime(now), encodeTime(now))
+		encodeTime(now), encodeTime(now), cols.streams)
 	return mapErr(err)
 }
 
-func (c *Connection) jsonColumns() (protocols, cidrs, applied string, err error) {
-	if protocols, err = marshalJSON(nonNilStrings(c.Protocols)); err != nil {
-		return
-	}
-	if cidrs, err = marshalJSON(nonNilStrings(c.AllowedCIDRs)); err != nil {
-		return
-	}
+// connJSON holds the JSON-encoded columns of a connection.
+type connJSON struct{ protocols, cidrs, applied, streams string }
+
+func (c *Connection) jsonColumns() (connJSON, error) {
+	var out connJSON
 	props := c.AppliedProperties
 	if props == nil {
 		props = map[string]any{}
 	}
-	applied, err = marshalJSON(props)
-	return
+	for _, f := range []struct {
+		dst *string
+		v   any
+	}{
+		{&out.protocols, nonNilStrings(c.Protocols)}, {&out.cidrs, nonNilStrings(c.AllowedCIDRs)},
+		{&out.applied, props}, {&out.streams, nonNilStrings(c.AllowedStreams)},
+	} {
+		s, err := marshalJSON(f.v)
+		if err != nil {
+			return connJSON{}, err
+		}
+		*f.dst = s
+	}
+	return out, nil
 }
 
 // Get returns the connection with the given id.
@@ -147,15 +159,15 @@ func (r *Connections) Count(ctx context.Context) (int, error) {
 // Update writes the editable settings of a connection (not its keys or usage).
 func (r *Connections) Update(ctx context.Context, c *Connection) error {
 	c.UpdatedAt = r.db.now()
-	protocols, cidrs, applied, err := c.jsonColumns()
+	cols, err := c.jsonColumns()
 	if err != nil {
 		return err
 	}
 	return expectOne(r.db.sql.ExecContext(ctx, `UPDATE connections SET name = ?, description = ?, protocols = ?,
 		default_stream = ?, allowed_cidrs = ?, minimum_level = ?, applied_properties = ?, rate_limit_eps = ?,
-		expires_at = ?, updated_at = ? WHERE id = ?`,
-		c.Name, c.Description, protocols, c.DefaultStream, cidrs, c.MinimumLevel, applied, c.RateLimitEPS,
-		encodeTimePtr(c.ExpiresAt), encodeTime(c.UpdatedAt), c.ID))
+		expires_at = ?, allowed_streams = ?, updated_at = ? WHERE id = ?`,
+		c.Name, c.Description, cols.protocols, c.DefaultStream, cols.cidrs, c.MinimumLevel, cols.applied, c.RateLimitEPS,
+		encodeTimePtr(c.ExpiresAt), cols.streams, encodeTime(c.UpdatedAt), c.ID))
 }
 
 // RotateKey replaces the key; the previous hash stays valid until graceUntil (nil = no grace).

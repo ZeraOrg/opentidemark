@@ -122,3 +122,26 @@ args:
   5: int 200
 columns: start_time:time, trace_id:string, span_id:string, parent_span_id:string, stream:string, service:string, name:string, kind:string, duration_ms:duration_ms, status_code:string, status_message:string, connection_id:string, attrs:map, attrs_num:map, resource_json:json, events_json:json, links_json:json
 
+=== %streams team-a source spans | duration > 250ms
+kind: events  source: spans  limit: 200
+canonical: source spans | duration > 250ms
+sql: SELECT start_time, trace_id, span_id, parent_span_id, stream, service, name, kind, duration_ns / 1e6 AS duration_ms, status_code, status_message, connection_id, attrs, attrs_num, resource_json, events_json, links_json FROM tidemark.spans WHERE start_time >= ? AND start_time < ? AND stream IN (?) AND (duration_ns > ?) ORDER BY start_time DESC, span_id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "team-a"
+  3: float64 2.5e+08
+  4: int 200
+columns: start_time:time, trace_id:string, span_id:string, parent_span_id:string, stream:string, service:string, name:string, kind:string, duration_ms:duration_ms, status_code:string, status_message:string, connection_id:string, attrs:map, attrs_num:map, resource_json:json, events_json:json, links_json:json
+
+=== source spans | connection_id:abc
+kind: events  source: spans  limit: 200
+canonical: source spans | connection_id:"abc"
+sql: SELECT start_time, trace_id, span_id, parent_span_id, stream, service, name, kind, duration_ns / 1e6 AS duration_ms, status_code, status_message, connection_id, attrs, attrs_num, resource_json, events_json, links_json FROM tidemark.spans WHERE start_time >= ? AND start_time < ? AND (connection_id = ?) ORDER BY start_time DESC, span_id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "abc"
+  3: int 200
+columns: start_time:time, trace_id:string, span_id:string, parent_span_id:string, stream:string, service:string, name:string, kind:string, duration_ms:duration_ms, status_code:string, status_message:string, connection_id:string, attrs:map, attrs_num:map, resource_json:json, events_json:json, links_json:json
+

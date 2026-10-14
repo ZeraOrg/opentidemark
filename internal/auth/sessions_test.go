@@ -33,7 +33,8 @@ func TestSessionLifecycle(t *testing.T) {
 		t.Fatalf("session %+v", s)
 	}
 	p, err := m.Validate(ctx, s.Token)
-	if err != nil || p.UserID != u.ID || p.Role != RoleEditor || p.Kind != KindSession || p.Actor() != "user:"+u.ID {
+	if err != nil || p.UserID != u.ID || p.Role != RoleEditor || p.UserRole != RoleEditor || p.Kind != KindSession ||
+		p.Actor() != "user:"+u.ID {
 		t.Fatalf("validate: %+v %v", p, err)
 	}
 	if _, err := m.Validate(ctx, "bogus"); !errors.Is(err, ErrUnauthorized) {

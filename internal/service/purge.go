@@ -168,7 +168,7 @@ func purgeFilter(src model.Source, q string, from, to time.Time) (string, []any,
 	}
 	scoped := *parsed
 	scoped.Source = src
-	return tql.CompileWhere(&scoped, tql.Options{From: from, To: to})
+	return tql.CompileWhere(&scoped, tql.Options{From: from, To: to, Streams: model.AllStreams()}) // admin only (SPEC §15.10)
 }
 
 // Run executes pending jobs, oldest first, until ctx ends; it must run on one node only (the

@@ -93,12 +93,13 @@ type Observer struct {
 	Accepts  map[string]int
 	Drops    map[string]int
 	Rejects  map[string]int
+	Reroutes map[string]int
 	usageIDs []string
 }
 
 // NewObserver returns an empty observer.
 func NewObserver() *Observer {
-	return &Observer{Accepts: map[string]int{}, Drops: map[string]int{}, Rejects: map[string]int{}}
+	return &Observer{Accepts: map[string]int{}, Drops: map[string]int{}, Rejects: map[string]int{}, Reroutes: map[string]int{}}
 }
 
 // Accepted implements ingest.Observer.
@@ -113,6 +114,13 @@ func (o *Observer) Dropped(protocol, reason string, n int) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.Drops[protocol+"/"+reason] += n
+}
+
+// Rerouted implements ingest.Observer.
+func (o *Observer) Rerouted(protocol, reason string, n int) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.Reroutes[protocol+"/"+reason] += n
 }
 
 // Rejected implements ingest.Observer.

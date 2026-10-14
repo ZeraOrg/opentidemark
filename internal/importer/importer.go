@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package importer moves existing data into Tidemark (SPEC §9.9): Elasticsearch/OpenSearch
+// Package importer moves existing data into OpenTidemark (SPEC §9.9): Elasticsearch/OpenSearch
 // indices, Seq servers (events and signals), Kibana saved-object exports and CLEF/NDJSON files.
 // Imports run as resumable jobs stored in import_jobs; each page of events is written with a
 // deterministic deduplication token derived from the job and its checkpoint, so a resumed job

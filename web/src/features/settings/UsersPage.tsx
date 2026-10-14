@@ -1,20 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 //
-// Account and users (SPEC §11.2, §15.2): every user can change their own password (the
-// default-credentials banner links here, `#account`); admins also manage users — create with an
-// initial password, change role, disable, reset the password, delete.
+// Account and users (SPEC §11.2, §15.2, §15.10): every user can change their own password (the
+// default-credentials banner links here, `#account`) and sees which streams they can read; admins
+// also manage users — create with an initial password, change role, teams, disable, reset the
+// password, delete.
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { KeyRound, Plus, Trash2 } from 'lucide-react';
+import { KeyRound, Layers, Plus, Trash2 } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { errorMessage } from '../../api/client';
-import { auth, users as usersApi } from '../../api/endpoints';
-import type { Role, User } from '../../api/types';
+import { auth, teams as teamsApi, users as usersApi } from '../../api/endpoints';
+import type { Me, Role, User } from '../../api/types';
 import { useApi, useServices } from '../../app/services';
 import { hasRole, ME_KEY, useMe } from '../../app/session';
-import { Button, Field, Select, Spinner, StatusChip, TextInput } from '../../components/controls';
+import { Button, Field, Select, Spinner, StatusChip, Tag, TextInput } from '../../components/controls';
 import { Card, layoutStyles as l, Notice } from '../../components/layout';
+import { MultiSelect } from '../../components/MultiSelect';
 import { Modal, useToast } from '../../components/overlay';
+import { sameSet } from './TeamPage';
 import { cx } from '../../lib/cx';
 import { formatAge } from '../../lib/time';
 import { passwordProblem } from '../auth/password';
@@ -25,6 +28,58 @@ const ROLES: readonly { value: Role; label: string }[] = [
   { value: 'editor', label: 'editor · signals, dashboards, alerts' },
   { value: 'admin', label: 'admin · everything' },
 ];
+
+const ACCESS_STREAM_TAGS = 12;
+
+/** What the signed-in user can see (SPEC §15.10), as one or two sentences. */
+export function accessSummary(me: Me): { title: string; detail: string } {
+  const teams = me.teams.map((t) => t.name).join(', ');
+  switch (me.streamAccess) {
+    case 'admin':
+      return { title: 'You see every stream.', detail: 'Admins are not limited by teams.' };
+    case 'teams':
+      return {
+        title:
+          me.streams.length === 0
+            ? 'You see no streams yet.'
+            : `You see ${me.streams.length} ${me.streams.length === 1 ? 'stream' : 'streams'}.`,
+        detail:
+          me.streams.length === 0
+            ? `Your ${me.teams.length === 1 ? 'team' : 'teams'} (${teams}) ${me.teams.length === 1 ? 'grants' : 'grant'} no streams yet; ask an admin.`
+            : `Granted through your ${me.teams.length === 1 ? 'team' : 'teams'} ${teams}.`,
+      };
+    case 'default-all':
+      return {
+        title: 'You see every stream.',
+        detail: 'You are in no team; an admin can change this by turning on deny by default.',
+      };
+    default:
+      return { title: 'You see no streams.', detail: 'Ask an admin to add you to a team.' };
+  }
+}
+
+function AccessSummary({ me }: { me: Me }) {
+  const { title, detail } = accessSummary(me);
+  const shown = me.streams.slice(0, ACCESS_STREAM_TAGS);
+  return (
+    <div className={s.accountAccess}>
+      <Layers size={16} aria-hidden="true" />
+      <div>
+        <p>
+          <strong>{title}</strong> {detail}
+        </p>
+        {shown.length > 0 ? (
+          <p className={s.tags}>
+            {shown.map((st) => (
+              <Tag key={st}>{st}</Tag>
+            ))}
+            {me.streams.length > shown.length ? <Tag>+{me.streams.length - shown.length}</Tag> : null}
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
 
 function AccountCard() {
   const api = useApi();
@@ -60,6 +115,7 @@ function AccountCard() {
         {me.defaultCredentials ? (
           <Notice kind="danger">The default admin password is still in use. Change it now.</Notice>
         ) : null}
+        <AccessSummary me={me} />
         <Field label="Current password">
           {(id) => (
             <TextInput
@@ -121,6 +177,9 @@ function UserDialog({ user, onClose }: { user: User | null; onClose: () => void 
   const [displayName, setDisplayName] = useState(user?.displayName ?? '');
   const [role, setRole] = useState<Role>(user?.role ?? 'viewer');
   const [password, setPassword] = useState('');
+  const initialTeams = (user?.teams ?? []).map((t) => t.id);
+  const [teamIds, setTeamIds] = useState<string[]>(initialTeams);
+  const teams = useQuery({ queryKey: ['teams'], queryFn: () => teamsApi.list(api) });
   const problem =
     password === ''
       ? user === null
@@ -128,19 +187,37 @@ function UserDialog({ user, onClose }: { user: User | null; onClose: () => void 
         : null
       : passwordProblem(password, username);
   const save = useMutation({
-    mutationFn: () =>
-      user === null
-        ? usersApi.create(api, { username: username.trim(), displayName: displayName.trim(), role, password })
-        : usersApi.update(api, user.id, {
-            displayName: displayName.trim(),
-            role,
-            ...(password === '' ? {} : { password }),
-          }),
+    mutationFn: async () => {
+      const saved =
+        user === null
+          ? await usersApi.create(api, {
+              username: username.trim(),
+              displayName: displayName.trim(),
+              role,
+              password,
+            })
+          : await usersApi.update(api, user.id, {
+              displayName: displayName.trim(),
+              role,
+              ...(password === '' ? {} : { password }),
+            });
+      if (!sameSet(teamIds, initialTeams)) await usersApi.setTeams(api, saved.id, teamIds);
+    },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['users'] });
+      void qc.invalidateQueries({ queryKey: ['teams'] });
+      void qc.invalidateQueries({ queryKey: ['teams-access'] });
       onClose();
     },
   });
+  const teamItems = (teams.data ?? []).map((t) => ({
+    value: t.id,
+    label: t.name,
+    detail:
+      t.streams.length === 0
+        ? 'no streams'
+        : `${t.streams.length} ${t.streams.length === 1 ? 'stream' : 'streams'}`,
+  }));
   return (
     <Modal
       title={user === null ? 'New user' : `Edit ${user.username}`}
@@ -180,6 +257,27 @@ function UserDialog({ user, onClose }: { user: User | null; onClose: () => void 
         <Field label="Role">
           {(id) => (
             <Select id={id} options={ROLES} value={role} onChange={(e) => setRole(e.target.value as Role)} />
+          )}
+        </Field>
+        <Field
+          label="Teams"
+          help={
+            role === 'admin'
+              ? 'Admins see every stream regardless of teams.'
+              : 'Teams decide which streams the user sees. In no team: every stream, or none with deny by default.'
+          }
+        >
+          {(id) => (
+            <MultiSelect
+              id={id}
+              label="Teams"
+              items={teamItems}
+              value={teamIds}
+              onChange={setTeamIds}
+              loading={teams.isPending}
+              placeholder="No teams"
+              emptyText="No teams yet (Settings → Teams)."
+            />
           )}
         </Field>
         <Field
@@ -247,6 +345,7 @@ function UsersTable() {
               <th>Username</th>
               <th>Name</th>
               <th>Role</th>
+              <th>Teams</th>
               <th>Status</th>
               <th>Last sign-in</th>
               <th aria-label="Actions" />
@@ -258,6 +357,17 @@ function UsersTable() {
                 <td className={l.monoCell}>{u.username}</td>
                 <td>{u.displayName}</td>
                 <td>{u.role}</td>
+                <td>
+                  {u.teams.length === 0 ? (
+                    <span className={l.subtle}>{u.role === 'admin' ? 'all streams' : 'no team'}</span>
+                  ) : (
+                    <span className={s.tags}>
+                      {u.teams.map((t) => (
+                        <Tag key={t.id}>{t.name}</Tag>
+                      ))}
+                    </span>
+                  )}
+                </td>
                 <td>
                   {u.disabled ? (
                     <StatusChip variant="muted">disabled</StatusChip>
@@ -333,7 +443,7 @@ export default function UsersPage() {
       <div className={s.head}>
         <h1>{hasRole(me.role, 'admin') ? 'Users' : 'Account'}</h1>
         <span className={l.subtle}>
-          Roles: viewer reads, editor also changes signals, dashboards and alerts, admin manages everything
+          Roles decide what a user may do · teams decide which streams they see
         </span>
       </div>
       <AccountCard />

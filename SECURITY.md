@@ -30,4 +30,4 @@ the advisory credits the reporter unless they ask otherwise.
 
 A fresh install creates the user **`admin`** with password **`admin`**. **Change it immediately**
 after your first login (Settings → Users), or set `TIDEMARK_ADMIN_PASSWORD` before the first start.
-Until you change it, Tidemark shows a warning banner and logs a warning on every start.
+Until you change it, OpenTidemark shows a warning banner and logs a warning on every start.

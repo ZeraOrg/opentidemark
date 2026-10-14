@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Docker only (SPEC §17.2): mounted by deploy/docker-compose.yml so that the tidemark container
+     can reach ClickHouse over the internal `backend` network, which is never published to the
+     host. Do not copy this file to a native ClickHouse install: it would listen on every
+     interface. -->
+<clickhouse>
+  <listen_host>0.0.0.0</listen_host>
+</clickhouse>

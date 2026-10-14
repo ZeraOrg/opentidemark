@@ -36,7 +36,7 @@ export default function SystemPage() {
       {sys.isPending ? <Spinner /> : null}
       {sys.data !== undefined ? (
         <div className={s.cards}>
-          <Card title="Tidemark">
+          <Card title="OpenTidemark">
             <dl className={l.kv}>
               <dt>Version</dt>
               <dd>{sys.data.version}</dd>

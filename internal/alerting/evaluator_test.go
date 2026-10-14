@@ -45,6 +45,7 @@ type fakeQuerier struct {
 	maxSeen  atomic.Int32
 	delay    time.Duration
 	lastSQL  string
+	lastArgs []any
 }
 
 func (q *fakeQuerier) set(query string, rows [][]any, err error) {
@@ -68,7 +69,7 @@ func (q *fakeQuerier) Run(_ context.Context, c *tql.Compiled) (store.Result, err
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.calls++
-	q.lastSQL = c.SQL
+	q.lastSQL, q.lastArgs = c.SQL, c.Args
 	if c.Limit > MaxGroups {
 		return store.Result{}, errors.New("row limit above MaxGroups")
 	}
@@ -371,3 +372,34 @@ func TestSamplesConversion(t *testing.T) {
 }
 
 func zero() float64 { return 0 }
+
+// TestEvaluatorRuleStreams checks that a rule reads its stored streams: every stream when
+// unset, the listed streams otherwise, nothing for an empty list (SPEC §14.1).
+func TestEvaluatorRuleStreams(t *testing.T) {
+	tests := []struct {
+		streams []string
+		want    string
+	}{
+		{nil, ""},
+		{[]string{"web", "api"}, "stream IN (?, ?)"},
+		{[]string{}, "AND 0"},
+	}
+	for _, tt := range tests {
+		e := newEvalEnv()
+		e.addRule("s", true, simpleRule("* | stats count()", ">", 0, "0s", "10s", ""))
+		r := e.rules.get("s")
+		r.Streams = tt.streams
+		if out := e.ev.Evaluate(context.Background(), r, t0); out.Err != nil {
+			t.Fatal(out.Err)
+		}
+		if tt.want == "" && strings.Contains(e.q.lastSQL, "stream IN") || tt.want != "" && !strings.Contains(e.q.lastSQL, tt.want) {
+			t.Errorf("%v: %s", tt.streams, e.q.lastSQL)
+		}
+		if len(tt.streams) == 2 && !slices.Contains(e.q.lastArgs, any("api")) {
+			t.Errorf("stream names must be arguments: %v", e.q.lastArgs)
+		}
+	}
+	if s := RuleScope(nil); !s.All() {
+		t.Errorf("nil streams: %v", s)
+	}
+}

@@ -62,18 +62,20 @@ func (l *tailLimiter) release(user string) {
 }
 
 // Tail is one live-tail subscription. Poll returns the events ingested since the previous
-// poll (at most TailMaxPerPoll, the excess is reported as dropped).
+// poll (at most TailMaxPerPoll, the excess is reported as dropped). The stream scope is
+// resolved again on every poll, so access changes apply to open tails (SPEC §15.10).
 type Tail struct {
 	s     *Search
 	pr    *prepared
-	user  string
+	p     auth.Principal
+	sel   Selection
 	last  time.Time
 	close sync.Once
 }
 
 // OpenTail validates the query (logs, no stats) and reserves a tail slot for p's user.
-func (s *Search) OpenTail(ctx context.Context, p auth.Principal, q string, signals []string) (*Tail, error) {
-	pr, err := s.prepare(ctx, p, q, "", signals)
+func (s *Search) OpenTail(ctx context.Context, p auth.Principal, q string, signals []string, sel Selection) (*Tail, error) {
+	pr, err := s.prepare(ctx, p, q, "", signals, sel)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +93,7 @@ func (s *Search) OpenTail(ctx context.Context, p auth.Principal, q string, signa
 	if !s.tails.acquire(p.UserID) {
 		return nil, ErrTooManyTails
 	}
-	return &Tail{s: s, pr: pr, user: p.UserID, last: now.Add(-s.d.TailLag)}, nil
+	return &Tail{s: s, pr: pr, p: p, sel: sel, last: now.Add(-s.d.TailLag)}, nil
 }
 
 // Poll returns the events ingested since the last poll and the number dropped by the rate cap.
@@ -101,7 +103,13 @@ func (t *Tail) Poll(ctx context.Context) ([]store.TailEvent, uint64, error) {
 	if !until.After(t.last) {
 		return nil, 0, nil
 	}
-	f, err := t.s.filter(t.pr, Range{From: now.Add(-tailLookback), To: now.Add(tailFuture)})
+	scope, err := t.s.scope(ctx, t.p, t.sel)
+	if err != nil {
+		return nil, 0, err
+	}
+	pr := *t.pr
+	pr.streams = scope
+	f, err := t.s.filter(&pr, Range{From: now.Add(-tailLookback), To: now.Add(tailFuture)})
 	if err != nil {
 		return nil, 0, err
 	}
@@ -119,5 +127,5 @@ func (t *Tail) Poll(ctx context.Context) ([]store.TailEvent, uint64, error) {
 
 // Close releases the tail slot; it is safe to call more than once.
 func (t *Tail) Close() {
-	t.close.Do(func() { t.s.tails.release(t.user) })
+	t.close.Do(func() { t.s.tails.release(t.p.UserID) })
 }

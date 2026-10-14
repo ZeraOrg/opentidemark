@@ -16,12 +16,19 @@ export async function startMockWorker(): Promise<void> {
   await worker.start({ onUnhandledRequest: 'bypass', quiet: true });
 }
 
-/** Emits one or two new events every 1.5 s while open. */
+/** Emits one or two new events every 1.5 s while open, within the selected streams. */
 export function mockTail(): TailSource {
   return {
-    open(_params, h) {
+    open(params, h) {
+      const streams = params.streams ?? [];
+      const env = params.env ?? [];
       const timer = setInterval(() => {
-        h.onEvents(Math.random() < 0.5 ? [liveEvent()] : [liveEvent(), liveEvent()]);
+        const evs = (Math.random() < 0.5 ? [liveEvent()] : [liveEvent(), liveEvent()]).filter(
+          (ev) =>
+            (streams.length === 0 || streams.includes(ev.stream)) &&
+            (env.length === 0 || env.includes(ev.environment)),
+        );
+        if (evs.length > 0) h.onEvents(evs);
       }, TAIL_INTERVAL_MS);
       return () => clearInterval(timer);
     },

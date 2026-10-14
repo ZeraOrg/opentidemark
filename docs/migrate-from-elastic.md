@@ -1,20 +1,28 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 # Migrating from Elasticsearch, OpenSearch and Kibana
 
+Replace an Elasticsearch, OpenSearch or Kibana (ELK) logging stack with OpenTidemark: keep your
+Beats, Fluent Bit, Vector and Logstash shippers, and import existing indices and saved searches.
+
 This guide moves a logging setup built on Elasticsearch or OpenSearch (with Kibana or
-OpenSearch Dashboards) to Tidemark. The ingestion endpoints are described in
+OpenSearch Dashboards) to OpenTidemark. The ingestion endpoints are described in
 [ingestion.md](ingestion.md), the query language in [query-language.md](query-language.md).
 
-## 1. Point shippers at Tidemark
+## 1. Point shippers at OpenTidemark
 
-Tidemark speaks the Elasticsearch ingestion API on port **9200** (`_bulk`, `_doc`, `_create`,
-and the version/health/template probes that Beats, Logstash, Fluent Bit and Vector send).
+OpenTidemark speaks the Elasticsearch ingestion API on port **9200** (`_bulk`, `_doc`, `_create`,
+and the version/health/template probes that Beats, Fluent Bit and Vector send).
 Indices map to streams: the index name is lower-cased and a date suffix is removed
 (`app-2026.10.13`, `app-2026.10`, `app-20261013` ⇒ `app`).
 
+**Logstash** is the exception: its `elasticsearch` output only talks to servers that identify as
+Elasticsearch, which OpenTidemark does not. Replace that output with Logstash's `http` output to
+the native JSON endpoint, as shown in [Sending data › Logstash](ingestion.md#logstash); the
+connection needs the native protocol.
+
 To keep the shippers' credentials:
 
-1. In Tidemark, open **Settings → Connections → New connection**, protocol **Elasticsearch**.
+1. In OpenTidemark, open **Settings → Connections → New connection**, protocol **Elasticsearch**.
 2. Paste the secret your shippers already send into **Key** (admin-supplied key: 20–256
    printable ASCII characters, no spaces, ≥ 80 bits of estimated entropy): for
    `Authorization: ApiKey <base64(id:key)>` that is the `key` part of the API key, for basic
@@ -78,4 +86,4 @@ tidemark import kibana export.ndjson
   be decoded and warnings; `tidemark import cancel <id>` stops a job after its current page.
 - Data older than a stream's retention is removed shortly after the import; raise the
   retention first if you need it.
-- Once the shippers send to Tidemark and the history is imported, the cluster can be retired.
+- Once the shippers send to OpenTidemark and the history is imported, the cluster can be retired.

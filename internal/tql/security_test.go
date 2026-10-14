@@ -90,7 +90,8 @@ func TestSQLInjection(t *testing.T) {
 func TestInjectionThroughOptions(t *testing.T) {
 	q := mustParse(t, "x")
 	for _, db := range []string{"tidemark; DROP", "a.b", "`x`", "1abc", strings.Repeat("a", 65)} {
-		if _, err := Compile(q, Options{Database: db, From: goldenTime.Add(-time.Hour), To: goldenTime}); err == nil {
+		if _, err := Compile(q, Options{Database: db, From: goldenTime.Add(-time.Hour), To: goldenTime,
+			Streams: model.AllStreams()}); err == nil {
 			t.Errorf("database %q accepted", db)
 		}
 	}
@@ -105,4 +106,11 @@ func TestInjectionThroughOptions(t *testing.T) {
 	o.Cursor = &Cursor{Timestamp: goldenTime, ID: "x'); DROP TABLE events; --"}
 	c := compileQ(t, "x", o)
 	assertSafeSQL(t, "cursor", c.SQL, c.Args, "DROP")
+	o = goldenOptions()
+	o.Streams = model.OnlyStreams("a'); DROP TABLE events; --", "b`;/* c */", "ok")
+	c = compileQ(t, "x", o)
+	assertSafeSQL(t, "streams", c.SQL, c.Args, "DROP")
+	if !strings.Contains(c.SQL, " AND stream IN (?, ?, ?)") {
+		t.Errorf("stream scope not parameterised: %s", c.SQL)
+	}
 }

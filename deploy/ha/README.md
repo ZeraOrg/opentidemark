@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# Tidemark high availability: 3-server reference setup
+# OpenTidemark high availability: 3-server reference setup
 
 This directory implements the reference topology of SPEC §17.5. Single-node mode remains the
 default; HA is enabled purely by configuration, using the same binary.
@@ -19,11 +19,11 @@ default; HA is enabled purely by configuration, using the same binary.
 
 | Path | Purpose |
 |---|---|
-| `clickhouse/config.d/cluster.xml` | cluster `tidemark_cluster` (1 shard × 3 replicas), macros, Keeper client, `backups` disk |
+| `clickhouse/config.d/cluster.xml` | cluster `tidemark_cluster` (1 shard × 3 replicas), macros, Keeper client, `backups` disk, crash reports to the ClickHouse developers off |
 | `clickhouse/config.d/keeper.xml` | embedded ClickHouse Keeper, Raft quorum of 3 |
 | `clickhouse/users.d/tidemark.xml` | `tidemark_writer` (incl. `GRANT CLUSTER` for `ON CLUSTER` DDL) and read-only `tidemark_reader` |
 | `nodes/clickhouse-nodeN.env` | per-node ClickHouse environment (replica name, Keeper id, host names, passwords) |
-| `nodes/tidemark-nodeN.env` | per-node Tidemark configuration (`/etc/tidemark/tidemark.env`) |
+| `nodes/tidemark-nodeN.env` | per-node OpenTidemark configuration (`/etc/tidemark/tidemark.env`) |
 | `lb/` | load balancer examples with `/readyz` health checks |
 
 ## Requirements
@@ -56,10 +56,10 @@ default; HA is enabled purely by configuration, using the same binary.
    `clickhouse-client -q "SELECT * FROM system.clusters WHERE cluster = 'tidemark_cluster'"` lists
    three replicas and `SELECT * FROM system.zookeeper WHERE path = '/'` answers (Keeper quorum).
 
-Tidemark creates the database and tables itself (`ON CLUSTER`, `ReplicatedMergeTree`) the first time
-a node starts; there is nothing to create by hand.
+OpenTidemark creates the database and tables itself (`ON CLUSTER`, `ReplicatedMergeTree`) the first
+time a node starts; there is nothing to create by hand.
 
-## 2. Tidemark (every server)
+## 2. OpenTidemark (every server)
 
 1. Install the binary as for a native install (`deploy/install.sh native`), but do not start it yet.
 2. Copy `nodes/tidemark-nodeN.env` to `/etc/tidemark/tidemark.env` (`root:tidemark`, `0640`) and

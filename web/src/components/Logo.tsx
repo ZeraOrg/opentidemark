@@ -33,7 +33,7 @@ export function Wordmark({ size = 24 }: { size?: number }) {
   return (
     <span className={s.brand}>
       <LogoMark size={size} />
-      <span className={s.word}>Tidemark</span>
+      <span className={s.word}>OpenTidemark</span>
     </span>
   );
 }

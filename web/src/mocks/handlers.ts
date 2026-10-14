@@ -2,8 +2,10 @@
 //
 // MSW request handlers for `--mode mock` (e2e tests and screenshots). They implement the
 // /api/v1 contract of SPEC §11 closely enough to drive every screen: cookie session with the
-// double-submit CSRF check, a tiny TQL subset for filtering, deterministic analytics results and
-// in-memory CRUD. Never part of the production bundle.
+// double-submit CSRF check (any seeded user can sign in), a tiny TQL subset for filtering,
+// deterministic analytics results, in-memory CRUD, teams and the stream scope of §15.10 (every
+// search path reads only the visible streams, narrowed by the `streams` / `env` selection).
+// Never part of the production bundle.
 
 import { http, HttpResponse, type JsonBodyType } from 'msw';
 import type {
@@ -18,12 +20,18 @@ import type {
   QueryResponse,
   Signal,
   Stream,
+  Team,
+  TeamSummary,
   User,
 } from '../api/types';
+import { isStreamName } from '../api/types';
 import * as D from './data';
 
 const P = '/api/v1';
+/** Holds the username of the signed-in user. */
 const SESSION_KEY = 'tm.mock.session';
+const MIN_PASSWORD = 12;
+const MAX_TEAM_NAME = 64;
 const DEFAULT_CREDS_KEY = 'tm.mock.defaultCredentials';
 const CSRF = 'mock-csrf-token';
 const HOUR = 3_600_000;
@@ -36,8 +44,14 @@ function storage(): Storage | null {
   }
 }
 
+function sessionUser(): Omit<User, 'teams'> | null {
+  const name = storage()?.getItem(SESSION_KEY);
+  if (name === null || name === undefined) return null;
+  return state.users.find((u) => u.username === name) ?? null;
+}
+
 function signedIn(): boolean {
-  return storage()?.getItem(SESSION_KEY) === '1';
+  return sessionUser() !== null;
 }
 
 function defaultCredentials(): boolean {
@@ -174,11 +188,35 @@ function signalFilter(signals: string[]): (ev: LogEvent) => boolean {
   return (ev) => qs.every((q) => matches(ev, q));
 }
 
-function selectEvents(q: string, from: number, to: number, signals: string[]): LogEvent[] {
+/** The effective scope of a request: visible streams (null = all) narrowed by the selection. */
+interface Selection {
+  streams: string[] | null;
+  env: string[];
+}
+
+const ALL: Selection = { streams: null, env: [] };
+
+const inStreams = (sel: Selection, stream: string): boolean =>
+  sel.streams === null || sel.streams.includes(stream);
+
+function selectEvents(
+  q: string,
+  from: number,
+  to: number,
+  signals: string[],
+  sel: Selection = ALL,
+): LogEvent[] {
   const sig = signalFilter(signals);
   return D.EVENTS.filter((ev) => {
     const t = Date.parse(ev.timestamp);
-    return t >= from && t <= to && matches(ev, q) && sig(ev);
+    return (
+      t >= from &&
+      t <= to &&
+      inStreams(sel, ev.stream) &&
+      (sel.env.length === 0 || sel.env.includes(ev.environment)) &&
+      matches(ev, q) &&
+      sig(ev)
+    );
   });
 }
 
@@ -331,11 +369,14 @@ interface QueryBody {
   limit?: number;
   cursor?: string;
   signals?: string[];
+  streams?: string[];
+  environments?: string[];
 }
 
-function runQuery(b: QueryBody): QueryResponse {
+function runQuery(b: QueryBody, sel: Selection): QueryResponse {
   const [from, to] = range(b.from, b.to);
   const kind = kindOf(b.q);
+  if (sel.streams !== null && sel.streams.length === 0) return emptyResult(kind);
   if (kind === 'timeseries') return timeseries(b.q, from, to);
   if (kind === 'table') return table(b.q, from, to, b.signals ?? []);
   if (/^\s*source\s+spans/i.test(b.q)) {
@@ -347,7 +388,7 @@ function runQuery(b: QueryBody): QueryResponse {
         { name: 'name', type: 'string' },
         { name: 'duration_ms', type: 'number' },
       ],
-      events: D.TRACE_SPANS.map((s) => ({
+      events: D.TRACE_SPANS.filter((s) => inStreams(sel, s.stream)).map((s) => ({
         start: s.start,
         service: s.service,
         name: s.name,
@@ -357,7 +398,7 @@ function runQuery(b: QueryBody): QueryResponse {
       stats: { elapsedMs: 31, rowsRead: 14, bytesRead: 2048, interpretedAsText: false },
     };
   }
-  const all = selectEvents(b.q, from, to, b.signals ?? []);
+  const all = selectEvents(b.q, from, to, b.signals ?? [], sel);
   const offset = b.cursor === undefined ? 0 : Number(atob(b.cursor));
   const limit = b.limit ?? 200;
   const page = all.slice(offset, offset + limit);
@@ -372,6 +413,14 @@ function runQuery(b: QueryBody): QueryResponse {
       interpretedAsText: /^[a-z]+$/i.test(b.q.trim()) && !/^(and|or)$/.test(b.q),
     },
   };
+}
+
+/** What an empty scope returns: a well-formed, empty result of the query's kind (SPEC §15.10). */
+function emptyResult(kind: QueryResponse['kind']): QueryResponse {
+  const stats = { elapsedMs: 2, rowsRead: 0, bytesRead: 0, interpretedAsText: false };
+  if (kind === 'timeseries') return { kind, span: 60_000, columns: [], series: [], stats };
+  if (kind === 'table') return { kind, columns: [], rows: [], stats };
+  return { kind, events: [], stats };
 }
 
 const MISSPELLINGS: Record<string, string> = {
@@ -471,7 +520,7 @@ function complete(q: string, pos: number) {
   return { from, to: pos, suggestions: out.slice(0, 50) };
 }
 
-function histogram(url: URL) {
+function histogram(url: URL, sel: Selection) {
   const [from, to] = range(url.searchParams.get('from'), url.searchParams.get('to'));
   const n = Math.min(1000, Number(url.searchParams.get('buckets') ?? 80));
   const q = url.searchParams.get('q') ?? '';
@@ -480,7 +529,7 @@ function histogram(url: URL) {
   const span = steps.find((s) => (to - from) / s <= n) ?? 24 * HOUR;
   const start = Math.floor(from / span) * span;
   const count = Math.ceil((to - start) / span);
-  const evs = selectEvents(q, from, to, signals);
+  const evs = selectEvents(q, from, to, signals, sel);
   const buckets = Array.from({ length: count }, (_, i) => ({
     t: new Date(start + i * span).toISOString(),
     counts: { Verbose: 0, Debug: 0, Information: 0, Warning: 0, Error: 0, Fatal: 0 } as Record<
@@ -496,13 +545,13 @@ function histogram(url: URL) {
   return { span, buckets };
 }
 
-function facets(url: URL): Facet[] {
+function facets(url: URL, sel: Selection): Facet[] {
   const [from, to] = range(url.searchParams.get('from'), url.searchParams.get('to'));
   const q = url.searchParams.get('q') ?? '';
   const signals = (url.searchParams.get('signals') ?? '').split(',').filter((s) => s !== '');
   const fields = (url.searchParams.get('fields') ?? 'service,level').split(',');
   const top = Number(url.searchParams.get('top') ?? 10);
-  const evs = selectEvents(q, from, to, signals);
+  const evs = selectEvents(q, from, to, signals, sel);
   return fields.map((field) => {
     const counts = new Map<string, number>();
     let total = 0;
@@ -532,6 +581,8 @@ const state = {
   tokens: [...D.TOKENS],
   streams: [...D.STREAMS],
   indexed: [...D.INDEXED],
+  teams: D.TEAMS.map((t) => ({ ...t, memberIds: [...t.memberIds], streams: [...t.streams] })),
+  denyByDefault: false,
 };
 let seq = 100;
 const nextId = (p: string): string => `${p}-${seq++}`;
@@ -544,16 +595,95 @@ function randomKey(prefix: string): string {
   return prefix + Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('');
 }
 
+// ---- teams and stream scope (SPEC §15.10) --------------------------------------------------------
+const teamRefs = (userId: string) =>
+  state.teams.filter((t) => t.memberIds.includes(userId)).map((t) => ({ id: t.id, name: t.name }));
+
+const withTeams = (u: Omit<User, 'teams'>): User => ({ ...u, teams: teamRefs(u.id) });
+
+/** The streams a user may see: null = every stream (SPEC §15.10 resolution order). */
+function access(u: Omit<User, 'teams'>): { streams: string[] | null; mode: string } {
+  if (u.role === 'admin') return { streams: null, mode: 'admin' };
+  const teams = state.teams.filter((t) => t.memberIds.includes(u.id));
+  if (teams.length > 0)
+    return { streams: [...new Set(teams.flatMap((t) => t.streams))].sort(), mode: 'teams' };
+  return state.denyByDefault ? { streams: [], mode: 'default-none' } : { streams: null, mode: 'default-all' };
+}
+
+const listOf = (url: URL, name: string): string[] =>
+  url.searchParams
+    .getAll(name)
+    .flatMap((v) => v.split(','))
+    .filter((v) => v !== '');
+
+/** The caller's scope narrowed by a selection (a selection outside the scope yields nothing). */
+function selection(streams: string[], env: string[]): Selection {
+  const u = sessionUser();
+  const visible = u === null ? [] : access(u).streams;
+  if (streams.length === 0) return { streams: visible, env };
+  return { streams: visible === null ? streams : streams.filter((s) => visible.includes(s)), env };
+}
+
+const selectionOf = (url: URL): Selection => selection(listOf(url, 'streams'), listOf(url, 'env'));
+
 function me() {
-  const admin = state.users[0] as User;
+  const u = sessionUser() ?? (state.users[0] as Omit<User, 'teams'>);
+  const isAdmin = u.role === 'admin';
+  const acc = access(u);
   return {
-    id: admin.id,
-    username: admin.username,
-    displayName: admin.displayName,
-    role: admin.role,
-    mustChangePassword: defaultCredentials(),
-    defaultCredentials: defaultCredentials(),
+    id: u.id,
+    username: u.username,
+    displayName: u.displayName,
+    role: u.role,
+    mustChangePassword: isAdmin ? defaultCredentials() : u.mustChangePassword,
+    defaultCredentials: isAdmin && defaultCredentials(),
+    allStreams: acc.streams === null,
+    streams: acc.streams ?? [],
+    teams: teamRefs(u.id),
+    streamAccess: acc.mode,
   };
+}
+
+const teamSummary = (t: D.MockTeam): TeamSummary => ({
+  id: t.id,
+  name: t.name,
+  description: t.description,
+  memberCount: t.memberIds.length,
+  streams: [...t.streams].sort(),
+  createdAt: t.createdAt,
+  updatedAt: t.updatedAt,
+});
+
+const teamDetail = (t: D.MockTeam): Team => ({
+  id: t.id,
+  name: t.name,
+  description: t.description,
+  members: t.memberIds
+    .map((id) => state.users.find((u) => u.id === id))
+    .filter((u): u is Omit<User, 'teams'> => u !== undefined)
+    .map((u) => ({ id: u.id, username: u.username, displayName: u.displayName, role: u.role })),
+  streams: [...t.streams].sort(),
+  createdAt: t.createdAt,
+  updatedAt: t.updatedAt,
+});
+
+const byName = (a: { name: string }, b: { name: string }): number => a.name.localeCompare(b.name);
+
+function teamNameTaken(name: string, exceptId: string): boolean {
+  return state.teams.some((t) => t.id !== exceptId && t.name.toLowerCase() === name.toLowerCase());
+}
+
+function updateTeam(id: string, patch: Partial<D.MockTeam>): D.MockTeam | undefined {
+  state.teams = state.teams.map((t) => (t.id === id ? { ...t, ...patch, updatedAt: stamp() } : t));
+  return state.teams.find((t) => t.id === id);
+}
+
+/** Alert rules visible to the caller: every stream needs `allStreams`, else a subset (SPEC §14.1). */
+function visibleAlerts(): Alert[] {
+  const u = sessionUser();
+  const visible = u === null ? [] : access(u).streams;
+  if (visible === null) return state.alerts;
+  return state.alerts.filter((a) => a.streams !== null && a.streams.every((s) => visible.includes(s)));
 }
 
 function snippets(c: Connection) {
@@ -600,7 +730,7 @@ function snippets(c: Connection) {
       id: 'logstash',
       title: 'Logstash',
       language: 'ruby',
-      content: `output {\n  elasticsearch {\n    hosts => ["${base}/es"]\n    user => "tidemark"\n    password => "${key}"\n    index => "${c.defaultStream}"\n  }\n}`,
+      content: `output {\n  http {\n    url => "${base}/api/v1/ingest/logs"\n    http_method => "post"\n    format => "json_batch"\n    headers => { "X-Tidemark-Key" => "${key}" }\n  }\n}`,
     },
   ];
 }
@@ -682,15 +812,17 @@ export const handlers = [
   // ---- §11.2 auth ----
   http.post(`${P}/auth/login`, async ({ request }) => {
     const b = await body<{ username: string; password: string }>(request);
-    if (b.username !== 'admin' || (b.password !== 'admin' && b.password.length < 12)) {
+    const u = state.users.find((x) => x.username === b.username && !x.disabled);
+    const seeded = b.username === 'admin' && b.password === 'admin';
+    if (u === undefined || (!seeded && b.password.length < MIN_PASSWORD)) {
       return err(401, 'unauthorized', 'Incorrect username or password.', { remainingAttempts: 4 });
     }
-    storage()?.setItem(SESSION_KEY, '1');
-    if (b.password !== 'admin') storage()?.setItem(DEFAULT_CREDS_KEY, '0');
+    storage()?.setItem(SESSION_KEY, u.username);
+    if (u.role === 'admin' && !seeded) storage()?.setItem(DEFAULT_CREDS_KEY, '0');
     document.cookie = `tm_csrf=${CSRF}; path=/; SameSite=Strict`;
     const m = me();
     return json({
-      user: state.users[0] as unknown as JsonBodyType,
+      user: withTeams(u) as unknown as JsonBodyType,
       mustChangePassword: m.mustChangePassword,
     });
   }),
@@ -711,13 +843,13 @@ export const handlers = [
   ),
   http.get(
     `${P}/users`,
-    authed(() => json(state.users as unknown as JsonBodyType)),
+    authed(() => json(state.users.map(withTeams) as unknown as JsonBodyType)),
   ),
   http.post(
     `${P}/users`,
     authed(async ({ request }) => {
       const b = await body<{ username: string; displayName: string; role: User['role'] }>(request);
-      const u: User = {
+      const u: Omit<User, 'teams'> = {
         id: nextId('u'),
         username: b.username,
         displayName: b.displayName,
@@ -729,7 +861,7 @@ export const handlers = [
         updatedAt: stamp(),
       };
       state.users = [...state.users, u];
-      return json(u as unknown as JsonBodyType, 201);
+      return json(withTeams(u) as unknown as JsonBodyType, 201);
     }),
   ),
   http.patch(
@@ -739,7 +871,30 @@ export const handlers = [
       state.users = state.users.map((u) =>
         u.id === str(params.id) ? { ...u, ...b, updatedAt: stamp() } : u,
       );
-      return json(state.users.find((u) => u.id === str(params.id)) as unknown as JsonBodyType);
+      const u = state.users.find((x) => x.id === str(params.id));
+      return u === undefined
+        ? err(404, 'not_found', 'user not found')
+        : json(withTeams(u) as unknown as JsonBodyType);
+    }),
+  ),
+  http.put(
+    `${P}/users/:id/teams`,
+    authed(async ({ request, params }) => {
+      const { teamIds } = await body<{ teamIds: string[] }>(request);
+      const u = state.users.find((x) => x.id === str(params.id));
+      if (u === undefined) return err(404, 'not_found', 'user not found');
+      if (teamIds.some((id) => !state.teams.some((t) => t.id === id)))
+        return err(400, 'bad_request', 'unknown team', { field: 'teamIds' });
+      state.teams = state.teams.map((t) => {
+        const member = teamIds.includes(t.id);
+        if (member === t.memberIds.includes(u.id)) return t;
+        return {
+          ...t,
+          memberIds: member ? [...t.memberIds, u.id] : t.memberIds.filter((id) => id !== u.id),
+          updatedAt: stamp(),
+        };
+      });
+      return json(withTeams(u) as unknown as JsonBodyType);
     }),
   ),
   http.delete(
@@ -747,7 +902,104 @@ export const handlers = [
     authed(({ params }) => {
       if (str(params.id) === 'u-admin') return err(409, 'conflict', 'The last admin cannot be deleted.');
       state.users = state.users.filter((u) => u.id !== str(params.id));
+      state.teams = state.teams.map((t) => ({
+        ...t,
+        memberIds: t.memberIds.filter((id) => id !== str(params.id)),
+      }));
       return new HttpResponse(null, { status: 204 });
+    }),
+  ),
+
+  // ---- §11.5 teams (§15.10) ----
+  http.get(
+    `${P}/teams/access`,
+    authed(() =>
+      json({
+        denyByDefault: state.denyByDefault,
+        usersWithoutTeam: state.users.filter(
+          (u) => u.role !== 'admin' && !state.teams.some((t) => t.memberIds.includes(u.id)),
+        ).length,
+      }),
+    ),
+  ),
+  http.get(
+    `${P}/teams`,
+    authed(() => json([...state.teams].sort(byName).map(teamSummary) as unknown as JsonBodyType)),
+  ),
+  http.post(
+    `${P}/teams`,
+    authed(async ({ request }) => {
+      const b = await body<{ name: string; description?: string }>(request);
+      const name = b.name.trim();
+      if (name === '' || name.length > MAX_TEAM_NAME)
+        return err(400, 'bad_request', 'invalid name', { field: 'name' });
+      if (teamNameTaken(name, '')) return err(409, 'conflict', `A team named ${name} already exists.`);
+      const t: D.MockTeam = {
+        id: nextId('tm'),
+        name,
+        description: (b.description ?? '').trim(),
+        memberIds: [],
+        streams: [],
+        createdAt: stamp(),
+        updatedAt: stamp(),
+      };
+      state.teams = [...state.teams, t];
+      return json(teamDetail(t) as unknown as JsonBodyType, 201);
+    }),
+  ),
+  http.get(
+    `${P}/teams/:id`,
+    authed(({ params }) => {
+      const t = state.teams.find((x) => x.id === str(params.id));
+      return t === undefined
+        ? err(404, 'not_found', 'team not found')
+        : json(teamDetail(t) as unknown as JsonBodyType);
+    }),
+  ),
+  http.patch(
+    `${P}/teams/:id`,
+    authed(async ({ request, params }) => {
+      const b = await body<{ name?: string; description?: string }>(request);
+      const cur = state.teams.find((x) => x.id === str(params.id));
+      if (cur === undefined) return err(404, 'not_found', 'team not found');
+      const name = b.name === undefined ? cur.name : b.name.trim();
+      if (name === '' || name.length > MAX_TEAM_NAME)
+        return err(400, 'bad_request', 'invalid name', { field: 'name' });
+      if (teamNameTaken(name, cur.id)) return err(409, 'conflict', `A team named ${name} already exists.`);
+      const t = updateTeam(cur.id, {
+        name,
+        description: b.description === undefined ? cur.description : b.description.trim(),
+      });
+      return json(teamDetail(t as D.MockTeam) as unknown as JsonBodyType);
+    }),
+  ),
+  http.delete(
+    `${P}/teams/:id`,
+    authed(({ params }) => {
+      state.teams = state.teams.filter((t) => t.id !== str(params.id));
+      return new HttpResponse(null, { status: 204 });
+    }),
+  ),
+  http.put(
+    `${P}/teams/:id/members`,
+    authed(async ({ request, params }) => {
+      const { userIds } = await body<{ userIds: string[] }>(request);
+      if (!state.teams.some((t) => t.id === str(params.id))) return err(404, 'not_found', 'team not found');
+      if (userIds.some((id) => !state.users.some((u) => u.id === id)))
+        return err(400, 'bad_request', 'unknown user', { field: 'userIds' });
+      const t = updateTeam(str(params.id), { memberIds: [...new Set(userIds)] });
+      return json(teamDetail(t as D.MockTeam) as unknown as JsonBodyType);
+    }),
+  ),
+  http.put(
+    `${P}/teams/:id/streams`,
+    authed(async ({ request, params }) => {
+      const { streams } = await body<{ streams: string[] }>(request);
+      if (!state.teams.some((t) => t.id === str(params.id))) return err(404, 'not_found', 'team not found');
+      if (streams.some((s) => !isStreamName(s)))
+        return err(400, 'bad_request', 'invalid stream name', { field: 'streams' });
+      const t = updateTeam(str(params.id), { streams: [...new Set(streams)] });
+      return json(teamDetail(t as D.MockTeam) as unknown as JsonBodyType);
     }),
   ),
   http.get(
@@ -793,7 +1045,9 @@ export const handlers = [
           len: v.error.len,
           hint: v.error.hint,
         });
-      return json(runQuery(b) as unknown as JsonBodyType);
+      if ((b.streams ?? []).some((s) => !isStreamName(s)))
+        return err(400, 'bad_request', 'invalid stream name', { field: 'streams' });
+      return json(runQuery(b, selection(b.streams ?? [], b.environments ?? [])) as unknown as JsonBodyType);
     }),
   ),
   http.post(
@@ -802,21 +1056,26 @@ export const handlers = [
   ),
   http.get(
     `${P}/histogram`,
-    authed(({ url }) => json(histogram(url))),
+    authed(({ url }) => json(histogram(url, selectionOf(url)))),
   ),
   http.get(
     `${P}/facets`,
-    authed(({ url }) => json(facets(url) as unknown as JsonBodyType)),
+    authed(({ url }) => json(facets(url, selectionOf(url)) as unknown as JsonBodyType)),
   ),
   http.get(
     `${P}/fields`,
-    authed(() => json(D.FIELDS as unknown as JsonBodyType)),
+    authed(({ url }) => {
+      const sel = selectionOf(url);
+      return json(
+        (sel.streams !== null && sel.streams.length === 0 ? [] : D.FIELDS) as unknown as JsonBodyType,
+      );
+    }),
   ),
   http.get(
     `${P}/events/:id`,
     authed(({ params }) => {
       const ev = [...D.EVENTS, ...D.TRACE_EVENTS].find((e) => e.id === str(params.id));
-      return ev === undefined
+      return ev === undefined || !inStreams(selection([], []), ev.stream)
         ? err(404, 'not_found', 'event not found')
         : json(ev as unknown as JsonBodyType);
     }),
@@ -840,12 +1099,25 @@ export const handlers = [
   http.get(
     `${P}/traces`,
     authed(({ url }) => {
+      const sel = selectionOf(url);
       const q = (url.searchParams.get('q') ?? '').toLowerCase();
       const svc = /service:([\w-]+)/.exec(q)?.[1];
       const errs = /status:error|error/.test(q);
+      // Summaries cover visible spans only: services outside the scope disappear and the root
+      // becomes the first visible service (SPEC §15.10).
       return json(
-        D.TRACE_SUMMARIES.filter(
-          (t) => (svc === undefined || t.services.includes(svc)) && (!errs || t.errorCount > 0),
+        D.TRACE_SUMMARIES.map((t) => {
+          const services = t.services.filter((x) => inStreams(sel, D.spanStreamOf(x)));
+          return {
+            ...t,
+            services,
+            rootService: services.includes(t.rootService) ? t.rootService : (services[0] ?? ''),
+          };
+        }).filter(
+          (t) =>
+            t.services.length > 0 &&
+            (svc === undefined || t.services.includes(svc)) &&
+            (!errs || t.errorCount > 0),
         ) as unknown as JsonBodyType,
       );
     }),
@@ -853,19 +1125,27 @@ export const handlers = [
   http.get(
     `${P}/traces/:id`,
     authed(({ params }) => {
+      const sel = selection([], []);
       const id = str(params.id).toLowerCase();
-      if (id === D.TRACE_ID)
-        return json({ spans: D.TRACE_SPANS, events: D.TRACE_EVENTS } as unknown as JsonBodyType);
+      const visibleSpans = D.TRACE_SPANS.filter((s) => inStreams(sel, s.stream));
+      if (id === D.TRACE_ID) {
+        if (visibleSpans.length === 0) return err(404, 'not_found', 'trace not found');
+        const events = D.TRACE_EVENTS.filter((e) => inStreams(sel, e.stream));
+        return json({ spans: visibleSpans, events } as unknown as JsonBodyType);
+      }
       const sum = D.TRACE_SUMMARIES.find((t) => t.traceId === id);
       if (sum === undefined) return err(404, 'not_found', 'trace not found');
-      const spans = D.TRACE_SPANS.slice(0, Math.min(sum.spanCount, 6)).map((s) => ({ ...s, traceId: id }));
+      const spans = visibleSpans.slice(0, Math.min(sum.spanCount, 6)).map((s) => ({ ...s, traceId: id }));
+      if (spans.length === 0) return err(404, 'not_found', 'trace not found');
       return json({ spans, events: [] } as unknown as JsonBodyType);
     }),
   ),
   http.get(
     `${P}/metrics/names`,
     authed(({ url }) => {
+      const sel = selectionOf(url);
       const q = (url.searchParams.get('q') ?? '').toLowerCase();
+      if (!inStreams(sel, 'otel-metrics')) return json([]);
       return json(D.METRIC_NAMES.filter((m) => m.name.includes(q)) as unknown as JsonBodyType);
     }),
   ),
@@ -888,7 +1168,7 @@ export const handlers = [
     `${P}/export`,
     authed(({ url }) => {
       const [from, to] = range(url.searchParams.get('from'), url.searchParams.get('to'));
-      const evs = selectEvents(url.searchParams.get('q') ?? '', from, to, []);
+      const evs = selectEvents(url.searchParams.get('q') ?? '', from, to, [], selectionOf(url));
       return new HttpResponse(evs.map((e) => JSON.stringify(e)).join('\n'), {
         headers: {
           'Content-Type': 'application/x-ndjson',
@@ -1022,10 +1302,11 @@ export const handlers = [
   ),
   ...crud<Alert>(
     'alerts',
-    () => state.alerts,
+    visibleAlerts,
     (xs) => (state.alerts = xs),
     (b) => ({
       ...(b as unknown as Alert),
+      streams: Array.isArray(b.streams) ? (b.streams as string[]) : null,
       id: nextId('a'),
       state: 'ok',
       stateSince: null,
@@ -1276,17 +1557,31 @@ export const handlers = [
   ),
   http.get(
     `${P}/settings`,
-    authed(() => json({ retention: { logsDays: 30, spansDays: 7, metricsDays: 30 }, ui: {} })),
+    authed(() =>
+      json({
+        retention: { logsDays: 30, spansDays: 7, metricsDays: 30 },
+        access: { denyByDefault: state.denyByDefault },
+        ui: {},
+      }),
+    ),
   ),
   http.patch(
     `${P}/settings`,
-    authed(async ({ request }) =>
-      json({
+    authed(async ({ request }) => {
+      const b = await body<{ access?: { denyByDefault?: unknown } }>(request);
+      if (b.access !== undefined) {
+        if (typeof b.access.denyByDefault !== 'boolean')
+          return err(400, 'bad_request', 'access must be {denyByDefault: boolean}', { field: 'access' });
+        state.denyByDefault = b.access.denyByDefault;
+      }
+      return json({
         retention: { logsDays: 30, spansDays: 7, metricsDays: 30 },
+        access: { denyByDefault: state.denyByDefault },
         ui: {},
-        ...(await body<Record<string, unknown>>(request)),
-      } as JsonBodyType),
-    ),
+        ...b,
+        ...(b.access !== undefined ? { access: { denyByDefault: state.denyByDefault } } : {}),
+      } as JsonBodyType);
+    }),
   ),
   http.get(
     `${P}/audit`,

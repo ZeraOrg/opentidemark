@@ -2,6 +2,7 @@
 # Golden inputs: one query per line. Lines starting with '#' are comments.
 # Directives (prefix): %cursor  — compile with a keyset cursor
 #                     %where   — use CompileWhere instead of Compile
+#                     %streams a,b | %streams none — compile with that stream scope (default: all)
 # Spec §10.1 examples
 timeout
 "connection refused"
@@ -68,3 +69,12 @@ contains(x, /re/) and id:~ and id >= 3
 %cursor level:error
 %where level:error | stats count() by service
 %where * | where host:a | stats count()
+# stream scope (SPEC §15.10): names only as arguments, empty scope ⇒ AND 0
+%streams team-a,team-b level:error
+%streams team-b,team-a,team-a * | stats count() by stream
+%streams none level:error | stats count() by stream
+%streams x');DROP--,a;b'' x
+%streams team-a %where level:error | stats count() by service
+# connection id built-in
+connection_id:01a1374d-6798-7342-93a1-e7a27cb65c52
+connectionid = 'abc' | stats count() by connection_id

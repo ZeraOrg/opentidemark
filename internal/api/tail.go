@@ -21,7 +21,7 @@ import (
 // client disconnects, the query fails or the server shuts down (Streams).
 func (a *SearchAPI) tail(w http.ResponseWriter, r *http.Request) error {
 	q := r.URL.Query()
-	t, err := a.Search.OpenTail(r.Context(), principal(r), q.Get("q"), listParam(q, "signals"))
+	t, err := a.Search.OpenTail(r.Context(), principal(r), q.Get("q"), listParam(q, "signals"), selectionParam(q))
 	if err != nil {
 		return err
 	}

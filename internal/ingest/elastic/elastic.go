@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package elastic implements the Elasticsearch-compatible ingestion surface (SPEC §9.3).
+// Package elastic implements the Elasticsearch `_bulk` ingestion API (SPEC §9.3).
 package elastic
 
 import (
@@ -13,20 +13,14 @@ import (
 	"github.com/ZeraOrg/tidemark/internal/ingest"
 )
 
-// ES version information reported to clients.
-const (
-	esVersion       = "8.11.0"
-	luceneVersion   = "9.8.0"
-	minWireVersion  = "7.17.0"
-	minIndexVersion = "7.0.0"
-	productHeader   = "X-Elastic-Product"
-	productName     = "Elasticsearch"
-)
+// apiVersion is the Elasticsearch API level whose `_bulk` request and response format the
+// endpoint implements. Shippers read its major version to choose the request format (SPEC §9.3).
+const apiVersion = "8.11.0"
 
 // setupPrefixes are management APIs acknowledged without effect so shippers start up.
 var setupPrefixes = []string{"_index_template", "_template", "_ilm", "_ingest", "_data_stream", "_component_template"}
 
-// Handler serves the ES-compatible API under a path prefix ("" or "/es").
+// Handler serves the `_bulk` ingestion API under a path prefix ("" or "/es").
 type Handler struct {
 	d      *ingest.Deps
 	prefix string
@@ -49,7 +43,6 @@ func (h *Handler) Register(mux *http.ServeMux) {
 
 // ServeHTTP authenticates the request and routes it.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set(productHeader, productName)
 	path := strings.TrimPrefix(r.URL.Path, h.prefix)
 	segs := splitPath(path)
 	req, err := h.d.Authenticate(r, auth.ProtocolElastic, false)
@@ -90,18 +83,15 @@ func (h *Handler) route(w http.ResponseWriter, r *http.Request, req *ingest.Requ
 		acknowledge(w, m)
 	default:
 		writeError(w, http.StatusNotFound, "unsupported_operation",
-			"Tidemark does not support "+m+" "+r.URL.Path)
+			"OpenTidemark does not support "+m+" "+r.URL.Path)
 	}
 }
 
+// info answers the cluster-info probe minimally: the server's own name and the API level.
 func (h *Handler) info(w http.ResponseWriter) {
 	ingest.WriteJSON(w, http.StatusOK, map[string]any{
 		"name": "tidemark", "cluster_name": "tidemark",
-		"version": map[string]string{
-			"number": esVersion, "build_flavor": "default", "lucene_version": luceneVersion,
-			"minimum_wire_compatibility_version": minWireVersion, "minimum_index_compatibility_version": minIndexVersion,
-		},
-		"tagline": "You Know, for Search",
+		"version": map[string]string{"number": apiVersion},
 	})
 }
 

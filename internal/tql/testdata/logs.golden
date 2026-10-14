@@ -827,3 +827,83 @@ args:
   1: time 2026-10-13T12:00:00Z
   2: string "a"
 
+=== %streams team-a,team-b level:error
+kind: events  source: logs  limit: 200
+canonical: level:"error"
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND stream IN (?, ?) AND (level_num = ?) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "team-a"
+  3: string "team-b"
+  4: uint8 4
+  5: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== %streams team-b,team-a,team-a * | stats count() by stream
+kind: table  source: logs  limit: 10000
+canonical: * | stats count() by stream
+sql: SELECT stream AS g0, count() AS a0 FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND stream IN (?, ?) GROUP BY g0 ORDER BY a0 DESC, g0 ASC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "team-a"
+  3: string "team-b"
+  4: int 10000
+columns: stream:string, count:number
+
+=== %streams none level:error | stats count() by stream
+kind: table  source: logs  limit: 10000
+canonical: level:"error" | stats count() by stream
+sql: SELECT stream AS g0, count() AS a0 FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND 0 AND (level_num = ?) GROUP BY g0 ORDER BY a0 DESC, g0 ASC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: uint8 4
+  3: int 10000
+columns: stream:string, count:number
+
+=== %streams x');DROP--,a;b'' x
+kind: events  source: logs  limit: 200
+canonical: "x"
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND stream IN (?, ?) AND ((positionCaseInsensitiveUTF8(message, ?) > 0 OR positionCaseInsensitiveUTF8(exception, ?) > 0)) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "a;b''"
+  3: string "x');DROP--"
+  4: string "x"
+  5: string "x"
+  6: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== %streams team-a %where level:error | stats count() by service
+sql: timestamp >= ? AND timestamp < ? AND stream IN (?) AND (level_num = ?)
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "team-a"
+  3: uint8 4
+
+=== connection_id:01a1374d-6798-7342-93a1-e7a27cb65c52
+kind: events  source: logs  limit: 200
+canonical: connection_id:"01a1374d-6798-7342-93a1-e7a27cb65c52"
+sql: SELECT timestamp, id, stream, level, level_num, service, environment, host, message_template, message, exception, event_type, trace_id, span_id, protocol, connection_id, props_json FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND (connection_id = ?) ORDER BY timestamp DESC, id DESC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "01a1374d-6798-7342-93a1-e7a27cb65c52"
+  3: int 200
+columns: timestamp:time, id:string, stream:string, level:string, level_num:number, service:string, environment:string, host:string, message_template:string, message:string, exception:string, event_type:string, trace_id:string, span_id:string, protocol:string, connection_id:string, props_json:json
+
+=== connectionid = 'abc' | stats count() by connection_id
+kind: table  source: logs  limit: 10000
+canonical: connectionid = "abc" | stats count() by connection_id
+sql: SELECT connection_id AS g0, count() AS a0 FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND (connection_id = ?) GROUP BY g0 ORDER BY a0 DESC, g0 ASC LIMIT ?
+args:
+  0: time 2026-10-13T11:00:00Z
+  1: time 2026-10-13T12:00:00Z
+  2: string "abc"
+  3: int 10000
+columns: connection_id:string, count:number
+

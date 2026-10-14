@@ -1,7 +1,10 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
-# Configuration
+# Configuration reference
 
-Tidemark is configured with environment variables. Every variable can also be passed as a
+Every OpenTidemark setting, from the ClickHouse connection and listen ports to limits, security,
+email alerts and high availability, with its `TIDEMARK_*` environment variable, flag and default.
+
+OpenTidemark is configured with environment variables. Every variable can also be passed as a
 command-line flag named after it in kebab case without the prefix
 (`TIDEMARK_HTTP_ADDR` ⇒ `--http-addr`). Precedence, lowest first: built-in defaults, the env file
 (`TIDEMARK_ENV_FILE`), the process environment, flags. Invalid configuration stops the start with
@@ -19,7 +22,7 @@ secrets). Setting both forms is an error.
 |---|---|---|
 | `TIDEMARK_HTTP_ADDR` | `:8080` | Listener for the UI, `/api/v1`, native ingestion and the Seq-compatible endpoints. |
 | `TIDEMARK_SEQ_ADDR` | `:5341` | Extra listener serving only the Seq endpoints (`""` disables it). |
-| `TIDEMARK_ES_ADDR` | `:9200` | Elasticsearch-compatible listener (`""` disables it). |
+| `TIDEMARK_ES_ADDR` | `:9200` | Listener for the Elasticsearch `_bulk` ingestion API (`""` disables it). |
 | `TIDEMARK_OTLP_HTTP_ADDR` | `:4318` | OTLP/HTTP listener (`""` disables it). |
 | `TIDEMARK_OTLP_GRPC_ADDR` | `:4317` | OTLP/gRPC listener (`""` disables it). |
 | `TIDEMARK_TLS_CERT_FILE` | — | TLS certificate (PEM). When both certificate and key are set, **all** listeners use TLS 1.2+. |
@@ -34,7 +37,7 @@ secrets). Setting both forms is an error.
 | `TIDEMARK_CLICKHOUSE_READER_PASSWORD` | — | Its password (*secret*). |
 | `TIDEMARK_CLICKHOUSE_TLS` | `false` | Use TLS for the ClickHouse connection. |
 | `TIDEMARK_ADMIN_USERNAME` | `admin` | Admin account created on the first start (only when no users exist). |
-| `TIDEMARK_ADMIN_PASSWORD` | `admin` | Its password (*secret*). While the default is in use Tidemark warns on every start and shows a banner; change it after the first login. |
+| `TIDEMARK_ADMIN_PASSWORD` | `admin` | Its password (*secret*). While the default is in use OpenTidemark warns on every start and shows a banner; change it after the first login. |
 | `TIDEMARK_BOOTSTRAP_INGEST_KEY` | — | Optional (*secret*): creates a connection "bootstrap" with this key on the first start. |
 | `TIDEMARK_BATCH_MAX_ROWS` | `10000` | Maximum rows per ClickHouse insert. |
 | `TIDEMARK_BATCH_MAX_WAIT` | `1s` | Maximum time before a batch is flushed. |
@@ -55,7 +58,7 @@ secrets). Setting both forms is an error.
 | `TIDEMARK_SMTP_STARTTLS` | `true` | Require STARTTLS. |
 | `TIDEMARK_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. |
 | `TIDEMARK_MAX_STREAMS` | `200` | Maximum number of streams. |
-| `TIDEMARK_METRICS_ENABLED` | `false` | Expose Prometheus metrics of Tidemark itself on `/metrics`. |
+| `TIDEMARK_METRICS_ENABLED` | `false` | Expose Prometheus metrics of OpenTidemark itself on `/metrics`. |
 | `TIDEMARK_METRICS_TOKEN` | — | Optional bearer token required for `/metrics` (*secret*). |
 | `TIDEMARK_SECRET_KEY_FILE` | `<data dir>/secret.key` | AES-256 key that encrypts notification secrets at rest; created on the first start. |
 | `TIDEMARK_ENV_FILE` | `<data dir>/tidemark.env` | Env file read at start-up (when present) before the environment. |

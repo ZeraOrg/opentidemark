@@ -31,7 +31,7 @@ const (
 
 // ErrIncompatibleBinary is returned when the database was migrated by a newer release whose
 // schema this binary does not support (downgrade protection, SPEC §8.5 item 4).
-var ErrIncompatibleBinary = errors.New("metadata database requires a newer Tidemark binary")
+var ErrIncompatibleBinary = errors.New("metadata database requires a newer OpenTidemark binary")
 
 var minBinaryPattern = regexp.MustCompile(`(?m)^--\s*min_compatible_binary:\s*(\S+)\s*$`)
 

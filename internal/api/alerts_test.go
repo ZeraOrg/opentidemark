@@ -40,8 +40,21 @@ func TestChannelsAndAlertsFlow(t *testing.T) {
 		`"channels":["` + ch.ID + `"]}`
 	w = e.do(editor, "POST", "/alerts", map[string]any{"name": "errors", "doc": json.RawMessage(doc)})
 	rule := decodeBody[alertView](t, w)
-	if w.Code != http.StatusCreated || !rule.Enabled || rule.State != "ok" || rule.Groups == nil {
+	if w.Code != http.StatusCreated || !rule.Enabled || rule.State != "ok" || rule.Groups == nil || rule.Streams != nil ||
+		!strings.Contains(w.Body.String(), `"streams":null`) {
 		t.Fatalf("create alert %d %s", w.Code, w.Body.String())
+	}
+	w = e.do(editor, "POST", "/alerts", map[string]any{"name": "scoped", "doc": json.RawMessage(doc), "streams": []string{"web", "app"}})
+	if scoped := decodeBody[alertView](t, w); w.Code != http.StatusCreated || strings.Join(scoped.Streams, ",") != "app,web" {
+		t.Errorf("alert with streams %d %s", w.Code, w.Body.String())
+	} else if w := e.do(editor, "DELETE", "/alerts/"+scoped.ID, nil); w.Code != http.StatusNoContent {
+		t.Errorf("delete scoped alert %d", w.Code)
+	}
+	for _, streams := range []any{[]string{}, []string{"Bad"}} {
+		w = e.do(editor, "POST", "/alerts", map[string]any{"name": "x", "doc": json.RawMessage(doc), "streams": streams})
+		if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), `"field":"streams"`) {
+			t.Errorf("streams %v: %d %s", streams, w.Code, w.Body.String())
+		}
 	}
 	w = e.do(editor, "POST", "/alerts", map[string]any{"name": "bad", "doc": json.RawMessage(`{"query":"level:error"}`)})
 	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), `"field":"doc.`) {

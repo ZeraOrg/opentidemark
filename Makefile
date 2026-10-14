@@ -37,6 +37,18 @@ SEMVER_RE := ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)
 DIST_FILES := LICENSE NOTICE THIRD_PARTY_NOTICES.md README.md CHANGELOG.md deploy/.env.example deploy/clickhouse/config.d/tidemark.xml deploy/clickhouse/users.d/tidemark.xml
 DIST_FILES_LINUX := deploy/install.sh deploy/tidemark.service
 DIST_FILES_WINDOWS := deploy/install.ps1
+# Docker bundle tidemark_<version>_docker: these files with a leading deploy/ removed, INSTALL.md,
+# and docker-compose.yml rewritten to run the published image (no build: block).
+DIST_FILES_DOCKER := LICENSE NOTICE README.md CHANGELOG.md deploy/.env.example deploy/install.sh deploy/install.ps1 deploy/otel-collector.yaml deploy/clickhouse/config.d/tidemark.xml deploy/clickhouse/config.d/docker-listen.xml deploy/clickhouse/users.d/tidemark.xml
+DIST_IMAGE := ghcr.io/zeraorg/tidemark
+# Offline documentation bundle (make docs-offline): the site of mkdocs.offline.yml, zipped.
+DIST_DOCS := tidemark_$(DIST_VERSION)_docs
+DIST_COMPOSE_IMAGE = image: $${TM_IMAGE:-$(DIST_IMAGE):$(DIST_VERSION)}
+DIST_COMPOSE_SED = -e '/^    build:$$/,/^    [^ ]/{/^    build:$$/d;/^      /d;}' \
+	-e 's|image: $${TM_IMAGE:-tidemark:local}|$(DIST_COMPOSE_IMAGE)|' -e 's|deploy/\.env|.env|g'
+# Reproducible ownership in the tar archives (GNU tar; on macOS use TAR=gtar).
+TAR ?= tar
+DIST_TAR = $(TAR) --owner=0 --group=0 --numeric-owner
 WEB_ALLOWED_LICENSES := MIT;BSD-2-Clause;BSD-3-Clause;Apache-2.0;ISC;MPL-2.0;0BSD;CC0-1.0;BlueOak-1.0.0;Python-2.0;CC-BY-4.0;OFL-1.1
 
 # make dev: throw-away ClickHouse in Docker on a loopback port (password is for local use only).
@@ -47,7 +59,7 @@ DEV_COMPOSE := docker compose -p tidemark-dev -f deploy/docker-compose.yml -f de
 
 HAS_WEB := $(wildcard web/package.json)
 
-.PHONY: help build web cross dist test test-integration lint vuln web-check check licences notices dev clean
+.PHONY: help build web cross dist checksums docs docs-offline test test-integration lint vuln web-check check licences notices dev clean
 
 help: ## list targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | sed 's/:.*## /\t/'
@@ -85,12 +97,37 @@ dist: web ## release archives + checksums.txt for the cross targets into dist/ (
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch $(GO) build -trimpath \
 			-ldflags "-s -w -X main.version=$(DIST_VERSION)" -o $$stage/tidemark$$ext ./cmd/tidemark; \
 		for f in $(DIST_FILES) $$extra; do mkdir -p "$$stage/$$(dirname "$$f")"; cp -p "$$f" "$$stage/$$f"; done; \
+		cp -p "deploy/install/INSTALL-$$os.md" "$$stage/INSTALL.md"; \
 		if [ "$$os" = windows ]; then (cd $(DIST) && zip -qrX "$$name.zip" "$$name"); \
-		else tar -C $(DIST) -czf "$(DIST)/$$name.tar.gz" "$$name"; fi; \
+		else $(DIST_TAR) -C $(DIST) -czf "$(DIST)/$$name.tar.gz" "$$name"; fi; \
 		rm -rf "$$stage"; \
 	done
+	@name=tidemark_$(DIST_VERSION)_docker; stage=$(DIST)/$$name; compose="$$stage/docker-compose.yml"; \
+	echo "dist $$name"; \
+	for f in $(DIST_FILES_DOCKER); do d="$$stage/$${f#deploy/}"; mkdir -p "$$(dirname "$$d")"; cp -p "$$f" "$$d"; done; \
+	cp -p deploy/install/INSTALL-docker.md "$$stage/INSTALL.md"; \
+	sed $(DIST_COMPOSE_SED) deploy/docker-compose.yml > "$$compose"; \
+	if grep -qE '^[[:space:]]*build:' "$$compose" || ! grep -qF '$(DIST_COMPOSE_IMAGE)' "$$compose"; then \
+		echo "dist: $$compose must not build and must pin $(DIST_IMAGE):$(DIST_VERSION)" >&2; exit 1; fi; \
+	$(DIST_TAR) -C $(DIST) -czf "$(DIST)/$$name.tar.gz" "$$name"; \
+	(cd $(DIST) && zip -qrX "$$name.zip" "$$name"); \
+	rm -rf "$$stage"
+	@$(MAKE) --no-print-directory checksums
+
+checksums: ## rewrite dist/checksums.txt for every archive in dist/
 	@cd $(DIST) && { if command -v sha256sum >/dev/null; then sha256sum tidemark_*; else shasum -a 256 tidemark_*; fi; } > checksums.txt
 	@cat $(DIST)/checksums.txt
+
+docs: ## build the documentation site into site/ (pip install --require-hashes -r docs-site/requirements.txt first)
+	mkdocs build --strict
+
+docs-offline: ## offline documentation bundle dist/tidemark_<version>_docs.zip (works from file://), then checksums.txt
+	@v='$(DIST_VERSION)'; if [[ ! "$$v" =~ $(SEMVER_RE) ]]; then \
+		echo "docs-offline: VERSION must hold a semantic version without a 'v' (got '$$v')" >&2; exit 1; fi
+	@mkdir -p $(DIST); rm -rf "$(DIST)/$(DIST_DOCS)" "$(DIST)/$(DIST_DOCS).zip"
+	mkdocs build --strict -f mkdocs.offline.yml -d "$(DIST)/$(DIST_DOCS)"
+	@(cd $(DIST) && zip -qrX "$(DIST_DOCS).zip" "$(DIST_DOCS)") && rm -rf "$(DIST)/$(DIST_DOCS)"
+	@$(MAKE) --no-print-directory checksums
 
 test: ## unit tests with the race detector
 	$(GO) test -race ./...

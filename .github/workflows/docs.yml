@@ -1,0 +1,74 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Documentation site (SPEC §17.4): builds the user docs in docs/ with MkDocs + Material for MkDocs
+# (mkdocs.yml, pinned and hashed dependencies in docs-site/requirements.txt) in strict mode, and
+# publishes them to GitHub Pages (https://zeraorg.github.io/tidemark/) from main. Jobs run
+# automatically only in the main public repository ZeraOrg/tidemark; anywhere else the build runs
+# only when started by hand and nothing is deployed.
+name: docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs/**
+      - docs-site/**
+      - mkdocs.yml
+      - web/public/favicon.svg
+      - .github/workflows/docs.yml
+  pull_request:
+    paths:
+      - docs/**
+      - docs-site/**
+      - mkdocs.yml
+      - web/public/favicon.svg
+      - .github/workflows/docs.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  # Superseded pull-request builds are cancelled; a deployment of main always finishes.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PYTHON_VERSION: "3.13"
+
+jobs:
+  build:
+    if: github.repository == 'ZeraOrg/tidemark' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: docs-site/requirements.txt
+      - name: install MkDocs
+        run: pip install --require-hashes -r docs-site/requirements.txt
+      - name: build the site
+        run: scripts/ci-annotate.sh "mkdocs build" -- mkdocs build --strict
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    if: >-
+      github.repository == 'ZeraOrg/tidemark' && github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

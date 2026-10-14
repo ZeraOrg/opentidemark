@@ -61,9 +61,9 @@ func ParseBulk(body []byte, defaultIndex string) ([]item, error) {
 			}
 		case actionUpdate:
 			i++ // skip the partial document line
-			it.status, it.errTyp, it.errMsg = http.StatusBadRequest, "action_not_supported", "update is not supported by Tidemark"
+			it.status, it.errTyp, it.errMsg = http.StatusBadRequest, "action_not_supported", "update is not supported by OpenTidemark"
 		case actionDelete:
-			it.status, it.errTyp, it.errMsg = http.StatusBadRequest, "action_not_supported", "delete is not supported by Tidemark"
+			it.status, it.errTyp, it.errMsg = http.StatusBadRequest, "action_not_supported", "delete is not supported by OpenTidemark"
 		}
 		items = append(items, it)
 	}

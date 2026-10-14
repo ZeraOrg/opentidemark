@@ -38,7 +38,7 @@ const (
 	sessionSweepInterval  = time.Hour
 )
 
-// App is a fully wired Tidemark instance.
+// App is a fully wired OpenTidemark instance.
 type App struct {
 	cfg     config.Config
 	logger  *slog.Logger

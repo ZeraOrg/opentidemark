@@ -28,6 +28,7 @@ var skippedDirs = map[string]bool{
 	".git": true, ".claude": true, "node_modules": true, "dist": true, "bin": true, ".dev": true,
 	"testdata": true, "vendor": true, "coverage": true, "test-results": true, "playwright-report": true,
 	"dist-mock": true, "mock-public": true, // web mock-mode build output (untracked)
+	"site": true, "__pycache__": true, // documentation site build output and Python cache (untracked, SPEC §17.4)
 }
 
 // exemptFiles are licence texts, generated files and data that cannot carry a comment.
@@ -36,6 +37,8 @@ var exemptFiles = map[string]bool{
 	"VERSION":                            true, // a bare version number read by tools (SPEC §17.6)
 	"internal/auth/common_passwords.txt": true,
 	"deploy/.env":                        true,
+	// Third-party MIT code vendored unmodified with its own licence header (SPEC §17.6, §19.1).
+	"docs-site/offline/iframe-worker.js": true,
 }
 
 // exemptExt are formats without comments (JSON) and binary assets.

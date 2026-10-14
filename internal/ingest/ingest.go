@@ -54,6 +54,7 @@ type Observer interface {
 	Accepted(protocol string, source model.Source, n int)
 	Dropped(protocol, reason string, n int)
 	Rejected(protocol, reason string)
+	Rerouted(protocol, reason string, n int)
 }
 
 // ErrBackpressure is returned by sinks when their queue cannot take the whole request.

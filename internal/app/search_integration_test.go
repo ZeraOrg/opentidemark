@@ -29,10 +29,16 @@ type apiClient struct {
 
 func loginAdmin(t *testing.T, base string) *apiClient {
 	t.Helper()
+	return login(t, base, "admin", "admin")
+}
+
+// login opens an API session for username.
+func login(t *testing.T, base, username, password string) *apiClient {
+	t.Helper()
 	jar, _ := cookiejar.New(nil)
 	a := &apiClient{t: t, base: base, c: &http.Client{Jar: jar, Timeout: 30 * time.Second}}
-	if code := a.do(http.MethodPost, "/auth/login", map[string]string{"username": "admin", "password": "admin"}, nil); code != 200 {
-		t.Fatalf("login: %d", code)
+	if code := a.do(http.MethodPost, "/auth/login", map[string]string{"username": username, "password": password}, nil); code != 200 {
+		t.Fatalf("login %s: %d", username, code)
 	}
 	u, _ := url.Parse(base)
 	for _, ck := range jar.Cookies(u) {

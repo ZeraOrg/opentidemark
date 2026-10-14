@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package model holds the normalized telemetry model shared by every protocol (SPEC §8.1).
-// It has no dependencies on other Tidemark packages.
+// It has no dependencies on other OpenTidemark packages.
 package model
 
 import (
@@ -51,7 +51,7 @@ var levelAliases = map[string]Level{
 }
 
 // ParseLevel parses a textual level (case-insensitive, trimmed). Numeric strings 0–5 are
-// interpreted as the Tidemark/Serilog ordinal (0 = Verbose … 5 = Fatal). Syslog numbers are
+// interpreted as the OpenTidemark/Serilog ordinal (0 = Verbose … 5 = Fatal). Syslog numbers are
 // handled by SyslogLevel. The boolean is false when the input is not recognised.
 func ParseLevel(s string) (Level, bool) {
 	t := strings.ToLower(strings.TrimSpace(s))

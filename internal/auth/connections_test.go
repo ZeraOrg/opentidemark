@@ -145,6 +145,13 @@ func TestConnectionFromMeta(t *testing.T) {
 	if !ValidProtocol("otlp") || ValidProtocol("syslog") || len(AllProtocols()) != 4 {
 		t.Error("protocols")
 	}
+	c, err = ConnectionFromMeta(meta.Connection{AllowedStreams: []string{"web", "api"}})
+	if err != nil || !c.AllowsStream("api") || !c.AllowsStream("web") || c.AllowsStream("db") {
+		t.Errorf("allowed streams %v %v", c.AllowedStreams, err)
+	}
+	if !(Connection{}).AllowsStream("any") {
+		t.Error("an empty list allows every stream")
+	}
 }
 
 func TestKeyCacheTTLInHAMode(t *testing.T) {

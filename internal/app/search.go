@@ -19,7 +19,8 @@ const tailLagSlack = 2 * time.Second
 
 // searchAPIs builds the query layer, the search and signals services and their API modules
 // (SPEC §11.3, §11.4). The returned Streams must be closed when the servers shut down.
-func (a *App) searchAPIs(audit *service.Auditor, ip func(*http.Request) netip.Addr) ([]api.Registrar, *api.Streams, error) {
+func (a *App) searchAPIs(audit *service.Auditor, access service.ScopeResolver, ip func(*http.Request) netip.Addr) (
+	[]api.Registrar, *api.Streams, error) {
 	reader, err := ch.NewReader(a.chReader, ch.ReaderConfig{Database: a.cfg.ClickHouse.Database,
 		QueryTimeout: a.cfg.QueryTimeout, MaxMemoryBytes: ch.DefaultReaderMemory})
 	if err != nil {
@@ -27,7 +28,7 @@ func (a *App) searchAPIs(audit *service.Auditor, ip func(*http.Request) netip.Ad
 	}
 	a.querier = reader
 	signals := meta.NewSignals(a.meta)
-	search := service.NewSearch(service.SearchDeps{Store: reader, Signals: signals, Indexed: meta.NewIndexedFields(a.meta),
+	search := service.NewSearch(service.SearchDeps{Store: reader, Access: access, Signals: signals, Indexed: meta.NewIndexedFields(a.meta),
 		Audit: audit, Database: a.cfg.ClickHouse.Database, MaxRows: a.cfg.QueryMaxRows,
 		TailLag: a.cfg.BatchMaxWait + tailLagSlack, Now: time.Now})
 	streams := api.NewStreams()

@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Offline documentation bundle (SPEC §17.6): the same site as mkdocs.yml, built with Material's
+# offline plugin so that it works from file:// (no directory URLs, the search index embedded as a
+# script, no instant navigation). The plugin would load the iframe-worker shim from a CDN; the
+# site ships its own copy instead (docs-site/offline/iframe-worker.js, copied by docs-site/hooks.py
+# to the path below). The release workflow and `make docs-offline` build the bundle into
+# dist/tidemark_<version>_docs/ and zip it as tidemark_<version>_docs.zip. The online site keeps
+# the plain configuration of mkdocs.yml.
+#   mkdocs build --strict -f mkdocs.offline.yml -d <dir>
+INHERIT: mkdocs.yml
+
+plugins:
+  - offline
+  - search
+
+# The feature list of mkdocs.yml without navigation.instant: on file:// Material skips instant
+# navigation but still completes its document stream with it, so nothing else (copy buttons,
+# table scrolling, the followed table of contents) would mount. Lists are replaced, not merged.
+theme:
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.tabs.link
+
+extra:
+  polyfills:
+    - assets/javascripts/iframe-worker.js

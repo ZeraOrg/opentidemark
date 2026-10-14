@@ -22,6 +22,7 @@ type AlertRule struct {
 	LastValue  *float64
 	LastError  string
 	EvalState  json.RawMessage // per-group evaluation state (alerting.RuleState)
+	Streams    []string        // streams the rule reads; nil = every stream (SPEC §14.1, §15.10)
 	Version    int
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
@@ -46,16 +47,22 @@ type AlertRules struct{ db *DB }
 func NewAlertRules(db *DB) *AlertRules { return &AlertRules{db: db} }
 
 const ruleCols = `id, name, enabled, doc, state, state_since, last_eval_at, last_value, last_error, eval_state, version,
-	created_at, updated_at`
+	created_at, updated_at, streams`
 
 func scanRule(r rowScanner) (AlertRule, error) {
 	var a AlertRule
 	var doc, evalState, created, updated string
-	var since, eval sql.NullString
+	var since, eval, streams sql.NullString
 	var value sql.NullFloat64
 	if err := r.Scan(&a.ID, &a.Name, &a.Enabled, &doc, &a.State, &since, &eval, &value, &a.LastError, &evalState, &a.Version,
-		&created, &updated); err != nil {
+		&created, &updated, &streams); err != nil {
 		return AlertRule{}, mapErr(err)
+	}
+	if streams.Valid {
+		a.Streams = []string{}
+		if err := json.Unmarshal([]byte(streams.String), &a.Streams); err != nil {
+			return AlertRule{}, fmt.Errorf("decode alert rule streams: %w", err)
+		}
 	}
 	a.Doc, a.EvalState = json.RawMessage(doc), json.RawMessage(evalState)
 	a.StateSince, a.LastEvalAt = decodeTimePtr(since), decodeTimePtr(eval)
@@ -75,11 +82,16 @@ func (r *AlertRules) Create(ctx context.Context, a *AlertRule) error {
 	if a.State == "" {
 		a.State = "ok"
 	}
+	streams, err := ruleStreams(a.Streams)
+	if err != nil {
+		return err
+	}
 	now := r.db.now()
 	a.CreatedAt, a.UpdatedAt, a.Version = now, now, 1
-	_, err := r.db.sql.ExecContext(ctx, `INSERT INTO alert_rules (`+ruleCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err = r.db.sql.ExecContext(ctx, `INSERT INTO alert_rules (`+ruleCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		a.ID, a.Name, boolInt(a.Enabled), rawOrEmpty(a.Doc), a.State, encodeTimePtr(a.StateSince),
-		encodeTimePtr(a.LastEvalAt), a.LastValue, a.LastError, rawOrEmpty(a.EvalState), a.Version, encodeTime(now), encodeTime(now))
+		encodeTimePtr(a.LastEvalAt), a.LastValue, a.LastError, rawOrEmpty(a.EvalState), a.Version, encodeTime(now), encodeTime(now),
+		streams)
 	return mapErr(err)
 }
 
@@ -106,11 +118,25 @@ func (r *AlertRules) List(ctx context.Context) ([]AlertRule, error) {
 	return out, rows.Err()
 }
 
-// Update writes the definition with optimistic concurrency on Version.
+// ruleStreams encodes the streams column: NULL for every stream, else a JSON array.
+func ruleStreams(streams []string) (any, error) {
+	if streams == nil {
+		return nil, nil
+	}
+	return marshalJSON(streams)
+}
+
+// Update writes the definition (name, enabled, doc, streams) with optimistic concurrency on
+// Version.
 func (r *AlertRules) Update(ctx context.Context, a *AlertRule) error {
+	streams, err := ruleStreams(a.Streams)
+	if err != nil {
+		return err
+	}
 	now := r.db.now()
-	res, err := r.db.sql.ExecContext(ctx, `UPDATE alert_rules SET name = ?, enabled = ?, doc = ?, version = version + 1,
-		updated_at = ? WHERE id = ? AND version = ?`, a.Name, boolInt(a.Enabled), rawOrEmpty(a.Doc), encodeTime(now), a.ID, a.Version)
+	res, err := r.db.sql.ExecContext(ctx, `UPDATE alert_rules SET name = ?, enabled = ?, doc = ?, streams = ?,
+		version = version + 1, updated_at = ? WHERE id = ? AND version = ?`, a.Name, boolInt(a.Enabled), rawOrEmpty(a.Doc), streams,
+		encodeTime(now), a.ID, a.Version)
 	if err := versionedResult(ctx, res, err, func() error { _, e := r.Get(ctx, a.ID); return e }); err != nil {
 		return err
 	}

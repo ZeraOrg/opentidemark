@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //
-// Alert rule editor drawer (SPEC §14.1, §16.4, DESIGN §9.7): name, query with validation,
-// condition / threshold / window / for, a live preview of the last 3 hours with the threshold
-// line and the region where the condition holds, severity, no-data policy, group by, channels,
-// test, mute and delete.
+// Alert rule editor drawer (SPEC §14.1, §15.10, §16.4, DESIGN §9.7): name, query with validation,
+// the streams the rule reads (every stream, or chosen ones; required for editors who see only
+// some streams), condition / threshold / window / for, a live preview of the last 3 hours with
+// the threshold line and the region where the condition holds, severity, no-data policy, group
+// by, channels, test, mute and delete.
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BellOff, ChevronDown, FlaskConical } from 'lucide-react';
@@ -11,7 +12,9 @@ import { useMemo, useState } from 'react';
 import { errorMessage } from '../../api/client';
 import { alerts as alertsApi, channels as channelsApi, search } from '../../api/endpoints';
 import type { Alert, AlertTestResult, ConditionOp, NoDataPolicy, RuleDoc, Severity } from '../../api/types';
+import { useVisibleStreams } from '../../app/scope';
 import { useApi, useServices } from '../../app/services';
+import { useMe } from '../../app/session';
 import { Chart, conditionHolds } from '../../components/Chart';
 import {
   Button,
@@ -26,6 +29,7 @@ import {
   TextInput,
 } from '../../components/controls';
 import { layoutStyles as l, Notice } from '../../components/layout';
+import { MultiSelect } from '../../components/MultiSelect';
 import { Drawer, DrawerFooter, Modal, Popover, useToast } from '../../components/overlay';
 import { QueryEditor } from '../../components/QueryEditor';
 import { parseGoDuration, shortDuration } from '../../lib/duration';
@@ -33,6 +37,7 @@ import { formatNumber } from '../../lib/format';
 import { timeseriesToChart } from '../../lib/series';
 import { formatClock } from '../../lib/time';
 import { useQueryCheck } from '../query/useQueryCheck';
+import { streamNameProblem } from '../settings/TeamPage';
 import {
   EVERY,
   FOR,
@@ -164,6 +169,65 @@ function ChannelPicker({ value, onChange }: { value: string[]; onChange: (v: str
   );
 }
 
+/** Why a streams choice cannot be saved (SPEC §14.1), or null. */
+export function streamsProblem(streams: readonly string[] | null, allStreams: boolean): string | null {
+  if (streams === null) return allStreams ? null : 'Choose at least one of the streams you can see.';
+  if (streams.length === 0) return 'Choose at least one stream, or read every stream.';
+  return null;
+}
+
+function StreamsField({
+  value,
+  onChange,
+}: {
+  value: string[] | null;
+  onChange: (v: string[] | null) => void;
+}) {
+  const me = useMe();
+  const { names, all, loading } = useVisibleStreams();
+  const items = (names ?? []).map((n) => ({ value: n, label: n }));
+  const problem = streamsProblem(value, me.allStreams);
+  return (
+    <Field
+      label="Streams"
+      help={
+        all
+          ? 'Every stream, or only the chosen ones. A rule limited to streams is seen only by users who see all of them.'
+          : 'The rule reads only streams you can see.'
+      }
+      error={problem ?? undefined}
+    >
+      {(id) => (
+        <div className={s.streamsField}>
+          {all ? (
+            <Checkbox checked={value === null} onChange={(on) => onChange(on ? null : [])}>
+              All streams
+            </Checkbox>
+          ) : null}
+          {value !== null ? (
+            <MultiSelect
+              id={id}
+              label="Streams"
+              mono
+              items={items}
+              value={value}
+              onChange={onChange}
+              loading={loading}
+              placeholder="Choose streams"
+              emptyText="No streams yet."
+              custom={
+                all
+                  ? { validate: streamNameProblem, placeholder: 'stream name', note: 'no data yet' }
+                  : undefined
+              }
+            />
+          ) : null}
+        </div>
+      )}
+    </Field>
+  );
+}
+
 function TestResult({ r }: { r: AlertTestResult }) {
   return (
     <Notice kind={r.error !== undefined ? 'danger' : 'info'}>
@@ -182,8 +246,13 @@ export function AlertDrawer({ alert, onClose }: { alert: Alert | null; onClose: 
   const qc = useQueryClient();
   const toast = useToast();
   const { now } = useServices();
+  const me = useMe();
   const init = alert ?? { ...newRule(), id: '', version: 0 };
   const [name, setName] = useState(init.name);
+  // A new rule reads the editor's whole scope: every stream, or all the visible ones.
+  const [streams, setStreams] = useState<string[] | null>(
+    alert === null ? (me.allStreams ? null : [...me.streams]) : alert.streams,
+  );
   const [doc, setDoc] = useState<RuleDoc>({
     ...init.doc,
     window: shortDuration(init.doc.window),
@@ -201,11 +270,12 @@ export function AlertDrawer({ alert, onClose }: { alert: Alert | null; onClose: 
   const save = useMutation({
     mutationFn: () =>
       alert === null
-        ? alertsApi.create(api, { name: name.trim(), enabled: true, doc })
+        ? alertsApi.create(api, { name: name.trim(), enabled: true, doc, streams })
         : alertsApi.update(api, alert.id, {
             name: name.trim(),
             enabled: alert.enabled,
             doc,
+            streams,
             version: alert.version,
           }),
     onSuccess: () => {
@@ -236,7 +306,11 @@ export function AlertDrawer({ alert, onClose }: { alert: Alert | null; onClose: 
   const muted = alert !== null && isMuted(alert, now());
   const forOk = parseGoDuration(doc.for) !== null;
   const invalid =
-    name.trim() === '' || check.error !== null || !forOk || !Number.isFinite(doc.condition.threshold);
+    name.trim() === '' ||
+    check.error !== null ||
+    !forOk ||
+    !Number.isFinite(doc.condition.threshold) ||
+    streamsProblem(streams, me.allStreams) !== null;
   return (
     <Drawer
       wide
@@ -313,9 +387,11 @@ export function AlertDrawer({ alert, onClose }: { alert: Alert | null; onClose: 
             ariaLabel="Rule query"
             error={check.error}
             showIcon={false}
+            scope={streams === null ? undefined : { streams }}
           />
         )}
       </Field>
+      <StreamsField value={streams} onChange={setStreams} />
       <div className={s.conditionRow}>
         <Field label="Condition">
           {(id) => (

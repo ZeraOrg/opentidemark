@@ -48,6 +48,7 @@ function alert(overrides: Partial<Alert['doc']> = {}, state: Alert['state'] = 'o
     name: 'x',
     enabled: true,
     doc: { ...r.doc, ...overrides },
+    streams: null,
     state,
     stateSince: null,
     lastEvalAt: null,

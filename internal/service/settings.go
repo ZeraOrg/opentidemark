@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 
 	"github.com/ZeraOrg/tidemark/internal/meta"
 	"github.com/ZeraOrg/tidemark/internal/model"
@@ -57,7 +58,15 @@ func (s *Settings) All(ctx context.Context) (map[string]json.RawMessage, error) 
 	if err != nil {
 		return nil, err
 	}
-	out := map[string]json.RawMessage{SettingRetention: rb, SettingUI: json.RawMessage("{}")}
+	acc, err := LoadAccess(ctx, s.store)
+	if err != nil {
+		return nil, err
+	}
+	ab, err := json.Marshal(acc)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]json.RawMessage{SettingRetention: rb, SettingAccess: ab, SettingUI: json.RawMessage("{}")}
 	if ui, err := s.store.Get(ctx, SettingUI); err == nil {
 		out[SettingUI] = ui
 	} else if !errors.Is(err, meta.ErrNotFound) {
@@ -66,14 +75,22 @@ func (s *Settings) All(ctx context.Context) (map[string]json.RawMessage, error) 
 	return out, nil
 }
 
-// Patch validates and stores the given keys; retention changes are applied immediately.
+// Patch validates and stores the given keys; retention changes are applied immediately, access
+// changes with the next request (SPEC §15.10).
 func (s *Settings) Patch(ctx context.Context, actor Actor, patch map[string]json.RawMessage) (map[string]json.RawMessage, error) {
+	details := map[string]any{}
 	for k, v := range patch {
 		switch k {
 		case SettingRetention:
 			if err := validateRetention(v); err != nil {
 				return nil, err
 			}
+		case SettingAccess:
+			acc, err := validateAccess(v)
+			if err != nil {
+				return nil, err
+			}
+			details["access.denyByDefault"] = acc.DenyByDefault
 		case SettingUI:
 			if len(v) > maxUISettingSize || !isJSONObject(v) {
 				return nil, invalid(SettingUI, "must be a JSON object of at most 16 KiB")
@@ -96,7 +113,9 @@ func (s *Settings) Patch(ctx context.Context, actor Actor, patch map[string]json
 	for k := range patch {
 		keys = append(keys, k)
 	}
-	s.audit.Record(ctx, actor, ActionSettingsUpdate, "settings", map[string]any{"keys": keys})
+	sort.Strings(keys)
+	details["keys"] = keys
+	s.audit.Record(ctx, actor, ActionSettingsUpdate, "settings", details)
 	return s.All(ctx)
 }
 

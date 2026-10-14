@@ -1,17 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 //
-// Virtualized event stream (SPEC §16.3, DESIGN §5.9): timestamp · level chip · service · pinned
-// property columns · rendered message with template values highlighted; infinite scroll by cursor;
-// inline detail below the selected row; 2-line cards on phones (DESIGN §9.12).
+// Virtualized event stream (SPEC §16.3, DESIGN §5.9): timestamp · level chip · service · shown
+// columns (properties or built-ins) · rendered message with template values highlighted; infinite
+// scroll by cursor; inline detail below the selected row; 2-line cards on phones (DESIGN §9.12).
 
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ArrowUp } from 'lucide-react';
+import { ArrowUp, X } from 'lucide-react';
 import { useEffect, useRef, type ReactNode } from 'react';
 import type { LogEvent } from '../../api/types';
 import { Button, Kbd, LevelChip, Spinner } from '../../components/controls';
 import { cx } from '../../lib/cx';
-import { renderValue, messageSegments } from '../../lib/template';
+import { messageSegments } from '../../lib/template';
 import { formatClock, formatDateTime } from '../../lib/time';
+import { columnValue, rowMinWidth, rowTemplate } from './columns';
 import s from './EventList.module.css';
 
 export type Density = 'compact' | 'comfortable';
@@ -19,7 +20,6 @@ export type Density = 'compact' | 'comfortable';
 const ROW_HEIGHT: Record<Density, number> = { compact: 28, comfortable: 36 };
 const CARD_HEIGHT = 84;
 const LOAD_AHEAD = 30;
-const PINNED_WIDTH = 140;
 
 export function Message({ ev }: { ev: LogEvent }) {
   const segs = messageSegments(ev.message, ev.messageTemplate, ev.properties);
@@ -46,6 +46,8 @@ export interface EventListProps {
   onToggle: (ev: LogEvent) => void;
   density: Density;
   pinned: readonly string[];
+  /** Removes a shown column (the × in its header). */
+  onHideColumn: (field: string) => void;
   showDate: boolean;
   hasMore: boolean;
   loadingMore: boolean;
@@ -101,17 +103,28 @@ export function EventList(props: EventListProps) {
     cursorRef.current = cursor;
   }, [cursor, virt]);
 
-  const template = `148px 56px 148px ${pinned.map(() => `${PINNED_WIDTH}px `).join('')}minmax(0, 1fr)`;
+  const template = rowTemplate(pinned.length);
+  // Below this width the whole list (header and rows together) scrolls sideways.
+  const minWidth = mobile || pinned.length === 0 ? undefined : rowMinWidth(pinned.length);
   return (
     <div className={cx(s.list, mobile && s.mobile, density === 'comfortable' && s.comfortable)}>
       {!mobile ? (
-        <div className={s.header} style={{ gridTemplateColumns: template }} role="row">
+        <div className={s.header} style={{ gridTemplateColumns: template, minWidth }} role="row">
           <span role="columnheader">Timestamp</span>
           <span role="columnheader">Level</span>
           <span role="columnheader">Service</span>
           {pinned.map((p) => (
-            <span key={p} role="columnheader" title={p}>
-              {p}
+            <span key={p} role="columnheader" className={s.pinnedHead}>
+              <span title={p}>{p}</span>
+              <button
+                type="button"
+                className={s.hideColumn}
+                aria-label={`Remove column ${p}`}
+                title="Remove column"
+                onClick={() => props.onHideColumn(p)}
+              >
+                <X size={12} aria-hidden="true" />
+              </button>
             </span>
           ))}
           <span role="columnheader">Message</span>
@@ -125,6 +138,7 @@ export function EventList(props: EventListProps) {
       <div
         ref={scroller}
         className={s.scroller}
+        style={{ minWidth }}
         role="grid"
         aria-label="Events"
         aria-rowcount={events.length}
@@ -215,7 +229,7 @@ export function EventList(props: EventListProps) {
                       <span className={s.service}>{ev.service}</span>
                       {pinned.map((p) => (
                         <span key={p} className={s.pinned}>
-                          {ev.properties[p] === undefined ? '' : renderValue(ev.properties[p])}
+                          {columnValue(ev, p)}
                         </span>
                       ))}
                       <span className={s.message}>

@@ -116,7 +116,7 @@ func (m *SessionManager) Validate(ctx context.Context, token string) (Principal,
 			return Principal{}, fmt.Errorf("touch session: %w", err)
 		}
 	}
-	return Principal{Kind: KindSession, UserID: u.ID, Username: u.Username, Role: Role(u.Role), SessionID: id,
+	return Principal{Kind: KindSession, UserID: u.ID, Username: u.Username, Role: Role(u.Role), UserRole: Role(u.Role), SessionID: id,
 		MustChangePassword: u.MustChangePassword}, nil
 }
 

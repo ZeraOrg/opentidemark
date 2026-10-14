@@ -9,6 +9,15 @@ export type LevelName = 'Verbose' | 'Debug' | 'Information' | 'Warning' | 'Error
 export const LEVELS: readonly LevelName[] = ['Verbose', 'Debug', 'Information', 'Warning', 'Error', 'Fatal'];
 
 // ---- §11.2 auth & users --------------------------------------------------------------------
+/** A team as referenced from a user (`{id, name}`). */
+export interface TeamRef {
+  id: string;
+  name: string;
+}
+
+/** How the caller's stream scope was resolved (SPEC §15.10). */
+export type StreamAccessMode = 'admin' | 'teams' | 'default-all' | 'default-none';
+
 export interface Me {
   id: string;
   username: string;
@@ -16,6 +25,12 @@ export interface Me {
   role: Role;
   mustChangePassword: boolean;
   defaultCredentials: boolean;
+  /** True when the caller sees every stream; `streams` is then `[]`. */
+  allStreams: boolean;
+  /** The visible stream names when not `allStreams`. */
+  streams: string[];
+  teams: TeamRef[];
+  streamAccess: StreamAccessMode;
 }
 
 export interface User {
@@ -26,6 +41,7 @@ export interface User {
   mustChangePassword: boolean;
   disabled: boolean;
   lastLoginAt: string | null;
+  teams: TeamRef[];
   createdAt: string;
   updatedAt: string;
 }
@@ -108,6 +124,16 @@ export interface QueryRequest {
   cursor?: string;
   span?: string;
   signals?: string[];
+  /** Selection within the caller's scope (SPEC §11.3); absent = the whole scope. */
+  streams?: string[];
+  /** Logs only. */
+  environments?: string[];
+}
+
+/** The stream / environment selection of the GET search routes (`streams=a,b&env=x`). */
+export interface ScopeParams {
+  streams?: readonly string[];
+  env?: readonly string[];
 }
 
 export interface ValidateResponse {
@@ -340,6 +366,8 @@ export interface Alert {
   name: string;
   enabled: boolean;
   doc: RuleDoc;
+  /** Streams the rule reads; `null` = every stream (SPEC §14.1, §15.10). */
+  streams: string[] | null;
   state: AlertState;
   stateSince: string | null;
   lastEvalAt: string | null;
@@ -398,6 +426,8 @@ export interface Connection {
   protocols: Protocol[];
   defaultStream: string;
   allowedCidrs: string[];
+  /** Streams the key may write to; `[]` = any (SPEC §9.1). */
+  allowedStreams: string[];
   minimumLevel: LevelName | null;
   appliedProperties: Record<string, unknown>;
   rateLimitEps: number;
@@ -418,6 +448,7 @@ export interface ConnectionInput {
   protocols?: Protocol[];
   defaultStream?: string;
   allowedCidrs?: string[];
+  allowedStreams?: string[];
   minimumLevel?: string;
   rateLimitEps?: number;
   expiresAt?: string | null;
@@ -515,10 +546,54 @@ export interface RetentionSettings {
   metricsDays: number;
 }
 
+export interface AccessSettings {
+  /** Users in no team see nothing (true) or every stream (false, the default). */
+  denyByDefault: boolean;
+}
+
 export interface Settings {
   retention: RetentionSettings;
+  access: AccessSettings;
   ui: Record<string, unknown>;
 }
+
+// ---- §11.5 teams (§15.10) ---------------------------------------------------------------------
+export interface TeamSummary {
+  id: string;
+  name: string;
+  description: string;
+  memberCount: number;
+  streams: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TeamMember {
+  id: string;
+  username: string;
+  displayName: string;
+  role: Role;
+}
+
+export interface Team {
+  id: string;
+  name: string;
+  description: string;
+  members: TeamMember[];
+  streams: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** `GET /teams/access`: the deny-by-default setting and how many users it would affect. */
+export interface TeamsAccess {
+  denyByDefault: boolean;
+  usersWithoutTeam: number;
+}
+
+/** Stream names (SPEC §8.1). */
+export const STREAM_NAME_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+export const isStreamName = (s: string): boolean => STREAM_NAME_RE.test(s);
 
 export interface AuditEntry {
   id: string;

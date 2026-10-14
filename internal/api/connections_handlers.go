@@ -39,6 +39,7 @@ type connectionRequest struct {
 	Protocols         *[]string       `json:"protocols"`
 	DefaultStream     *string         `json:"defaultStream"`
 	AllowedCIDRs      *[]string       `json:"allowedCidrs"`
+	AllowedStreams    *[]string       `json:"allowedStreams"`
 	MinimumLevel      *string         `json:"minimumLevel"`
 	AppliedProperties *map[string]any `json:"appliedProperties"`
 	RateLimitEPS      *int            `json:"rateLimitEps"`
@@ -67,7 +68,7 @@ func (o *optionalTime) UnmarshalJSON(b []byte) error {
 
 func (c connectionRequest) input() service.ConnectionInput {
 	in := service.ConnectionInput{Name: c.Name, Description: c.Description, Protocols: c.Protocols,
-		DefaultStream: c.DefaultStream, AllowedCIDRs: c.AllowedCIDRs, MinimumLevel: c.MinimumLevel,
+		DefaultStream: c.DefaultStream, AllowedCIDRs: c.AllowedCIDRs, AllowedStreams: c.AllowedStreams, MinimumLevel: c.MinimumLevel,
 		AppliedProperties: c.AppliedProperties, RateLimitEPS: c.RateLimitEPS, Key: c.Key}
 	if c.ExpiresAt.set {
 		in.ExpiresAt = &c.ExpiresAt.value

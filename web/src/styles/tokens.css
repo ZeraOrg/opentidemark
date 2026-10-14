@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
- * Tidemark design tokens — normative part of the UI design specification.
+ * OpenTidemark design tokens — normative part of the UI design specification.
  * Dark is the default theme (`:root`); `[data-theme="light"]` on <html> switches.
  * Every foreground/background pair used by the UI meets WCAG 2.1 AA contrast in both themes
  * (checked by the maintainers' contrast tool whenever a colour changes).

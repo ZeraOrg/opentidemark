@@ -1,14 +1,14 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
-# Tidemark — Product & Engineering Specification
+# OpenTidemark — Product & Engineering Specification
 
-> **Status:** Living document — the source of truth for Tidemark, published with the code.
+> **Status:** Living document — the source of truth for OpenTidemark, published with the code.
 > **Rule:** It must always be possible to recreate the entire public repository from this file
 > alone. Maintainer-only development tooling (outside the public tree) is specified separately;
 > together with that specification the maintainers' development repository can be recreated as
 > well. Any change to behaviour, APIs, schema, configuration, layout, UI or tooling **must**
 > update this spec in the same commit. Version history is in §21.
 
-**Spec version:** 0.12.0 · **Last updated:** 2026-10-13
+**Spec version:** 0.28.0 · **Last updated:** 2026-10-14
 
 ---
 
@@ -23,7 +23,7 @@
 7. Configuration
 8. Data model (ClickHouse + metadata)
 9. Ingestion (protocols & field mapping)
-10. Tidemark Query Language (TQL)
+10. OpenTidemark Query Language (TQL)
 11. HTTP API
 12. Streams & index management
 13. Dashboards
@@ -40,18 +40,35 @@
 
 ## 1. Purpose & goals
 
-Tidemark is a **self-hosted, open-source observability platform** for **logs, traces (spans)
+OpenTidemark is a **self-hosted, open-source observability platform** for **logs, traces (spans)
 and metrics**, intended as a low-cost alternative to commercial log platforms such as
-Kibana/Elastic and Seq, with comparable day-to-day quality. It is licensed under the **Apache
+Elasticsearch/Kibana and Seq, with comparable day-to-day quality. It is licensed under the **Apache
 License 2.0** for everyone, including commercial use; every feature is available and the number
 of users is not limited (§19). The source code and this specification are published in the
 public repository `zeraOrg/tidemark` (§19.3).
 
+**Name.** The product is called **OpenTidemark** (it was called Tidemark before SPEC 0.15.0).
+Every prose and display reference uses that name: documentation, the web UI, release titles,
+image labels, CLI and log messages. Technical identifiers keep `tidemark` so that existing
+installs, scripts and clients keep working: the binary `tidemark` / `tidemark.exe` and its
+commands; the `TIDEMARK_*` variables; the headers `X-Tidemark-Key`, `X-Tidemark-CSRF` and
+`X-Tidemark-Signature`; the cookies `tm_session` and `tm_csrf` and the browser storage keys
+`tm.*`; the Windows service `Tidemark` (account `NT SERVICE\Tidemark`, event log source
+`Tidemark`, `%ProgramFiles%\Tidemark`, `%ProgramData%\Tidemark`, firewall rules
+`Tidemark TCP <port>`); the Linux user and group `tidemark`, `/etc/tidemark`,
+`/var/lib/tidemark` and the systemd unit `tidemark.service`; the Go module
+`github.com/ZeraOrg/tidemark` and the repository `ZeraOrg/tidemark`; the image
+`ghcr.io/zeraorg/tidemark`; the release archives `tidemark_<version>_…`; the ClickHouse database
+`tidemark` and users `tidemark_writer` / `tidemark_reader`; the Prometheus metrics `tidemark_*`;
+the OTLP attribute `tidemark.stream`; the webhook user agent `Tidemark-Alerting/1`; the
+Seq-compatible `GET /api` reply `{"Product":"Tidemark",…}` (§9.2); and file names such as
+`deploy/clickhouse/config.d/tidemark.xml`. The copyright line names "The Tidemark Authors".
+
 Goals:
 
 - **G1 — Drop-in compatibility.** Existing applications and shippers keep working by changing only a
-  URL and an API key: Seq clients (CLEF), Elasticsearch clients/shippers (`_bulk`), and
-  OpenTelemetry (OTLP gRPC + HTTP) for logs, traces and metrics.
+  URL and an API key: Seq clients (CLEF), shippers using the Elasticsearch `_bulk` ingestion API
+  (§9.3), and OpenTelemetry (OTLP gRPC + HTTP) for logs, traces and metrics.
 - **G2 — Excellent search.** A query language that is easy to start with (KQL-style
   `field:value`, free text) and extensive enough for analytics (pipe stages: `stats`, `sort`,
   `top` …), with autocomplete and precise error messages.
@@ -63,7 +80,7 @@ Goals:
 - **G6 — Cross-platform.** Runs on **Linux and Windows** (§17).
 - **G8 — Never lose data on upgrade.** Upgrades never lose telemetry, metadata or the ability to
   log in (§8.5); acknowledged telemetry survives crashes (§9.8).
-- **G9 — Optional redundancy.** Tidemark can run as N stateless nodes (e.g. 3 servers) behind a
+- **G9 — Optional redundancy.** OpenTidemark can run as N stateless nodes (e.g. 3 servers) behind a
   load balancer (§17.5).
 - **G10 — Easy migration.** Built-in importers move existing data and saved searches from Seq and
   Elasticsearch/OpenSearch; existing clients only change their URL (§9.9).
@@ -90,7 +107,7 @@ Goals:
 | **Signal** | A saved, named TQL filter that can be toggled in the explorer (Seq term). |
 | **Stream** | A named logical dataset (≈ Elasticsearch index / data stream). Every event, span and metric point belongs to exactly one stream. |
 | **Connection** | A named ingestion source with its own API key (e.g. "checkout-api prod"). |
-| **TQL** | Tidemark Query Language (§10). |
+| **TQL** | OpenTidemark Query Language (§10). |
 | **Principal** | The authenticated identity of a request: a user session or an API key. |
 
 ---
@@ -101,11 +118,11 @@ Goals:
  Apps / shippers                         ┌──────────────────────── tidemark (Go, single binary) ─────────────────────────┐
  ─────────────────                       │                                                                                │
  Serilog/NLog (Seq) ──HTTP :5341────────▶│ ingest/seq ─┐                                                                  │
- Filebeat/FluentBit/Vector/Logstash      │             │   ┌──────────┐   ┌───────────────┐   ┌──────────────────┐        │
+ Filebeat/FluentBit/Vector               │             │   ┌──────────┐   ┌───────────────┐   ┌──────────────────┐        │
    (ES _bulk) ───────HTTP :9200────────▶│ ingest/elastic ├─▶│ normalize │──▶│ pipeline       │──▶│ store/clickhouse │──┐     │
  OTel SDKs/Collector ─gRPC :4317────────▶│ ingest/otlp ─┤   │ + auth    │   │ (batch queues) │   │ (writer)         │  │     │
                      HTTP :4318────────▶│             │   └──────────┘   └───────────────┘   └──────────────────┘  │     │
- Anything (JSON) ────HTTP :8080────────▶│ ingest/native┘                                                          │     │
+ Logstash, any JSON ─HTTP :8080────────▶│ ingest/native┘                                                          │     │
                                          │                                                                          ▼     │
  Browser ───────────HTTPS :8080────────▶│ web (embedded SPA) + api (query, meta, auth) ── tql ── store/clickhouse (reader)│
                                          │ alerting (evaluator + notifiers) · retention manager · stats collector         │
@@ -118,7 +135,7 @@ Goals:
 Principles:
 
 - **One binary** (`tidemark`) serves UI, API and all ingestion protocols. Optional OTel Collector
-  sidecar only for protocols Tidemark does not speak natively (syslog, Fluent forward).
+  sidecar only for protocols OpenTidemark does not speak natively (syslog, Fluent forward).
 - **ClickHouse** stores telemetry. **SQLite** (pure Go, file in data dir) stores metadata.
 - **Layered, dependency-injected design** (§6.2): handlers → services → repositories/ports;
   all wiring happens in one composition root (`internal/app`).
@@ -159,7 +176,7 @@ Versions are minimums; lockfiles (`go.sum`, `web/package-lock.json`) pin exact v
 |---|---|
 | Language | TypeScript 5 (`strict: true`, `noUncheckedIndexedAccess: true`) |
 | Framework | React 18, React Router 6 |
-| Build | Vite 7 (`--mode mock`: MSW-backed demo build for e2e and screenshots only) |
+| Build | Vite 7 (`--mode mock`: MSW-backed demo build for e2e and screenshots only; it reports the release in `VERSION`) |
 | Data fetching | TanStack Query 5 |
 | Charts | uPlot (time series/histogram) |
 | Query editor | CodeMirror 6 with a TQL language mode + autocomplete |
@@ -179,7 +196,10 @@ Node **22 LTS** for builds. The built SPA is embedded in the Go binary via `go:e
 ```
 .
 ├── SPEC.md                    # this file (source of truth)
-├── README.md                  # open-source README: status, features, quick start (release archive, GHCR image, source), docs, building, releases, contributing, licence
+├── mkdocs.yml                 # documentation site (§17.4): MkDocs + Material, nav over docs/ and docs/manual/
+├── mkdocs.offline.yml         # offline documentation bundle (§17.6): inherits mkdocs.yml, Material's offline plugin, local worker shim
+├── docs-site/                 # documentation site support (§17.4): requirements.in + requirements.txt (pinned, hashed), hooks.py (top-level pages, docs/manual and docs/images only; meta descriptions; links outside docs/; logo and shim copy; llms.txt + llms-full.txt), overrides/main.html (Open Graph tags, colours), offline/iframe-worker.js (vendored MIT shim of the offline bundle, §17.6)
+├── README.md                  # open-source README: status, why OpenTidemark, about (screenshots from docs/images), features, quick start (release archive, GHCR image, source), docs, building, releases, contributing, licence
 ├── VERSION                    # version of the current/next release, e.g. 0.1.0 (§17.6)
 ├── CHANGELOG.md               # user-facing changes, Keep a Changelog format; release notes source (§17.6)
 ├── LICENSE                    # Apache License 2.0, verbatim (§19.1)
@@ -191,8 +211,8 @@ Node **22 LTS** for builds. The built SPA is embedded in the Go binary via `go:e
 ├── Makefile                   # Linux/macOS task runner
 ├── build.ps1                  # Windows task runner (same targets as Makefile)
 ├── .gitattributes             # * text=auto eol=lf ; *.ps1 eol=crlf
-├── .gitignore                 # local tool state, build output (bin/, dist/, …), `make dev` state, deploy/.env, *.key
-├── .dockerignore              # keeps .git, local tool state, build output and deploy/.env out of the image context
+├── .gitignore                 # local tool state, build output (bin/, dist/, site/, __pycache__/, …), `make dev` state, deploy/.env, *.key
+├── .dockerignore              # keeps .git, local tool state, build output (incl. site/) and deploy/.env out of the image context
 ├── .editorconfig
 ├── .golangci.yml
 ├── go.mod / go.sum            # module github.com/ZeraOrg/tidemark
@@ -204,7 +224,7 @@ Node **22 LTS** for builds. The built SPA is embedded in the Go binary via `go:e
 │   ├── normalize/             # map[string]any → model.Event heuristics (§9.6), template rendering
 │   ├── ingest/
 │   │   ├── seq/               # CLEF + legacy Seq JSON (§9.2)
-│   │   ├── elastic/           # ES compat surface (§9.3)
+│   │   ├── elastic/           # Elasticsearch `_bulk` ingestion API (§9.3)
 │   │   ├── otlp/              # OTLP gRPC + HTTP (protobuf & JSON) logs/traces/metrics (§9.4)
 │   │   ├── native/            # JSON / NDJSON (§9.5)
 │   │   └── body.go            # shared: size limits, decompression with bomb protection
@@ -223,7 +243,7 @@ Node **22 LTS** for builds. The built SPA is embedded in the Go binary via `go:e
 │   ├── alerting/              # evaluator, state machine, notifiers (webhook, slack, email, teams)
 │   ├── retention/             # builds & applies TTL rules (§12.3)
 │   ├── httpx/                 # middleware: security headers, logging, recovery, limits, CSRF, IP filters
-│   ├── selfmetrics/           # Prometheus metrics for Tidemark itself
+│   ├── selfmetrics/           # Prometheus metrics for OpenTidemark itself
 │   ├── testutil/              # shared test fakes and the TIDEMARK_TEST_CLICKHOUSE_* reader
 │   ├── repotest/              # repository-wide tests: SPDX headers, Apache LICENSE text, CI ClickHouse grants = users.d,
 │   │                          #   public docs = this spec (§18)
@@ -237,22 +257,28 @@ Node **22 LTS** for builds. The built SPA is embedded in the Go binary via `go:e
 │   ├── docker-compose.yml     # tidemark + clickhouse (+ optional otel-collector profile)
 │   ├── docker-compose.dev.yml # `make dev` override: ClickHouse on a loopback port
 │   ├── .env.example           # every TIDEMARK_* variable (test-enforced) + compose-only TM_* settings
-│   ├── clickhouse/            # config.d (quiet logs, `backups` disk for `tidemark backup`) / users.d (writer + read-only reader users)
-│   ├── ha/                    # 3-server HA reference (§17.5): README, clickhouse/{config.d (cluster, macros, Keeper, backups disk), users.d (+ GRANT CLUSTER)}, nodes/{clickhouse,tidemark}-nodeN.env, lb/{haproxy.cfg,nginx.conf,Caddyfile}
+│   ├── clickhouse/            # config.d: tidemark.xml (quiet logs, no MySQL/PostgreSQL ports, crash reports off, `backups` disk for `tidemark backup`; default listen address), docker-listen.xml (Compose only: listen on the container network) / users.d (writer + read-only reader users)
+│   ├── ha/                    # 3-server HA reference (§17.5): README, clickhouse/{config.d (cluster, macros, Keeper, backups disk, crash reports off), users.d (+ GRANT CLUSTER)}, nodes/{clickhouse,tidemark}-nodeN.env, lb/{haproxy.cfg,nginx.conf,Caddyfile}
 │   ├── otel-collector.yaml
 │   ├── install.sh             # Linux installer (systemd unit)
 │   ├── install.ps1            # Windows installer (service)
+│   ├── install/               # INSTALL-{linux,windows,docker}.md: the INSTALL.md of each release archive (§17.6)
 │   └── tidemark.service       # systemd unit
 ├── Dockerfile                 # multi-stage: node build → go build → distroless nonroot
 ├── scripts/                   # with-clickhouse.sh, with-clickhouse-cluster.sh (integration tests, §18), notices.tpl + licence-exceptions.{sh,txt} (§19.1), ci-annotate.sh, release-notes.sh (§17.6)
 ├── examples/                  # (not in the tree yet, §20) client configs: serilog, nlog, python, node, go, java, filebeat, fluent-bit, vector, logstash, otel-collector
-├── docs/                      # user docs, derived from this spec (§18):
+├── docs/                      # user docs, derived from this spec (§18), published as the documentation site (§17.4):
+│   ├── index.md               #   home page of the documentation site: what OpenTidemark is, guides, project links
+│   ├── images/                #   README screenshots (§19.3): explorer, event-detail-columns, trace-waterfall, dashboard, metrics, alerts, scope-picker, teams (.png); social-preview.png (1280×640 social preview of the repository and og:image of the documentation site, §17.4)
+│   ├── quickstart.md          #   running locally with Docker Compose: install, first event, everyday commands (§17.2)
+│   ├── installation.md        #   full installation guide per platform: Compose, native Linux/Windows + ClickHouse, macOS dev, hardening, HA pointer, operations, troubleshooting (§17)
 │   ├── query-language.md      #   TQL reference (§10; its example block = §10.1 verbatim)
 │   ├── ingestion.md           #   protocols, keys, field mapping (§9.1–§9.7)
 │   ├── configuration.md       #   every variable the binary knows, with defaults (§7)
 │   ├── migrate-from-seq.md    #   moving from Seq with `tidemark import` (§9.9)
-│   └── migrate-from-elastic.md #  moving from Elasticsearch/Kibana with `tidemark import` (§9.9)
-└── .github/                   # workflows/ci.yml (Linux + Windows matrix), security.yml, web.yml (§17.4), release.yml (§17.6); dependabot.yml
+│   ├── migrate-from-elastic.md #  moving from Elasticsearch/Kibana with `tidemark import` (§9.9)
+│   └── manual/                #   operations manual (§17.4), one chapter per file: index (overview, architecture, glossary), deploy, security-hardening, users-access, ingestion, integrations, metrics, streams-retention, querying, dashboards, alerting, operations, api, agents
+└── .github/                   # workflows/ci.yml (Go on Linux + Windows, integration, notices, web incl. e2e; calls release.yml), security.yml (§17.4), docs.yml (documentation site, §17.4), release.yml (§17.6); dependabot.yml
 ```
 
 Maintainer-only development tooling (publishing automation, offline dependency snapshots, design
@@ -276,22 +302,24 @@ type Querier      interface {                                                // 
     Run(ctx context.Context, q *tql.Compiled) (Result, error)                  // events page (+NextCursor) | table | timeseries
     Histogram(ctx context.Context, f Filter, span time.Duration) (Histogram, error)
     Newest(ctx context.Context, f Filter, n uint64) (Sample, error)            // facet sampling: total + n-th newest time
-    Fields(ctx context.Context, src model.Source, r TimeRange) ([]FieldInfo, error)
-    Event(ctx context.Context, id uuid.UUID) (model.Event, error)
-    Context(ctx context.Context, ev model.Event, before, after int) (older, newer []model.Event, err error)
+    Fields(ctx context.Context, scope model.StreamScope, src model.Source, r TimeRange) ([]FieldInfo, error)
+    Event(ctx context.Context, scope model.StreamScope, id uuid.UUID) (model.Event, error) // outside scope ⇒ ErrNotFound
+    Context(ctx context.Context, scope model.StreamScope, ev model.Event, before, after int) (older, newer []model.Event, err error)
     Tail(ctx context.Context, f Filter, after, until time.Time, limit int) ([]TailEvent, uint64, error)
-    Trace(ctx context.Context, traceID string) ([]model.Span, []model.Event, error)
-    Traces(ctx context.Context, f Filter, limit int) ([]TraceSummary, error)
-    MetricNames(ctx context.Context, substr string, r TimeRange, limit int) ([]MetricName, error)
+    Trace(ctx context.Context, scope model.StreamScope, traceID string) ([]model.Span, []model.Event, error) // nothing visible ⇒ ErrNotFound
+    Traces(ctx context.Context, f Filter, limit int) ([]TraceSummary, error)    // summaries over spans in f.Streams only
+    MetricNames(ctx context.Context, scope model.StreamScope, substr string, r TimeRange, limit int) ([]MetricName, error)
 }
-type Filter struct { Source model.Source; Where string; Args []any; Range TimeRange } // from tql.CompileWhere
+// from tql.CompileWhere with Options.Streams = Streams (the WHERE already holds the stream condition)
+type Filter struct { Source model.Source; Where string; Args []any; Range TimeRange; Streams model.StreamScope }
+// Every read with an unset scope (parameter or Filter.Streams) fails with store.ErrNoScope (§15.10).
 type StreamAdmin interface {                     // writer connection; internal/store/clickhouse/admin*.go
     Stats(ctx context.Context) ([]StreamStats, error)
     ApplyRetention(ctx context.Context, rules []retention.Rule) error
     Purge(ctx context.Context, p PurgeRequest) (PurgeJob, error)      // DryRun ⇒ RowsEstimate only
     AddIndexedField(ctx context.Context, f IndexedField) error
     DropIndexedField(ctx context.Context, f IndexedField) error
-    Mappings(ctx context.Context, stream string) ([]FieldMapping, error)
+    Mappings(ctx context.Context, scope model.StreamScope, stream string) ([]FieldMapping, error) // outside scope ⇒ none
     DeleteStream(ctx context.Context, name string) error
 }
 // PurgeRequest{Stream ("" = all), Source, Where+Args (optional tql.CompileWhere condition), From, To, DryRun}
@@ -333,7 +361,7 @@ kebab-case of the suffix). Invalid configuration aborts startup with a clear mes
 |---|---|---|
 | `TIDEMARK_HTTP_ADDR` | `:8080` | UI + `/api/v1` + native ingest + Seq-compatible endpoints |
 | `TIDEMARK_SEQ_ADDR` | `:5341` | Extra listener serving the Seq endpoints only (`""` disables) |
-| `TIDEMARK_ES_ADDR` | `:9200` | Elasticsearch-compatible listener (`""` disables) |
+| `TIDEMARK_ES_ADDR` | `:9200` | Listener for the Elasticsearch `_bulk` ingestion API (`""` disables) |
 | `TIDEMARK_OTLP_HTTP_ADDR` | `:4318` | OTLP/HTTP (`""` disables) |
 | `TIDEMARK_OTLP_GRPC_ADDR` | `:4317` | OTLP/gRPC (`""` disables) |
 | `TIDEMARK_TLS_CERT_FILE` / `TIDEMARK_TLS_KEY_FILE` | — | If both set, **all** listeners use TLS (min TLS 1.2) |
@@ -449,6 +477,11 @@ OTLP `severityNumber`: 1–4 Verbose, 5–8 Debug, 9–12 Information, 13–16 W
 
 **Stream names:** `^[a-z0-9][a-z0-9._-]{0,63}$`. Inputs are lowercased; invalid characters become
 `-`; empty ⇒ `default`.
+
+**Stream scope** (`model.StreamScope`, §15.10) — the set of streams a caller may read:
+`AllStreams()`, `NoStreams()` or `OnlyStreams(names…)` (sorted, de-duplicated); methods `IsSet`,
+`All`, `Empty`, `Names`, `Allows(name)`, `Intersect(other)` (unset when either side is unset),
+`Subset(other)`. The zero value is *unset* and every reader rejects it (fail closed).
 
 ### 8.2 ClickHouse schema (`internal/store/clickhouse/migrations/*.sql`)
 
@@ -598,14 +631,17 @@ Tables (all have `id TEXT PRIMARY KEY` = UUIDv7 unless noted, `created_at`, `upd
 |---|---|
 | `users` | username UNIQUE, display_name, password_hash (argon2id PHC string), role (`admin`/`editor`/`viewer`), must_change_password BOOL, failed_logins INT, locked_until, last_login_at, disabled BOOL |
 | `sessions` | `id` = SHA-256(token) hex, user_id, created_at, last_seen_at, expires_at, ip, user_agent |
-| `connections` | name UNIQUE, description, key_prefix (first 8 chars), key_hash (SHA-256 hex) UNIQUE, protocols (JSON array subset of `seq,elastic,otlp,native`), default_stream, allowed_cidrs (JSON array; empty ⇒ any), minimum_level, applied_properties (JSON object), rate_limit_eps (0 = unlimited), expires_at, revoked_at, last_used_at, last_used_ip, events_received INT |
+| `connections` | name UNIQUE, description, key_prefix (first 8 chars), key_hash (SHA-256 hex) UNIQUE, protocols (JSON array subset of `seq,elastic,otlp,native`), default_stream, allowed_cidrs (JSON array; empty ⇒ any), allowed_streams (JSON array of stream names the connection may write to; empty ⇒ any; migration 0008), minimum_level, applied_properties (JSON object), rate_limit_eps (0 = unlimited), expires_at, revoked_at, last_used_at, last_used_ip, events_received INT |
 | `api_tokens` | user-owned tokens for the query API: name, user_id, key_prefix, key_hash, scopes (`read`/`write`/`admin`), expires_at, revoked_at, last_used_at |
 | `signals` | name, tql, color, owner_id, shared BOOL, source, disabled BOOL (imported filters that could not be translated, §9.9; never applied) |
 | `dashboards` | name, description, owner_id, shared BOOL, doc (JSON, §13.1), version INT |
-| `alert_rules` | name, enabled, doc (JSON, §14.1), state, state_since, last_eval_at, last_value, last_error, eval_state (JSON per-group state §14.3, migration 0006), version |
+| `alert_rules` | name, enabled, doc (JSON, §14.1), state, state_since, last_eval_at, last_value, last_error, eval_state (JSON per-group state §14.3, migration 0006), streams (JSON array of stream names the rule reads, `NULL` = all streams, migration 0007), version |
 | `alert_history` | rule_id, at, from_state, to_state, value, message, group_key (canonical JSON labels, migration 0006) |
 | `channels` | name, kind (`webhook`/`slack`/`teams`/`email`), config (JSON; secrets encrypted §15.5) |
 | `streams` | name UNIQUE, description, retention_days, level_rules (JSON `[{"levels":["Verbose","Debug"],"days":3}]`), spans_retention_days, metrics_retention_days, paused BOOL |
+| `teams` | name UNIQUE (case-insensitive), description — groups of users granted streams (§15.10, migration 0007) |
+| `team_members` | no `id`: PRIMARY KEY (team_id, user_id), both cascading on delete of the team or user; index on user_id |
+| `team_streams` | no `id`: PRIMARY KEY (team_id, stream) cascading on team delete; `stream` is a stream **name** (valid per §8.1, may be granted before data exists); index on stream |
 | `indexed_fields` | source, key, column_name |
 | `purge_jobs` | stream, source, tql, from, to, status, rows_estimate, requested_by, ClickHouse mutation id |
 | `audit_log` | at, actor (user/token id), ip, action, target, details JSON — append-only |
@@ -683,7 +719,9 @@ Dialect details (normative):
    `meta-<version>.json` manifest (test-only admin password, connection key, API token, expected
    row counts). `meta-0.4.0.db` was created by the 0.4.0 schema (migration 0001) with an admin
    whose hash uses outdated argon2 parameters (m=19456,t=2,p=1), so the test also proves the
-   transparent re-hash.
+   transparent re-hash. `meta-0.1.0.db` is the same data migrated by release 0.1.0 (migrations
+   0001, 0002, 0006, i.e. before teams); after the upgrade no user belongs to a team, so
+   existing users keep seeing every stream (§15.10).
 7. **Idempotent telemetry writes.** Every insert batch carries `insert_deduplication_token`
    (= batch UUID; with the WAL, the token derived from the batch UUIDs of its records, §9.8); tables set `non_replicated_deduplication_window = 10000` (replicated tables use
    the built-in replicated deduplication), so retries and WAL replays never duplicate rows.
@@ -762,7 +800,12 @@ Dialect details (normative):
   `<data>/deadletter/<signal>-<ts>.ndjson` and counted in self-metrics.
 - **Stream selection:** explicit per-protocol value (ES `_index`, OTLP resource attribute
   `tidemark.stream`, native/CLEF property `@stream`/`_stream`) if the connection allows overriding
-  (`applied_properties` can pin it) else `default_stream`. Paused streams drop data (counted).
+  (`applied_properties` can pin it) else `default_stream`. When the connection has
+  `allowed_streams`, an explicit stream outside that list is replaced by `default_stream` (the
+  item is kept) and counted in `tidemark_ingest_rerouted_total{protocol,reason="stream_not_allowed"}`;
+  the default and a pinned stream must be in the list (§11.5). A stream that is new when the
+  stream limit is reached still falls back to `default` as before (§12.1), which may lie outside
+  the list. Paused streams drop data (counted).
 - **Timestamps:** missing ⇒ ingest time. Timestamps more than 7 days in the future are clamped to
   ingest time and `_tidemark.clock_skew=true` is added.
 
@@ -796,23 +839,31 @@ Invalid lines: valid lines are accepted; if **all** lines are invalid ⇒ `400` 
 as compact JSON, missing properties render the token verbatim. Format/alignment are ignored.
 If `@m` is present it wins; otherwise rendered from template.
 
-### 9.3 Elasticsearch compatibility (`internal/ingest/elastic`)
+### 9.3 Elasticsearch `_bulk` ingestion API (`internal/ingest/elastic`)
 
 Served on `TIDEMARK_ES_ADDR` (root paths) and under `/es/` on `TIDEMARK_HTTP_ADDR`.
 
 | Method & path | Behaviour |
 |---|---|
-| `GET /` , `HEAD /` | `{"name":"tidemark","cluster_name":"tidemark","version":{"number":"8.11.0","build_flavor":"default","lucene_version":"9.8.0","minimum_wire_compatibility_version":"7.17.0","minimum_index_compatibility_version":"7.0.0"},"tagline":"You Know, for Search"}` with header `X-Elastic-Product: Elasticsearch` (required by official clients' product check). |
+| `GET /` , `HEAD /` | `{"name":"tidemark","cluster_name":"tidemark","version":{"number":"8.11.0"}}`. No product header, tagline or build details: the endpoint does not identify itself as Elasticsearch. `version.number` is the API level of the implemented `_bulk` format; shippers that choose their request format from the major version (Vector's `api_version: auto`, Filebeat's version check) treat it as 8.x. |
 | `POST /_bulk`, `PUT /_bulk`, `POST /{index}/_bulk` | NDJSON bulk. Actions `index` and `create` accepted; `update`/`delete` ⇒ per-item `400` `action_not_supported`. URL `{index}` is the default for lines without `_index`. |
 | `POST|PUT /{index}/_doc[/{id}]`, `POST /{index}/_create/{id}` | Single document ⇒ `201` `{"_index","_id","result":"created","_version":1}`. |
 | `GET /_license` | `{"license":{"status":"active","type":"basic"}}` |
 | `GET /_xpack` | `{"features":{}}` |
 | `GET /_cluster/health` | `{"status":"green"}` |
-| `GET|PUT|HEAD|DELETE` on `/_index_template/*`, `/_template/*`, `/_ilm/*`, `/_ingest/pipeline/*`, `/_data_stream/*`, `/_component_template/*`, `PUT|HEAD /{index}` | `200 {"acknowledged":true}` (GET returns `{}`) — lets Filebeat/Logstash/Vector start up without setup changes. |
+| `GET|PUT|HEAD|DELETE` on `/_index_template/*`, `/_template/*`, `/_ilm/*`, `/_ingest/pipeline/*`, `/_data_stream/*`, `/_component_template/*`, `PUT|HEAD /{index}` | `200 {"acknowledged":true}` (GET returns `{}`) — lets Filebeat and Vector start up without setup changes. |
 | anything else | `404` ES-shaped error `{"error":{"type":"unsupported_operation","reason":"…"},"status":404}` |
 
 Bulk response is ES-shaped:
 `{"took":<ms>,"errors":<bool>,"items":[{"index":{"_index":"…","_id":"<uuid>","_version":1,"result":"created","status":201}}]}`.
+
+**Clients:** Filebeat 8.15.3, Fluent Bit 3.1.9 and Vector 0.41.1 are verified. Clients that only
+accept a server identifying as Elasticsearch — the product check of Logstash's `elasticsearch`
+output (it requires the `X-Elastic-Product: Elasticsearch` header when the reported version is
+≥ 7.14) and of the official Elasticsearch language clients — refuse the endpoint and are **not
+supported**. Logstash sends with its `http` output (`format => "json_batch"`, header
+`X-Tidemark-Key`) to the native endpoint (§9.5), verified with Logstash 8.15.3; the connection
+snippet `logstash` (§11.5) renders that output.
 
 **Stream from index:** `_index` lowercased, data-stream prefixes `logs-`/`.ds-` kept, trailing date
 suffixes `-YYYY.MM.DD`, `-YYYY.MM`, `-YYYYMMDD` stripped (`filebeat-8.11.0-2026.10.13` ⇒
@@ -850,6 +901,8 @@ explicit bounds `base^i`); summary ⇒ count/sum and `value = sum/count`, quanti
 `POST /api/v1/ingest/logs` on `TIDEMARK_HTTP_ADDR`: body is a JSON object, a JSON array of
 objects, or NDJSON. Each object mapped via §9.6 (CLEF `@` keys honoured).
 Response `202 {"accepted":N,"rejected":M,"errors":[{"index":i,"reason":"…"}]}` (max 20 errors).
+This is the supported Logstash path (§9.3): the `http` output's `json_batch` format posts one
+array per batch, and its retries of `429`/`503` match §9.1.
 
 ### 9.6 Field promotion heuristics (`internal/normalize`)
 
@@ -875,8 +928,14 @@ If no message is found, message = compact JSON of the original object (max 2 KiB
 ### 9.7 Other protocols
 
 - **Syslog (RFC 5424/3164, UDP/TCP 5514)** and **Fluent forward (24224)**: via optional OTel
-  Collector profile in `deploy/docker-compose.yml` exporting OTLP/HTTP to Tidemark with a
-  connection key.
+  Collector profile in `deploy/docker-compose.yml` exporting OTLP/HTTP to OpenTidemark with a
+  connection key. The shipped Collector configuration does not remap fields, so a syslog line
+  arrives as the Collector's `syslog` receiver produces it (§9.4 mapping): `message` is the whole
+  raw line, the syslog severity becomes the level, and the parsed parts are log attributes and
+  therefore properties — `hostname`, `appname`, `proc_id`, `msg_id`, `message` (the message
+  part), `facility`, `priority`, `version` (and `structured_data` when present). The built-in
+  `host` stays empty and `service` falls back to the stream name; search with
+  `hostname:web-01 appname:nginx`. Verified with `otel/opentelemetry-collector-contrib` 0.120.0.
 - **Planned (M4):** Loki push API, Prometheus remote-write, GELF.
 
 ---
@@ -898,6 +957,14 @@ If no message is found, message = compact JSON of the original object (max 2 KiB
   every fsync covers all records written before it; `Append` returns after that fsync. New
   segments also fsync their directory (Linux/macOS; NTFS journals directory entries). Files are
   never renamed and are closed before deletion, so the same code works on Windows.
+- **Abandoned waits.** The request context only bounds the wait for the fsync: when the client
+  goes away (cancelled request, gRPC deadline) while its record waits, the record is already
+  written, the next group commit makes it durable and the pipeline stores it like any other. Such
+  rows count as enqueued (`tidemark_pipeline_enqueued_total`, queue depth), never as dropped; the
+  request ends with the context error (no acknowledgement — a client that retries may store the
+  rows twice, as with any at-least-once delivery). `tidemark_pipeline_dropped_total{reason=
+  "backpressure"}` counts only rows that were refused and not written: WAL size cap reached, a
+  failed write, or a full in-memory queue (§9.1).
 - The pipeline reads from the WAL in order, groups records into insert batches
   (`TIDEMARK_BATCH_MAX_ROWS` / `_MAX_WAIT`) and inserts them with a deterministic deduplication
   token: the UUID formed from the first 16 bytes of SHA-256 over the batch UUIDs of the batch's
@@ -920,9 +987,9 @@ If no message is found, message = compact JSON of the original object (max 2 KiB
 
 ### 9.9 Importing from Seq and Elasticsearch/OpenSearch (`internal/importer`)
 
-Goal: move an existing installation to Tidemark with minimal effort.
+Goal: move an existing installation to OpenTidemark with minimal effort.
 
-**Client cut-over.** Tidemark listens on Seq's port 5341 and Elasticsearch's port 9200 with
+**Client cut-over.** OpenTidemark listens on Seq's port 5341 and Elasticsearch's port 9200 with
 compatible ingestion APIs (§9.2, §9.3), so applications only change the host name. Admins may
 create a connection with an **admin-supplied key value** (≥ 20 characters, ≥ 80 bits estimated
 entropy, unique) so existing Seq API keys / ES API-key secrets keep working unchanged.
@@ -1027,7 +1094,7 @@ signals (query DSL objects or active filter pills ⇒ disabled with a warning); 
 (dashboards, visualizations, …) is listed as a "not converted" warning; at most 10,000 objects.
 The finished job reports `rowsImported` = signals + streams and `errors` = disabled signals.
 
-## 10. Tidemark Query Language (TQL)
+## 10. OpenTidemark Query Language (TQL)
 
 Design goals: **KQL-easy** for filters (`level:error service:checkout*`), familiar to Seq users
 (`Level = 'Error'`), and **extensive** through pipe stages for analytics. The same TQL text drives
@@ -1140,9 +1207,12 @@ property. `@`-prefixed names are always built-ins; `props.<key>` / `attrs.<key>`
 
 | Source | Built-ins (aliases) ⇒ column |
 |---|---|
-| logs | `@timestamp` (`timestamp`,`@t`) ⇒ timestamp · `level` (`@level`,`@l`) ⇒ level_num/level · `message` (`@message`,`@m`,`msg`) ⇒ message · `template` (`@mt`,`messagetemplate`) ⇒ message_template · `exception` (`@x`) ⇒ exception · `service` · `environment` (`env`) · `host` · `stream` · `trace_id` (`traceid`,`@tr`) · `span_id` (`spanid`,`@sp`) · `event_type` (`@i`) · `protocol` · `id` (`@id`) |
-| spans | `@timestamp` ⇒ start_time · `trace_id` · `span_id` · `parent_span_id` · `service` · `name` · `kind` · `status` ⇒ status_code · `status_message` · `duration` (`@duration`) ⇒ duration_ns (ms in results) · `stream` |
-| metrics | `@timestamp` · `name` · `service` · `kind` · `unit` · `value` · `count` · `sum` · `min` · `max` · `stream` |
+| logs | `@timestamp` (`timestamp`,`@t`) ⇒ timestamp · `level` (`@level`,`@l`) ⇒ level_num/level · `message` (`@message`,`@m`,`msg`) ⇒ message · `template` (`@mt`,`messagetemplate`) ⇒ message_template · `exception` (`@x`) ⇒ exception · `service` · `environment` (`env`) · `host` · `stream` · `trace_id` (`traceid`,`@tr`) · `span_id` (`spanid`,`@sp`) · `event_type` (`@i`) · `protocol` · `connection_id` (`connectionid`) · `id` (`@id`) |
+| spans | `@timestamp` ⇒ start_time · `trace_id` · `span_id` · `parent_span_id` · `service` · `name` · `kind` · `status` ⇒ status_code · `status_message` · `duration` (`@duration`) ⇒ duration_ns (ms in results) · `stream` · `connection_id` (`connectionid`) |
+| metrics | `@timestamp` · `name` · `service` · `kind` · `unit` · `value` · `count` · `sum` · `min` · `max` · `stream` · `connection_id` (`connectionid`) |
+
+`connection_id` is the id of the connection that ingested the row (the `connectionId` of events,
+§11.5); ids are stored lower case, so equality compares the column directly.
 
 - `@` + any canonical built-in name also resolves (`@service`, `@trace_id`); unknown `@names` are
   errors with a did-you-mean hint. Spans additionally accept `status_code` and `start_time`/`timestamp`.
@@ -1228,6 +1298,7 @@ type Options struct {
     AutoSpan      time.Duration                      // for `span auto`; 0 ⇒ smallest §11.3 span giving ≤ 80 buckets (then whole days)
     IndexedFields map[model.Source]map[string]string // property key ⇒ column ^f_[a-z0-9_]{1,64}$ (§12.4)
     ExtraFilters  []*Query                           // signals: same source, no stages, ANDed
+    Streams       model.StreamScope                  // required (§15.10): unset ⇒ ErrInvalidOptions
 }
 type Cursor   struct{ Timestamp time.Time; ID string } // ID = event UUID | span_id | series_id
 type Compiled struct {
@@ -1244,7 +1315,10 @@ stages `Stats Sort Limit Fields Where Top`) carries byte positions on every node
 
 - **SQL shapes.** Sources map to `events`/`timestamp`/`id`, `spans`/`start_time`/`span_id`,
   `metric_points`/`timestamp`/`series_id` (table / time column / keyset id).
-  - WHERE: `time >= ? AND time < ? AND (<filter>) AND (<where before stats>) AND (<signal>)…`.
+  - WHERE: `time >= ? AND time < ? [AND stream IN (?, …) | AND 0] AND (<filter>) AND (<where before
+    stats>) AND (<signal>)…`. The stream condition comes from `Options.Streams`: none for
+    `AllStreams()`, `AND 0` for an empty scope (no rows, no error), else every name as a `?`
+    argument (`stream` leads the sort key of every table, so it prunes by primary index).
   - events: `SELECT <event columns> FROM db.t WHERE … [AND (time, id) < (?, toUUIDOrZero(?)|?|toUInt64OrZero(?))]
     ORDER BY time DESC, id DESC LIMIT ?`. Spans expose `duration_ns / 1e6 AS duration_ms`.
     `fields a, b` selects `time, id, <a> AS f0, <b> AS f1` (columns named as written).
@@ -1322,16 +1396,17 @@ comparison operator); the API then adds the field's top values (kind `value`). B
 |---|---|---|
 | `POST /auth/login` `{username,password}` | public | Sets `tm_session` + `tm_csrf` cookies; returns `{user, mustChangePassword}`. Rate limited (§15.4). |
 | `POST /auth/logout` | any | Deletes session server-side. |
-| `GET /auth/me` | any | `{id,username,displayName,role,mustChangePassword,defaultCredentials}` |
+| `GET /auth/me` | any | `{id,username,displayName,role,mustChangePassword,defaultCredentials,allStreams,streams,teams,streamAccess}`: the caller's stream access (§15.10) — `allStreams` (sees every stream), `streams` (the visible stream names when not all, else `[]`), `teams` (`[{id,name}]` by name) and `streamAccess` (`admin`, `teams`, `default-all` or `default-none`). |
 | `POST /auth/password` `{currentPassword,newPassword}` | any | Policy §15.2; revokes other sessions. |
-| `GET/POST /users`, `GET/PATCH/DELETE /users/{id}` | admin | Cannot delete/demote the last admin. The number of accounts is not limited. |
+| `GET/POST /users`, `GET/PATCH/DELETE /users/{id}` | admin | Cannot delete/demote the last admin. The number of accounts is not limited. User objects of these routes include `teams:[{id,name}]` (by name). |
+| `PUT /users/{id}/teams` `{teamIds}` | admin | Replaces the user's teams (unknown team ⇒ 400 `details.field = teamIds`, ≤ 500); returns the user with its teams. Audited `user.teams` `{added, removed}`. |
 | `GET/POST /tokens`, `DELETE /tokens/{id}` | any (own) | Token value returned **once** on create. |
 
 ### 11.3 Search & analytics
 
 | Endpoint | Description |
 |---|---|
-| `POST /query` | Body `{q, from, to, limit?(≤ QUERY_MAX_ROWS, default 200), cursor?, span?("auto"|dur), signals?[ids]}`. Active signals are ANDed with `q`'s filter. Response by kind: `events`: `{kind,events:[Event],nextCursor,stats}` (newest first; cursor = opaque base64 of `(timestamp,id)`); `table`: `{kind,columns:[{name,type}],rows:[[…]],stats}`; `timeseries`: `{kind,span,columns,series:[{key:{by…},points:[[tsMs,value…]]}],stats}`. `stats = {elapsedMs, rowsRead, bytesRead, interpretedAsText}`. |
+| `POST /query` | Body `{q, from, to, limit?(≤ QUERY_MAX_ROWS, default 200), cursor?, span?("auto"|dur), signals?[ids], streams?[names], environments?[values]}`. Active signals are ANDed with `q`'s filter. Response by kind: `events`: `{kind,events:[Event],nextCursor,stats}` (newest first; cursor = opaque base64 of `(timestamp,id)`); `table`: `{kind,columns:[{name,type}],rows:[[…]],stats}`; `timeseries`: `{kind,span,columns,series:[{key:{by…},points:[[tsMs,value…]]}],stats}`. `stats = {elapsedMs, rowsRead, bytesRead, interpretedAsText}`. |
 | `POST /query/validate` `{q}` | `{ok, kind, error?}` — used for live squiggles. |
 | `GET /histogram?q&from&to&buckets=80` | `{span, buckets:[{t, counts:{Verbose..Fatal}}]}` (logs); spans: counts by status. Span chosen from 1s,5s,10s,30s,1m,5m,10m,30m,1h,3h,6h,12h,1d so bucket count ≤ requested. |
 | `GET /facets?q&from&to&fields=service,level&top=10` | `[{field, values:[{value,count}], otherCount}]`, computed over at most the newest 1,000,000 matching rows (flag `sampled`). |
@@ -1345,7 +1420,18 @@ comparison operator); the API then adds the field's top values (kind `value`). B
 | `GET /export?q&from&to&format=ndjson|csv` | Streams up to 100,000 events. editor+. |
 | `GET /tql/complete` | §10.7 |
 
-All §11.3 routes require **viewer**, except `/export` (**editor**). Details (normative):
+All §11.3 routes require **viewer**, except `/export` (**editor**). Every route reads only the
+streams of the caller's scope (§15.10). Details (normative):
+
+- **Selection** — `POST /query` takes `streams` and `environments`; `GET /histogram`, `/facets`,
+  `/fields`, `/tail`, `/traces`, `/metrics/names`, `/export` and `/tql/complete` take `streams`
+  and `env` (comma-separated and/or repeated). At most 100 streams, each a valid stream name
+  (§8.1), and at most 20 environments of 1…256 bytes (else 400 `bad_request`). The selected
+  streams are intersected with the caller's scope, so a selection never widens access (a
+  selection outside the scope returns no data, not an error); no selection means the whole
+  scope. Environments add the filter `environment in [...]` to **logs** queries only (spans and
+  metric points have no environment column); they are a filter, not an access boundary. The
+  by-id routes (`/events/{id}`, `/context`, `/traces/{traceId}`) take no selection.
 
 - **`POST /query`** — `limit` 1…`QUERY_MAX_ROWS` (0 ⇒ 200); `span` is `"auto"` or a Go duration of
   whole seconds (`"30s"`, `"5m"`) used for `span auto`. Response `span` is in **milliseconds**.
@@ -1366,28 +1452,32 @@ All §11.3 routes require **viewer**, except `/export` (**editor**). Details (no
 - **`GET /fields`** — `source` (default logs): built-ins first, then property keys of
   `field_catalog` in the range by hits (metrics: attribute keys of `metric_points`); a property
   whose name equals a built-in (case-insensitive) is omitted.
-- **`GET /events/{id}`** — id must be a UUID (400). **`/context`**: `before`/`after` 0…200 (default
-  20); events of the same service **and** host within ±24 h, `{before (oldest first), event, after}`.
+- **`GET /events/{id}`** — id must be a UUID (400); an event outside the caller's scope is 404.
+  **`/context`**: `before`/`after` 0…200 (default 20); events of the same service **and** host
+  within ±24 h and in the caller's scope, `{before (oldest first), event, after}`.
 - **`GET /tail`** — logs only and no stats (400), optional `signals`; ≤ 20 open tails per user
   (429 `rate_limited`). Every second the server reads events with `ingested_at` in
   `(previous, now − lag]`, lag = `BATCH_MAX_WAIT` + 2 s (rows carry the ingest time but appear
   after their batch insert), restricted to event timestamps in `[now − 1 h, now + 7 d + 1 h)`;
   at most 50 per poll (rest ⇒ `event: dropped`, data = count). Events carry `ingestedAt`. A
   failing poll sends `event: error` and ends the stream; streams also end when the server shuts
-  down. The write deadline is lifted with `http.ResponseController`.
+  down. The write deadline is lifted with `http.ResponseController`. The caller's scope is
+  resolved again on every poll, so access changes apply to open tails.
 - **`GET /traces`** — `q` is a spans filter (`source spans` implied; another explicit source ⇒
   400), `limit` 1…500 (default 50). Traces are ordered by their newest matching span; each summary
-  covers all spans of the trace within the range ± 1 h; root = earliest span without parent
-  (else earliest span); `durationMs` = latest span end − earliest start.
+  covers the spans of the trace in the caller's scope within the range ± 1 h; root = earliest
+  visible span without parent (else earliest visible span); `durationMs` = latest span end −
+  earliest start; spans of other streams are not counted or named.
   **`/traces/{traceId}`** — 32 hex characters (any case); ≤ 10,000 spans by start time and
-  ≤ 1,000 events with that trace id; 404 when neither exists. Span JSON: `{traceId, spanId,
+  ≤ 1,000 events with that trace id, both limited to the caller's scope; 404 when nothing
+  visible exists. Span JSON: `{traceId, spanId,
   parentSpanId, stream, service, name, kind, start, durationMs, statusCode, statusMessage,
   attributes, resourceAttributes, events, links}` (numeric attributes typed again).
 - **`GET /metrics/names`** — `q` case-insensitive substring (≤ 256 bytes), range default last
   hour, ≤ 1,000 names.
 - **`GET /export`** — `format` `ndjson` (default) or `csv`, optional `signals`; events-kind queries
   only (stats ⇒ 400). Pages of `QUERY_MAX_ROWS` rows newest first, up to 100,000; audited
-  (`export`, details q/from/to/format/signals) before streaming; `Content-Disposition:
+  (`export`, details q/from/to/format/signals/streams/environments) before streaming; `Content-Disposition:
   attachment`; the write deadline is extended to 10 min. CSV of log events: `timestamp, level,
   stream, service, environment, host, message, exception, trace_id, span_id, event_type, id,
   properties(JSON)`; other rows use the result columns. Cells starting with `= + - @`, tab or CR
@@ -1434,14 +1524,17 @@ concurrency token: the update is `WHERE id = ? AND updated_at = ?`; mismatch ⇒
 | `POST /dashboards/{id}/panels/{panelId}/query` `{vars?:{name:[values]}}` | viewer | `{q}`: the panel query with variables substituted on the AST (§13.1), as canonical TQL for `POST /query`. Missing vars use defaults; unknown vars ⇒ 400. |
 
 Dashboard JSON: `{id, name, description, ownerId, shared, version, doc, createdAt, updatedAt}`.
-Invalid panel queries ⇒ `invalid_query` with `details.panelId`.
+Invalid panel queries: a query that fails to parse, substitute or check (TQL error) ⇒ 400
+`invalid_query` with `details` `{pos, len, hint, panelId}`; a valid query of the wrong kind for its
+panel type (§13.1, e.g. a `timeseries` panel without `stats`) and every other document error ⇒
+400 `bad_request` with `details.field` (e.g. `doc.panels[0].query`).
 
 **Alerts and channels** (`internal/service/{alerts,channels}.go`):
 
 | Endpoint | Role | Notes |
 |---|---|---|
-| `GET /alerts`, `GET /alerts/{id}` | viewer | `{id, name, enabled, doc, state, stateSince, lastEvalAt, lastValue, lastError, groups:[{labels, state, since, value}], version, createdAt, updatedAt}` |
-| `POST /alerts` `{name, enabled?, doc}`, `PUT /alerts/{id}` `{name, enabled?, doc, version}`, `DELETE /alerts/{id}` | editor | Channels in `doc.channels` must exist; invalid doc ⇒ 400 `details.field = doc.<field>` (or `invalid_query`). |
+| `GET /alerts`, `GET /alerts/{id}` | viewer | `{id, name, enabled, doc, streams, state, stateSince, lastEvalAt, lastValue, lastError, groups:[{labels, state, since, value}], version, createdAt, updatedAt}` (`streams` `null` = every stream). Only rules whose streams lie within the caller's scope are listed; others are 404 on every `/alerts/{id}` route (§14.1). |
+| `POST /alerts` `{name, enabled?, doc, streams?}`, `PUT /alerts/{id}` `{name, enabled?, doc, streams?, version}`, `DELETE /alerts/{id}` | editor | Channels in `doc.channels` must exist; invalid doc ⇒ 400 `details.field = doc.<field>` (or `invalid_query`); invalid `streams` ⇒ 400 `details.field = streams`. |
 | `POST /alerts/{id}/test` | editor | Evaluates now without persisting or notifying: `{state, error?, samples:[{labels, value}], groups, transitions:[{labels, from, to, message}]}`. |
 | `POST /alerts/{id}/mute` `{until: RFC3339 \| null}` | editor | Sets `doc.muteUntil` (future, ≤ 1 year; `null` unmutes); bumps `version`. |
 | `GET /alerts/{id}/history?limit=` | viewer | Newest first, default 100, max 1000: `[{id, at, fromState, toState, value, message, group}]`. |
@@ -1477,25 +1570,46 @@ Group = { labels: {[field: string]: string} /* {} when ungrouped */, state: stri
 
 | Endpoint | Role |
 |---|---|
-| `GET/POST /connections`, `GET/PATCH/DELETE /connections/{id}`, `POST /connections/{id}/rotate` `{graceMinutes?, key?}` (new key, returned once; old key valid for optional grace period `graceMinutes` ≤ 1440), `POST /connections/{id}/revoke`. `POST` and `rotate` accept an optional admin-supplied `key` (§9.9); the response carries the key once in `key` | admin |
-| `GET /connections/{id}/snippets` → ready-to-paste configs (Serilog, NLog, OTel env vars, Filebeat, Fluent Bit, Vector, Logstash) with host/port filled from `PUBLIC_URL` and key placeholder | admin |
+| `GET/POST /connections`, `GET/PATCH/DELETE /connections/{id}`, `POST /connections/{id}/rotate` `{graceMinutes?, key?}` (new key, returned once; old key valid for optional grace period `graceMinutes` ≤ 1440), `POST /connections/{id}/revoke`. `POST` and `rotate` accept an optional admin-supplied `key` (§9.9); the response carries the key once in `key`. Connection objects carry `allowedStreams` (sorted; `[]` = any stream); a body may set it to at most 100 valid stream names, which must include `defaultStream` and a stream pinned in `appliedProperties` (else 400 `details.field = allowedStreams`); `connection.create`/`connection.update` audit it (§9.1) | admin |
+| Connection bodies (`POST`, `PATCH`; on `PATCH` an absent field is unchanged): `name` (required on create, 1–128 characters after trimming, unique ⇒ else 409) · `description` (≤ 1024 bytes) · `protocols` (non-empty subset of `seq`, `elastic`, `otlp`, `native`; default all) · `defaultStream` (valid stream name §8.1; default `default`) · `allowedCidrs` (≤ 64 CIDRs or bare addresses, stored masked, an address as /32 or /128; `[]` = any source) · `allowedStreams` (above) · `minimumLevel` (a level name, `""` = none) · `appliedProperties` (object, ≤ 64 keys, merged into every event; `@stream`/`_stream` must be valid stream names and pin the stream §9.1) · `rateLimitEps` (0…1,000,000 events/s, 0 = unlimited) · `expiresAt` (RFC 3339 in the future, `null` clears) · `key` (create only, §9.9). Invalid values ⇒ 400 `bad_request` with `details.field`. Connection objects: `{id, name, description, keyPrefix, protocols, defaultStream, allowedCidrs, allowedStreams, minimumLevel (null = none), appliedProperties, rateLimitEps, expiresAt, revokedAt, rotationGraceUntil, lastUsedAt, lastUsedIp, eventsReceived, createdAt, updatedAt}` plus `key` once in create/rotate responses | admin |
+| `GET /connections/{id}/snippets` → ready-to-paste configs (Serilog, NLog, OTel env vars, Filebeat, Fluent Bit, Vector, Logstash `http` output to the native endpoint §9.3) with host/port filled from `PUBLIC_URL` and key placeholder | admin |
 | `GET /streams` (with stats §12.2), `POST /streams`, `PATCH /streams/{name}`, `DELETE /streams/{name}` (requires `{"confirm":"<name>"}`; drops data) | admin (GET: viewer) |
-| `GET /streams/{name}/fields` (mappings: key, detected type, hits, indexed) | viewer |
+| `GET /streams/{name}/fields` (mappings: key, detected type, hits, indexed; 404 outside the caller's scope §15.10) | viewer |
 | `GET /indexed-fields` | viewer |
 | `POST /indexed-fields` `{source,key}`, `DELETE /indexed-fields/{id}` | admin |
 | `POST /purge` `{stream?, source, q?, from, to, dryRun}` → estimate or job; `GET /purge/{id}` | admin |
 | `GET /settings`, `PATCH /settings` | admin |
+| `GET /teams`, `POST /teams`, `GET /teams/access`, `GET/PATCH/DELETE /teams/{id}`, `PUT /teams/{id}/members`, `PUT /teams/{id}/streams` (§15.10) | admin |
 | `GET /audit?from&to&actor&action` | admin |
 | `GET /system` (version, uptime, queue depth, ingest rates, ClickHouse version/disk) | admin |
 | `GET /imports` (newest 100), `GET /imports/{id}`, `POST /imports` (JSON for `elastic`/`seq`; `multipart/form-data` for `clef-file`/`kibana`), `POST /imports/{id}/cancel` (§9.9) | admin |
+
+Team bodies (§15.10): `GET /teams` returns `[{id, name, description, memberCount, streams,
+createdAt, updatedAt}]` by name; `POST /teams` `{name, description?}` ⇒ 201 Team; `GET
+/teams/{id}` and the `PUT` routes return a Team `{id, name, description, members:[{id, username,
+displayName, role}], streams, createdAt, updatedAt}`; `PATCH /teams/{id}` `{name?, description?}`
+⇒ Team; `DELETE /teams/{id}` ⇒ 204 (memberships and grants cascade); `PUT /teams/{id}/members`
+`{userIds}` and `PUT /teams/{id}/streams` `{streams}` replace the set (duplicates ignored, unknown
+user ⇒ 400 `details.field = userIds`). `GET /teams/access` ⇒ `{denyByDefault, usersWithoutTeam}`.
+Limits: name 1…64 characters (trimmed), unique ignoring case (409 `conflict`); description ≤
+1024 characters; at most 500 teams, 10,000 members and 1,000 streams per team; stream names
+must be valid (§8.1) but need not exist yet. Audit: `team.create` `{name}`, `team.update`
+`{name, previousName?}`, `team.delete` `{name, members (usernames), streams}`, `team.members`
+and `team.streams` `{added, removed}`.
 
 Stream bodies: `POST /streams` `{name, description?, retentionDays?, spansRetentionDays?,
 metricsRetentionDays?, levelRules?:[{levels,days}], paused?}`; `PATCH` takes the same fields except
 `name` (absent = unchanged; `null` retention = use the default). Responses `{id, name, description,
 retentionDays, spansRetentionDays, metricsRetentionDays, levelRules, paused, createdAt, updatedAt}`;
-`GET /streams` returns `{streams:[… + stats:{logs|spans|metrics:{rows, oldest, newest, ratePer5Min,
+`GET /streams` lists only the streams of the caller's scope (§15.10) and returns `{streams:[… + stats:{logs|spans|metrics:{rows, oldest, newest, ratePer5Min,
 ratePer24h, compressedBytes, uncompressedBytes, compressionRatio, estimated, topServices}}],
 statsUpdatedAt}`. Field mappings: `[{source, key, type, hits, firstSeen, lastSeen, indexed}]`.
+Settings: `GET /settings` ⇒ `{retention: {logsDays, spansDays, metricsDays}, access: {denyByDefault},
+ui: {…}}` with defaults applied (`denyByDefault` false); `PATCH /settings` takes any subset of
+these keys (unknown key ⇒ 400; `access` must be exactly `{denyByDefault: true|false}`; `ui` a JSON
+object ≤ 16 KiB) and returns the full settings; audited as `settings.update` with details
+`{keys, "access.denyByDefault"?}`. Retention changes apply immediately, access changes with the
+next request (§15.10).
 Indexed fields: `{id, source, key, column, createdAt}`. Purge: `from`/`to` are required (§11.1
 formats); a dry run returns `200 {dryRun:true, rowsEstimate}`, otherwise `202` with the job
 `{id, stream, source, q, from, to, status (pending|running|done|failed), rowsEstimate, requestedBy,
@@ -1563,6 +1677,22 @@ KibanaConfig = { file: { name: string, size: number } }
 {"status":"draining"}` once a graceful drain started, §17.5) · `GET /metrics`
 (Prometheus; **disabled unless** `TIDEMARK_METRICS_ENABLED=true`, optionally protected by
 `TIDEMARK_METRICS_TOKEN`).
+
+Self-metrics (`internal/selfmetrics`, own registry, plus the Go runtime and process collectors):
+
+| Metric | Labels | Meaning |
+|---|---|---|
+| `tidemark_ingest_items_total` | `protocol`, `source` | Items accepted by ingestion |
+| `tidemark_ingest_dropped_total` | `protocol`, `reason` | Items dropped by connection policy (e.g. below the minimum level) |
+| `tidemark_ingest_rejected_requests_total` | `protocol`, `reason` | Rejected ingestion requests |
+| `tidemark_ingest_rerouted_total` | `protocol`, `reason` | Items written to the default stream instead of the requested one (§9.1) |
+| `tidemark_pipeline_enqueued_total` | `signal` | Rows enqueued (written to the WAL when it is enabled) |
+| `tidemark_pipeline_written_total` | `signal` | Rows written to ClickHouse |
+| `tidemark_pipeline_dropped_total` | `signal`, `reason` | Rows lost or refused: `backpressure`, `stream_paused`, `wal_corrupt`, `wal_decode`, `deadletter_failed` (§9.8) |
+| `tidemark_pipeline_deadlettered_total` | `signal` | Rows written to dead-letter files |
+| `tidemark_pipeline_write_errors_total` | `signal` | Failed insert attempts (ClickHouse unreachable or rejecting) |
+| `tidemark_pipeline_queue_depth` | `signal` | Rows acknowledged but not yet in ClickHouse (WAL backlog) |
+| `tidemark_wal_bytes` | `signal` | Bytes of the WAL segments on disk, read at scrape time (only with the WAL) |
 
 ---
 
@@ -1646,8 +1776,10 @@ A paused stream rejects nothing at protocol level but drops its rows in the pipe
   and resume take effect in the pipeline gate immediately.
 - Delete: typed confirmation, the `default` stream cannot be deleted. The stream is paused, its
   rows are removed with lightweight `DELETE … WHERE stream = ?` from `events`, `spans`,
-  `metric_points` and `field_catalog`, then the metadata row; new data re-creates it.
-- Audit: `stream.create|update|delete`.
+  `metric_points` and `field_catalog`, then the metadata row and every team grant of the name
+  (`team_streams`, §15.10); new data re-creates the stream but not the grants. Streams cannot be
+  renamed.
+- Audit: `stream.create|update|delete` (`stream.delete` details `{revokedFromTeams: [team names]}`).
 
 ---
 
@@ -1674,8 +1806,11 @@ A paused stream rejects nothing at protocol level but drops its rows in the pipe
   `table`, `pie`, `logs` (live event list for a filter), `traces` (trace list), `markdown`.
 - **Strict schema** (`service.ParseDashboardDoc`; unknown fields, trailing data or depth > 64 are
   errors; the stored document is the re-encoded canonical form):
-  - `version` = 1; `timeRange.from/to` = `now`, `now-<n><s|m|h|d|w>` or RFC 3339; `refresh` =
-    `""`, `off` or `<n>s|m|h` between 5 s and 24 h.
+  - `version` = 1 and `timeRange` with both `from` and `to` are **required** (a missing or
+    invalid value ⇒ 400 `bad_request`, `details.field` = `doc.version`, `doc.timeRange.from` or
+    `doc.timeRange.to`); `timeRange.from/to` = `now`, `now-<n><s|m|h|d|w>` or RFC 3339; `refresh`
+    (optional) = `""`, `off` or `<n>s|m|h` between 5 s and 24 h; `variables` and `panels` may be
+    omitted (empty).
   - `variables` ≤ 20: `name` `^[A-Za-z_][A-Za-z0-9_]{0,63}$` (unique), `label` ≤ 200, `type`
     `field-values` (needs `source` + `field`; values from facets), `custom` (needs `options`) or
     `text` (free input); `multi`; `default` (≤ 1 value unless `multi`). ≤ 1,000 values of ≤ 1,024
@@ -1712,7 +1847,7 @@ as *"error rate and p95 latency per service for checkout, last 24h"* into panels
   Propose(ctx, prompt string, ctx SchemaContext) (Proposal, error) }`, with adapters for the
   Anthropic API (Claude), OpenAI-compatible endpoints (incl. GitHub Copilot/Azure OpenAI, local
   Ollama/LM Studio) and an MCP server mode so external coding agents can create dashboards through
-  Tidemark tools (`list_fields`, `run_query`, `create_dashboard`).
+  OpenTidemark tools (`list_fields`, `run_query`, `create_dashboard`).
 - The model receives only schema context (field names/types, metric names, stream names, TQL
   grammar summary) — never event data — unless the admin opts in.
 - Output is a §13.1 dashboard doc validated by the normal pipeline (TQL parse/check/compile, dry-run
@@ -1761,6 +1896,14 @@ as *"error rate and p95 latency per service for checkout, last 24h"* into panels
   exactly one `stats` stage (no `top`, no `span`) with one aggregate of numeric type, and its
   by-fields must equal `groupBy` in order; at most 1,000 groups are evaluated. The stored document
   is the canonical re-encoding (durations like `5m0s`).
+- **Streams** (`alert_rules.streams`, outside the document so older binaries still parse it,
+  §15.10): `null` (or absent) = the rule reads every stream, else 1…100 valid stream names
+  (stored sorted, de-duplicated). `null` is accepted only from callers who see every stream; a
+  list must lie within the editor's scope (else 400 `details.field = streams`). The evaluator
+  reads the stored streams (`alerting.RuleScope`), so a rule keeps reading them after its author
+  loses access. Rules of earlier versions have `null`. A caller sees, tests, mutes, updates,
+  deletes and reads the history of a rule only when its streams lie within the caller's scope
+  (a `null` rule only for callers who see every stream); otherwise the rule is not found.
 
 ### 14.2 Channels
 - **webhook:** POST JSON `{rule:{id,name,severity}, state, previousState, value, threshold, group,
@@ -1778,7 +1921,7 @@ as *"error rate and p95 latency per service for checkout, last 24h"* into panels
   `secret`, header values) are sealed (§15.5) and masked as `"••••"`.
 - Payloads: webhook also carries `message`; Slack `{text, blocks:[header "[STATE] name", section
   fields (Severity, State, Value, Condition, Group, At), section description/message, actions
-  button "Open in Tidemark"]}` (mrkdwn `& < >` escaped); Teams `{type:"message",
+  button "Open in OpenTidemark"]}` (mrkdwn `& < >` escaped); Teams `{type:"message",
   attachments:[{contentType:"application/vnd.microsoft.card.adaptive", content: AdaptiveCard 1.4
   with TextBlock title, FactSet, TextBlock text, Action.OpenUrl}]}`; email subject `[STATE] name`
   (Q-encoded, CR/LF removed), `multipart/alternative` text + HTML (html/template), quoted-printable.
@@ -1788,7 +1931,8 @@ as *"error rate and p95 latency per service for checkout, last 24h"* into panels
   state) notifications within 1 minute are dropped. Error messages never include the target URL.
   HTTP notifiers use `httpx.SafeClient(TIDEMARK_ALLOW_PRIVATE_WEBHOOKS, 10s)`; email uses
   `net/smtp` (PLAIN auth only after STARTTLS or to localhost).
-- Audit: `alert.create|update|delete|mute`, `channel.create|update|delete|test`.
+- Audit: `alert.create|update|delete|mute` (create and update include `streams`),
+  `channel.create|update|delete|test`.
 
 ### 14.3 Evaluation & state machine (`internal/alerting`)
 - Singleton: a tick does nothing unless `Leader.IsLeader("alerting")` (§17.5). A rule is due when
@@ -1872,7 +2016,11 @@ deviation must be recorded in this section.
   the prefix as additional authenticated data; empty stays empty.
 - Secrets never returned by the API after creation (masked as `"••••"`).
 - Audit log for: login success/failure, logout, password change, user/connection/token/stream/
-  channel/settings changes, purge, export.
+  channel/settings changes, purge, export; teams and access: `team.create|update|delete`,
+  `team.members`, `team.streams`, `user.teams` (§11.5, §11.2), `user.delete` with the user's
+  `teams`, `stream.delete` with `revokedFromTeams`, `settings.update` with
+  `access.denyByDefault`, `alert.create|update` with `streams`, `connection.create|update`
+  with `allowedStreams`.
 
 ### 15.6 Outbound requests (SSRF)
 Webhook/Slack/Teams URLs must be `https` (http allowed only with `ALLOW_PRIVATE_WEBHOOKS`);
@@ -1885,7 +2033,9 @@ Headers on every UI/API response: `Content-Security-Policy: default-src 'self'; 
 style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; frame-ancestors
 'none'; base-uri 'none'; form-action 'self'` · `X-Content-Type-Options: nosniff` ·
 `Referrer-Policy: no-referrer` · `Permissions-Policy: camera=(), microphone=(), geolocation=()` ·
-`Cross-Origin-Opener-Policy: same-origin` · `Cross-Origin-Resource-Policy: same-origin`.
+`Cross-Origin-Opener-Policy: same-origin` · `Cross-Origin-Resource-Policy: same-origin` ·
+`X-Frame-Options: DENY` (the legacy equivalent of `frame-ancestors 'none'` for browsers without
+CSP level 2) · `Strict-Transport-Security` when `PUBLIC_URL` is https (§15.1).
 No CORS on `/api/v1` (same-origin only). The SPA never uses `dangerouslySetInnerHTML`; markdown
 panels are rendered with a sanitizing renderer that disallows raw HTML. Fonts are self-hosted.
 The bundle needs no CSP exception: no inline `<script>`/`<style>`, no style attributes in HTML, no
@@ -1910,6 +2060,58 @@ migrations and admin services.
 - Linux service runs as dedicated `tidemark` user with systemd hardening (`ProtectSystem=strict`,
   `NoNewPrivileges`, `PrivateTmp`, …). Windows service runs as `NT SERVICE\Tidemark` virtual account.
 
+### 15.10 Data access by stream
+Every read of telemetry data is limited to the caller's **stream scope** (`model.StreamScope`,
+§8.1), enforced on the server. Access is granted to **teams** (`meta.Teams`, tables `teams`,
+`team_members`, `team_streams`, §8.4): a team has members and is granted stream names; grants
+are by name and may precede the data. Deleting a user or a team cascades to its memberships
+and grants; deleting a stream revokes its grants (§12.7). Teams are exported and restored with
+the rest of the metadata (`tidemark backup`/`restore`, `meta.ExportJSON`). A binary older than
+migration 0007 ignores these tables (downgrade caveat: it shows every stream to everyone).
+
+**Resolution** (`service.Access`, consumers depend on `service.ScopeResolver`): roles decide what
+a user may *do*, teams decide which streams' data they *see*. For a principal:
+1. the user's own role is `admin` (`auth.Principal.UserRole`; also through an API token whose
+   scope limits `Role`) ⇒ every stream (mode `admin`);
+2. member of at least one team ⇒ the union of the teams' grants (mode `teams`; a team without
+   grants adds nothing, so a member of only such teams sees no stream);
+3. no team ⇒ every stream (mode `default-all`), or no stream when the setting
+   `access.denyByDefault` is true (mode `default-none`; settings key `access`, default false,
+   §11.5).
+
+Admins manage teams through `/teams` and `PUT /users/{id}/teams` (§11.5, §11.2); `GET /auth/me`
+reports the caller's access. API tokens inherit the scope of their user. On the write side a
+connection can be limited to some streams (`allowedStreams`, §9.1), so a team's ingest key cannot
+write into another team's streams. The scope is computed from the metadata on every
+request (one or two small queries), so membership, grant and setting changes apply to the next
+request on every node without cache invalidation. A request without a user fails
+(`service.ErrNoPrincipal`).
+- `tql.Options.Streams` is required; compiling without it fails (`ErrInvalidOptions`), so no
+  query path can forget the scope. An empty scope compiles to `AND 0`: the request succeeds with
+  no rows (never a 5xx). Stream names only ever reach SQL as `?` arguments.
+- The store reads that are not compiled TQL take the scope as a parameter (`store.Querier`
+  `Fields`, `Event`, `Context`, `Trace`, `MetricNames`; `StreamAdmin.Mappings`), filters carry it
+  (`store.Filter.Streams`), and the ClickHouse reader adds the same condition (`1`, `0` or
+  `stream IN (?, …)`) to every fixed query, including the trace summary and the trace detail
+  (spans **and** events). An unset scope fails with `store.ErrNoScope` before any query runs.
+- System callers use fixed scopes: purge (admin) reads all streams; compile-only validation
+  (`POST /query/validate`, rule validation) uses the empty scope because it reads no data; the
+  alert evaluator reads each rule's stored streams (§14.1).
+
+**Enforced paths** (`service.Search` resolves the scope through `SearchDeps.Access` and narrows
+it by the request's selection, §11.3): `POST /query` (also every dashboard panel, which runs
+through it), `/histogram`, `/facets`, `/fields`, `/tql/complete` (field names and values),
+`/events/{id}` and `/context` (an invisible event is 404), `/export` (an empty scope yields an
+empty file), `/tail` (scope re-resolved on every poll), `/traces` (summaries of visible spans
+only), `/traces/{traceId}` (visible spans and events; 404 when none), `/metrics/names`,
+`GET /streams` (visible streams only) and `GET /streams/{name}/fields` (404 outside the scope).
+Stream administration, purge, imports, audit and system routes are admin-only and see every
+stream. A failing scope lookup fails the request; it never falls back to all streams.
+
+**Accepted exposures** (documented, not data): the names of indexed fields (`GET
+/indexed-fields`) and the text of shared signals are visible to every viewer; the environment
+selection is not a security boundary — keep production data in its own stream.
+
 ---
 
 ## 16. Web UI
@@ -1927,13 +2129,17 @@ migrations and admin services.
 | `/alerts`, `/alerts/:id`, `/alerts/new` | Alert rules, state, history; `:id` / `new` opens the editor drawer |
 | `/streams`, `/streams/:name` | Index management: stats, retention, mappings, purge |
 | `/settings/connections` | Connections & keys, snippets |
-| `/settings/users`, `/settings/tokens`, `/settings/channels`, `/settings/audit`, `/settings/system` | Admin (`/settings/users` also holds the caller's own account / password change for every role) |
+| `/settings/users`, `/settings/tokens`, `/settings/channels`, `/settings/audit`, `/settings/system` | Admin (`/settings/users` also holds the caller's own account / password change for every role, and shows which streams the caller sees §15.10) |
+| `/settings/teams`, `/settings/teams/:id` | **Teams** (admin, §15.10): the deny-by-default switch and the teams table; a team's details, members and streams |
 | `/settings/import` | Import jobs and new imports (§9.9); the nav entry appears only when `GET /imports` answers neither 404 nor 405 |
 | any other path | "Not found" page inside the shell |
 
-Global shell: collapsible left nav, top bar with global time picker (relative presets + absolute
-range, synced to URL), theme toggle (dark default, light, system), user menu. All explorer state
-(q, from, to, signals, selected event) is in the URL for shareable links.
+Global shell: collapsible left nav, top bar with the **scope picker** (streams and environment,
+§16.6; on Events, Traces, Metrics and dashboard views), the global time picker (relative presets
++ absolute range, synced to URL), theme toggle (dark default, light, system), user menu. All
+explorer state (q, from, to, streams, env, signals, selected event) is in the URL for shareable
+links. A user who can see no stream (§15.10) gets, instead of those views, the empty state "You
+don't have access to any streams yet · Ask an admin to add you to a team", and no query is sent.
 
 ### 16.2 Visual design system
 **Normative:** `web/src/styles/tokens.css` is a **normative part of this specification**; every
@@ -1945,7 +2151,7 @@ follows `prefers-color-scheme`. Components style only through `var(--tm-…)`.
 
 **Principles.** Familiar workflow, own identity: query bar → time picker → volume histogram →
 event stream → expandable properties → facets → saved filters, as Kibana/Seq users know it, but
-Tidemark **must not** reuse their names, logos, icons, layouts or brand colour schemes. Dark
+OpenTidemark **must not** reuse their names, logos, icons, layouts or brand colour schemes. Dark
 first and calm: a deep ink/slate base, colour reserved for meaning (levels, status, one accent),
 quiet chrome. Dense but readable: 13 px UI text, 12 px monospace data, rows 28 px compact / 36 px
 comfortable (a per-user choice). Monospace for anything that came from telemetry (timestamps,
@@ -1975,7 +2181,7 @@ danger solid (final destructive confirmation only); icon-only buttons need an `a
 query bar is a 36 px mono input with idle / focused (accent border + soft halo) / error (danger
 border, squiggle, popover with "did you mean" fix) / free-text (warning border and notice)
 states and an autocomplete popover listing kind, label and detail. Event rows are a grid of
-timestamp · level chip · service · message (pinned property columns before the message);
+timestamp · level chip · service · message (user-chosen columns before the message);
 template property values are highlighted in accent on accent-soft; the selected row has an inset
 accent bar and expands into an inline detail panel. Further patterns: facet rail with
 proportional bars, level-stacked histogram with an accent brush, time picker popover with
@@ -1986,8 +2192,8 @@ raised surface, and stat tiles with a mono value and sparkline.
 
 **Brand & icons.** The logo mark is an abstract tide mark: a rounded square with a waterline wave
 and a short vertical mark above it (accent tile with ink glyph on dark surfaces, ink tile with
-accent glyph on light ones; `web/src/components/Logo.tsx`, `web/public/favicon.svg`); the
-wordmark is "Tidemark" in IBM Plex Sans SemiBold. Icons: Lucide (ISC) via `lucide-react`, 16 px in
+accent glyph on light ones; `web/src/components/Logo.tsx`, `web/public/favicon.svg`); the wordmark
+is "OpenTidemark" in IBM Plex Sans SemiBold. Icons: Lucide (ISC) via `lucide-react`, 16 px in
 chrome, stroke 1.75, one icon set only.
 
 Key tokens (all text/background pairs meet WCAG 2.1 AA in both themes; chart colours ≥ 3:1
@@ -2012,27 +2218,53 @@ against the surface):
 Breakpoints and keyboard behaviour are in §16.5 and §16.6.
 
 ### 16.3 Log explorer
-- Query bar (CodeMirror, TQL highlighting, autocomplete §10.7, inline error squiggle + message,
-  history ↑/↓, `Ctrl/Cmd+Enter` run, `?` cheat-sheet), time picker, **Live** toggle (SSE tail),
-  "Save as signal", "Add to dashboard", export.
+- Query bar (CodeMirror, TQL highlighting, autocomplete §10.7 narrowed to the selected streams,
+  inline error squiggle + message, history ↑/↓, `Ctrl/Cmd+Enter` run, `?` cheat-sheet), scope
+  picker and time picker, **Live** toggle (SSE tail), "Save as signal", "Add to dashboard",
+  export. Every request (query, histogram, facets, fields, tail, export, completion) carries the
+  selected streams and environments (§11.3).
 - Histogram (stacked by level, brush to zoom time range).
 - Left rail: signals (toggle chips, grouped), field facets with top values and counts
   (click = include, alt-click = exclude), field list with search.
 - Event stream: virtualized list (≥ 100k rows smooth), columns timestamp · level chip · service ·
-  rendered message with property values highlighted from the template; user-pinned property
-  columns (saved per user in localStorage); infinite scroll via cursor.
-- Event detail (inline expand): properties table with actions *filter =*, *exclude*, *pin column*,
-  *copy*; exception with collapsible stack trace; trace/span links → trace view; *context* (events
+  rendered message with property values highlighted from the template; user-chosen columns
+  before the message: any property, or the built-ins `environment`, `host`, `trace_id`,
+  `span_id` and `event_type` (a built-in name always means the built-in field); each column
+  header has a *Remove column* × button; the Columns dialog lists the shown columns in order
+  (move up / down, remove — a shown field stays listed even when the range has no such field)
+  and the other fields to add, with a filter above 12; shown columns are 140 px wide, shrink
+  to 72 px when space runs out and then the list (header and rows together) scrolls sideways;
+  saved per browser in localStorage (`tm.columns.logs`); infinite scroll via cursor.
+- Event detail (inline expand): properties table with actions *filter =*, *exclude*, a labelled
+  *Show in column* / *Hide column* toggle (properties and the built-ins above), *copy*; exception with collapsible stack trace; trace/span links → trace view; *context* (events
   before/after); raw JSON toggle; permalink.
 - When query kind is `table`/`timeseries`, the stream area shows a table/chart with "Add to
   dashboard".
 
 ### 16.4 Other screens
 Trace waterfall (spans by service colour, critical path, errored spans highlighted, span detail
-drawer, linked logs); dashboards (grid, variables bar, panel editor §13.2); alerts list + editor
-drawer with live preview chart & threshold line; streams (stats cards, retention editor, level
-rules, mappings, indexed fields, purge with dry run & typed confirmation); connections (create
-wizard: name → protocols → stream → restrictions → key shown once + copyable snippets).
+drawer, linked logs; a span whose parent is in a stream the caller cannot see is drawn as a root
+with the tag "parent span not visible", also in the span drawer); dashboards (grid, variables
+bar, panel editor §13.2; panels and variable values read through the scope picker's selection);
+alerts list + editor drawer with live preview chart & threshold line and a **Streams** field
+(§14.1: "All streams" for callers who see every stream, else a required choice among the visible
+streams; a new rule defaults to the editor's whole scope; the field feeds the query bar's
+completions); streams (stats cards, retention editor, level rules, mappings, indexed fields,
+purge with dry run & typed confirmation); connections (table with edit / rotate / revoke /
+delete; create wizard: name → protocols → stream & **allowed streams** (§9.1: optional, must
+include the default stream, else the step cannot continue) → restrictions → key shown once +
+copyable snippets; an edit dialog with the same fields; the restrictions column lists the
+allowed streams); users (Teams column; the edit dialog assigns teams through
+`PUT /users/{id}/teams` when they changed; the account card states what the caller sees: every
+stream as admin, the streams of their teams, every stream while in no team, or none); API
+tokens (note that a token sees the same streams as its owner); **Teams** (§15.10): an access
+card with the deny-by-default switch, its consequence spelled out, the number of users in no team
+and a confirmation before turning it on while such users exist; a teams table (name, description,
+members, streams with "none · members see nothing" for a team without grants, updated); "New
+team" dialog (name 1–64, description); the team page with three cards that save on their own and
+show *Unsaved changes* / *Saved* — Details (rename, description, "Delete team" with typed
+confirmation), Members (searchable multi-select of users) and Streams (multi-select of known
+streams plus typed names validated against §8.1 and marked "no data yet").
 
 ### 16.5 Accessibility & responsiveness
 WCAG 2.1 AA contrast in both themes; full keyboard navigation (`/` focuses query bar, `j/k`
@@ -2044,7 +2276,25 @@ works from 360 px wide (explorer collapses rails into sheets).
   transport, preference store, series palette, clock) and provides them by context; components
   use only those interfaces, so tests and mock mode substitute fakes. Server state lives in
   TanStack Query; per-browser preferences in `localStorage` keys `tm.theme`, `tm.density`,
-  `tm.history`, `tm.columns.logs`, `tm.nav.collapsed`, `tm.passwordPrompt` (every access guarded).
+  `tm.history`, `tm.columns.logs`, `tm.nav.collapsed`, `tm.passwordPrompt`, `tm.scope` (every
+  access guarded).
+- **Scope picker** (`web/src/app/ScopePicker.tsx`, `scope.ts`): the selection lives in the URL
+  (`streams`, `env`, comma lists; capped at the §11.3 limits) and the last applied choice in
+  `tm.scope`, which is re-applied when a scoped route is opened without either parameter (so
+  the choice follows from Events to Traces and survives a reload; "Reset" stores the empty
+  choice). The picker offers only the caller's visible streams (`me.streams`, or every name of
+  `GET /streams` for `allStreams`), a filter input above 8 streams, "All my streams", and the
+  environments of the last 24 hours from the `environment` facet of the selected streams
+  (marked *logs only*); a selection from a link is narrowed to the visible streams and never
+  widens access. A caller with exactly one visible stream sees a static chip. Below 600 px the
+  trigger is an icon button with a count badge that opens the panel as a bottom sheet.
+  Accessibility: `aria-haspopup="dialog"`, `aria-expanded`, a label naming the current selection,
+  `fieldset`/`legend` groups, arrow keys between rows, Escape closes and returns focus to the
+  trigger; no new global hotkey.
+- **Multi-select** (`web/src/components/MultiSelect.tsx`): chips with remove buttons, a
+  checklist popover (filter above 8 items, arrow keys, Escape returns focus) and an optional
+  validated free-text entry; used for team members, team and connection streams, user teams and
+  alert streams.
 - **API client:** JSON in/out, `credentials: same-origin`, header `X-Tidemark-CSRF` = cookie
   `tm_csrf` on every non-GET/HEAD/OPTIONS request, 30 s timeout (uploads 1 h), errors as
   `ApiError{status, code, message, details}` with client codes `network`, `timeout`, `http_<n>`;
@@ -2059,7 +2309,10 @@ works from 360 px wide (explorer collapses rails into sheets).
   details, completion from `GET /tql/complete`, history ↑/↓; Live = `EventSource` on `/tail`
   (events / dropped / error events); stream rows virtualized with `@tanstack/react-virtual`;
   event-detail row actions are transparent until hover or keyboard focus (always visible on
-  touch devices) so they stay in the tab order.
+  touch devices, with 28 px targets) so they stay in the tab order; they float over the end of
+  the row's first line with a fade on their left edge so a long value reads as cut off, not
+  missing; phones (event cards without columns) do not offer *Show in column* and hide the
+  hover hint.
 - **Shortcuts:** `/` focuses the query bar, `?` opens the shortcut help, `g` then
   `e|t|m|d|a|s` navigates, `j`/`k` move between events and `Enter` expands; all are ignored while
   typing in a control or while a modal is open.
@@ -2077,14 +2330,16 @@ works from 360 px wide (explorer collapses rails into sheets).
   the time picker shows its short label; layouts are verified at 390 px.
 - **Mock mode** (`vite build --mode mock`, never in the production bundle — enforced by the CSP
   check): MSW serves deterministic demo data shaped exactly like §11 for Playwright e2e tests and
-  design-review screenshots.
+  design-review screenshots, including teams, the deny-by-default setting, every seeded user as
+  a login (password ≥ 12 characters) and the §15.10 scope on every search path (events, spans
+  and trace summaries filtered by stream, by-id routes 404 outside the scope).
 
 ---
 
 ## 17. Platform support & deployment
 
 ### 17.1 Supported platforms
-| Platform | Tidemark binary | ClickHouse |
+| Platform | OpenTidemark binary | ClickHouse |
 |---|---|---|
 | Linux x86-64 / arm64 | native (systemd) or Docker | native packages or Docker |
 | Windows 10/11, Server 2019+ x86-64 | native (`tidemark.exe`, Windows service) or Docker Desktop | Docker Desktop (WSL2 backend) |
@@ -2095,7 +2350,8 @@ Unix-only syscalls outside `_linux.go`/`_windows.go` files. CI builds and tests 
 `ubuntu-24.04` **and** `windows-latest` (§17.4).
 
 ### 17.2 Docker Compose (default, Linux & Windows)
-`deploy/docker-compose.yml`: services `clickhouse` (25.8, volume `ch-data`, users from
+`deploy/docker-compose.yml`: services `clickhouse` (25.8, volume `ch-data`, server settings from
+`deploy/clickhouse/config.d/tidemark.xml` and `docker-listen.xml`, users from
 `deploy/clickhouse/users.d/tidemark.xml` with passwords from `.env`), `tidemark` (image built from
 `Dockerfile`, ports 8080, 5341, 9200, 4317, 4318; volume `tm-data`; depends_on clickhouse healthy),
 optional profile `collector` (OTel Collector: syslog 5514 tcp/udp, fluent forward 24224).
@@ -2103,6 +2359,13 @@ optional profile `collector` (OTel Collector: syslog 5514 tcp/udp, fluent forwar
 ClickHouse passwords into `.env` on first run.
 
 Normative details:
+- ClickHouse server settings: `config.d/tidemark.xml` (shared with native installs, §17.3) sets
+  the log level `warning` on the console, removes `mysql_port` and `postgresql_port`, disables
+  ClickHouse's crash reports (`<send_crash_reports><enabled>false</enabled></send_crash_reports>`,
+  the 25.8 setting) and declares the `backups` disk; it does **not** set `listen_host`, so a
+  native server keeps ClickHouse's loopback default. `config.d/docker-listen.xml` (mounted only by
+  this Compose file) adds `<listen_host>0.0.0.0</listen_host>` so the `tidemark` container
+  reaches ClickHouse over `backend`; it is not part of the native archives (§17.6).
 - Networks: `backend` is `internal: true` (ClickHouse only, never published, §15.1); `tidemark` is
   on `backend` + `frontend`; the collector only on `frontend` and exports to `http://tidemark:4318`
   with `Authorization: Bearer $COLLECTOR_INGEST_KEY` (default: `TIDEMARK_BOOTSTRAP_INGEST_KEY`).
@@ -2112,7 +2375,7 @@ Normative details:
   built from `../Dockerfile` with `TM_VERSION`), `TM_BIND_ADDR` (default `0.0.0.0`) for all
   published ports. Container hardening per §15.9 (`read_only`, tmpfs `/tmp`, `no-new-privileges`,
   `cap_drop: [ALL]`) for `tidemark` and the collector.
-- Health checks: ClickHouse `clickhouse-client … SELECT 1` as the reader; Tidemark runs
+- Health checks: ClickHouse `clickhouse-client … SELECT 1` as the reader; OpenTidemark runs
   **`tidemark healthcheck [--url URL]`** (the distroless image has no shell): GET the URL (default
   `http://127.0.0.1:8080/healthz`, http/https only, 5 s timeout) and exit 0 only on 200. The
   Dockerfile declares the same `HEALTHCHECK`. With built-in TLS pass `--url https://…`.
@@ -2135,8 +2398,11 @@ Normative details:
 - Published image (§17.6): `ghcr.io/zeraorg/tidemark:<version>` (also `<major>.<minor>` and
   `latest` for releases without a pre-release suffix), `linux/amd64` + `linux/arm64`. Compose
   uses it when `.env` sets `TM_IMAGE` to it and the stack is started without building
-  (`docker compose pull tidemark`, then `docker compose up -d --no-build`); `install.sh docker` /
-  `install.ps1 -Mode Docker` build the image from the source tree.
+  (`docker compose pull tidemark`, then `docker compose up -d --no-build`); in a source tree
+  `install.sh docker` / `install.ps1 -Mode Docker` build the image. The Docker bundle of a
+  release (§17.6) holds a copy of this Compose file without the `build:` block whose image
+  defaults to `ghcr.io/zeraorg/tidemark:<version>`, so the same installers pull instead of
+  building there (`docker compose up -d --build` with nothing to build pulls missing images).
 
 ### 17.3 Native installs
 - **Linux:** `sudo install.sh native <binary> [--start]` creates user `tidemark`,
@@ -2152,7 +2418,16 @@ Normative details:
   on failure), restricts `%ProgramData%\Tidemark` to Administrators, SYSTEM and the service
   account, and opens inbound TCP 8080, 5341, 9200, 4317, 4318 only if `-OpenFirewall` is passed.
 - ClickHouse for native installs is set up separately (native packages or Docker) with the users of
-  `deploy/clickhouse/users.d` and the passwords from `tidemark.env`.
+  `deploy/clickhouse/users.d` and the passwords from `tidemark.env`. The users read their
+  passwords from the ClickHouse server's environment (`from_env`), so `docs/installation.md`
+  passes them in as follows. Native packages use a file with the two password lines, loaded by a
+  `clickhouse-server` systemd drop-in (`EnvironmentFile=`), the same mechanism as `deploy/ha/`. A
+  container uses `-e` with the native port published on `127.0.0.1:9000` only, which is also the
+  Windows setup (Docker Desktop; the image's own configuration listens on all container
+  interfaces, so `docker-listen.xml` is not needed there). `config.d/tidemark.xml` leaves the
+  listen address at ClickHouse's default, so a native ClickHouse on the same host listens on
+  loopback only; the guide explains how to add a private `listen_host` (and a firewall rule) when
+  OpenTidemark runs on another host.
 - `tidemark` reads `TIDEMARK_ENV_FILE` (default `<data>/tidemark.env` if present) before env vars.
 
 ### 17.4 Build
@@ -2162,7 +2437,9 @@ Normative details:
   release archives take it from the `VERSION` file instead (`dist`, §17.6).
 - `Makefile` and `build.ps1` expose the same targets: `build`, `web` (copies `web/dist` into
   `internal/web/assets/dist`), `cross` (the three release targets into `bin/`), `dist` (release
-  archives and `checksums.txt` into `dist/`, §17.6), `test` (`-race` on
+  archives and `checksums.txt` into `dist/`, §17.6), `checksums` (rewrites `dist/checksums.txt`),
+  `docs` (`mkdocs build --strict` into `site/`), `docs-offline` (the offline documentation
+  bundle `dist/tidemark_<version>_docs.zip`, then `checksums`, §17.6), `test` (`-race` on
   Linux/macOS; plain on Windows, where the race detector needs CGO), `test-integration` (Makefile:
   through `scripts/with-clickhouse.sh`, §18; build.ps1 needs `TIDEMARK_TEST_CLICKHOUSE_ADDR`),
   `lint` (gofmt, `go vet` with and without the `integration` tag, golangci-lint for both tags and
@@ -2171,30 +2448,96 @@ Normative details:
   `dist/`), `help`. Every
   web step is skipped while `web/package.json` does not exist. `web-check` = `npm ci`, `lint`,
   `format:check`, `typecheck`, `test:coverage`, `build`, `check:csp`, `npm audit --audit-level=high`.
-- `web.yml` (push on `main` and `ui/**` except `ui/screenshots`, PRs; paths `web/**`,
-  `internal/web/**`, `Makefile`, `THIRD_PARTY_NOTICES.md`, the workflow; `workflow_dispatch`):
-  job `web` (and `embed`, which needs it) runs automatically in the main public repository
-  `zeraOrg/tidemark` and only on `workflow_dispatch` elsewhere (`make web-check` runs the same
-  gates locally). Job `web` runs every
-  web gate (`!cancelled()`, so one run reports all failures) plus the mock build and Playwright
-  e2e on Chromium, uploads screenshots, report, coverage and `dist`, and on pushes to `ui/web`
-  publishes the screenshots as one orphan commit to the throw-away branch `ui/screenshots`; job
-  `embed` builds the Go binary with that `dist` and runs `go test ./internal/web/...
-  ./internal/repotest/`; job `notices` regenerates `THIRD_PARTY_NOTICES.md`. Failures and
-  generated files are also published as check-run annotations (`web/scripts/ci-annotate.mjs`).
-- CI (`.github/workflows/ci.yml`, on push to main and PRs): job `go` (gofmt, vet, golangci-lint
-  for both tags, unit tests, govulncheck, cross-compile including `windows/amd64`) on
-  `ubuntu-24.04`, plus `windows-latest` in the main public repository
-  (`github.repository == 'zeraOrg/tidemark'`); `pull_request` events run every ci job in the main
-  public repository and are skipped elsewhere; job `integration` on Linux with a `clickhouse/clickhouse-server:25.8` service
-  container whose access-management admin creates `tidemark_writer` / `tidemark_reader` through SQL
-  with exactly the grants of `deploy/clickhouse/users.d` (enforced by `internal/repotest`); job
-  `notices` (`make notices` must leave `THIRD_PARTY_NOTICES.md` unchanged); job `web` guarded by
-  the presence of `web/package.json`. `security.yml` (push to main, weekly schedule, manual; not on PRs): govulncheck,
-  `make licences`, `npm audit --audit-level=high` (when `web/` exists), Trivy scan (HIGH/CRITICAL,
-  fixed only) of the built image. `.github/dependabot.yml`: gomod, npm (`/web`), GitHub Actions,
-  Docker, **monthly**, one grouped PR per ecosystem (`groups: <ecosystem>: ["*"]`,
-  `open-pull-requests-limit: 1`), so dependency PRs do not multiply CI runs.
+- Workflow guard: every job of `ci.yml` and `security.yml` (and the automatic path of
+  `release.yml`, §17.6) runs automatically only in the main public repository `ZeraOrg/tidemark`
+  (`github.repository == 'ZeraOrg/tidemark'`; GitHub compares strings case-insensitively) and
+  elsewhere (forks, the maintainers' development repository) only on `workflow_dispatch`, so
+  those repositories get at most runs whose jobs are all skipped (no runner time). GitHub has no
+  workflow-level condition, so every job carries the guard. Every job sets `timeout-minutes`;
+  `actions/setup-go` caches modules and build output, `actions/setup-node` caches npm
+  (`cache: npm`, `web/package-lock.json`).
+- CI (`.github/workflows/ci.yml`; push to main, pull requests, `workflow_dispatch`; concurrency
+  `ci-<ref>`, cancelling superseded pull-request runs only, so a run of `main` always finishes):
+  - job `go` on `ubuntu-24.04` and `windows-latest`: gofmt, `go vet` and golangci-lint for both
+    tags, unit tests (`-race` on Linux), and on Linux govulncheck and a `linux/arm64` build (the
+    one release target the two native jobs do not compile);
+  - job `integration` on Linux with a `clickhouse/clickhouse-server:25.8` service container whose
+    access-management admin creates `tidemark_writer` / `tidemark_reader` through SQL with exactly
+    the grants of `deploy/clickhouse/users.d` (enforced by `internal/repotest`);
+  - job `notices`: `make notices` (which runs the Go licence allow-list `make licences` first)
+    must leave `THIRD_PARTY_NOTICES.md` unchanged;
+  - job `web`: every web gate (`npm ci`, lint, format, typecheck, unit tests with coverage,
+    production build, CSP check, the Go embed check with `web/dist` copied to
+    `internal/web/assets/dist` (`go build ./...`, `go test ./internal/web/... ./internal/repotest/`),
+    `npm audit --audit-level=high`, the mock build and Playwright e2e on Chromium); each check
+    runs even after an earlier failure (`!cancelled()`), so one run reports all of them, and
+    failures are published as check-run annotations (`web/scripts/ci-annotate.mjs`); screenshots
+    and the Playwright report are uploaded as artifact `playwright` (14 days);
+  - job `release` (needs the four jobs above; only for a push to `main` of the main public
+    repository) calls `release.yml` (§17.6).
+- `security.yml` (weekly schedule, `workflow_dispatch`, and pushes to main touching `go.mod`,
+  `go.sum`, `web/package.json`, `web/package-lock.json`, `Dockerfile` or the workflow; not on
+  pull requests; concurrency `security-<ref>`): govulncheck, `npm audit --audit-level=high`, and a
+  Trivy scan (HIGH/CRITICAL, fixed only) of the image built from the Dockerfile.
+  `.github/dependabot.yml`: gomod, npm (`/web`), GitHub Actions, Docker, **monthly**, one grouped
+  PR per ecosystem (`groups: <ecosystem>: ["*"]`, `open-pull-requests-limit: 1`), so dependency
+  PRs do not multiply CI runs.
+- **Documentation site** (`mkdocs.yml`, `docs-site/`, `.github/workflows/docs.yml`): MkDocs
+  `1.6.1` (BSD-2-Clause) with Material for MkDocs `9.7.7` (MIT), every transitive dependency
+  pinned with hashes in `docs-site/requirements.txt` (generated from `docs-site/requirements.in`
+  with pip-tools; all under licences of the §19.1 allow-list; build tooling only, never shipped),
+  builds `docs/` into `site/` (untracked) for <https://zeraorg.github.io/tidemark/>. Site name
+  OpenTidemark, keyword-rich `site_description`, repository and edit links, navigation: home
+  (`docs/index.md`), quick start, installation, sending data, query language, configuration,
+  migration from Seq and from Elasticsearch/Kibana, and the section **Operations manual** with
+  the fourteen chapters of `docs/manual/` in this order: Overview (`index.md`), Deployment,
+  Security hardening, Users and access, Ingestion, Integrations, Metrics, Streams and retention,
+  Querying, Dashboards, Alerting, Operations, API for automation, Guide for agents
+  (`internal/repotest`, `TestManualPagesInNav`, fails when a chapter is missing from the
+  navigation). The manual is written for operators and automation agents from this
+  specification and the user docs, with procedures verified against a test installation; it
+  links to the user docs instead of repeating them, names third-party products referentially
+  with ® at the first prominent OpenTelemetry, Prometheus and ClickHouse mention of a page
+  (§19.1), and contains no maintainer notes. Only the top-level pages, `docs/manual/` and
+  `docs/images/` are part of the site (`docs-site/hooks.py` drops other subdirectories of
+  `docs/`; `exclude_docs` cannot, because its patterns also match the theme's own files).
+  Markdown extensions: admonitions, attribute lists (explicit heading ids `{#id}`), tables, toc
+  permalinks, `pymdownx.highlight`, `pymdownx.superfences`, `pymdownx.tabbed` (`alternate_style`,
+  content tabs such as Linux / Windows / Docker) and `pymdownx.tasklist` (`custom_checkbox`,
+  checklists). Material features: instant navigation,
+  sections, back-to-top, footer, followed table of contents, search with suggestions,
+  highlighting and sharing, code copy, linked content tabs (`content.tabs.link`); light/dark
+  palette following the system with the colours
+  of `web/src/styles/tokens.css`; `font: false` (no web-font requests); no third-party origin is
+  requested by any page. MkDocs writes
+  `sitemap.xml`. `docs-site/hooks.py` sets each page's meta description to its summary paragraph
+  (the first paragraph after the H1, §19.3) unless the page sets `description` in front matter,
+  resolves relative links against the page and rewrites only those that leave `docs/`
+  (`../SECURITY.md` from a top-level page, `../../deploy/ha/README.md` from the manual) to the
+  file on GitHub (`main`), so they work both on GitHub and on the site, copies
+  `web/public/favicon.svg` into the site as logo and favicon, and writes two plain-text files
+  for agents and language models to the site root: `llms.txt` (an index with the title, summary
+  paragraph and address of every page, grouped by navigation section) and `llms-full.txt` (the
+  Markdown of every page in navigation order, HTML comments removed, relative links made
+  absolute, each page preceded by a `Source:` line); the manual's agent guide names them.
+  `docs-site/overrides/main.html` adds Open Graph and Twitter card tags (title,
+  description, canonical URL, and as image `docs/images/social-preview.png` with a large-image
+  card) and the colours. The social preview (1280×640 PNG, under 1 MB) shows the logo mark, the
+  name, the tagline "Self-hosted logs, metrics & traces", a compatibility line and a cropped
+  explorer screenshot of the mock build on the dark token colours with the bundled IBM Plex Sans,
+  key content inside the central safe area; it was rendered from an HTML page with Playwright
+  and is also uploaded by hand as the public repository's social preview (GitHub has no API for
+  it). Link, anchor and omitted-file validation is set to
+  `warn`, so `mkdocs build --strict` fails on any broken link or anchor.
+  Workflow `docs.yml` (pushes to `main` and pull requests touching `docs/**`, `docs-site/**`,
+  `mkdocs.yml`, `web/public/favicon.svg` or the workflow, and `workflow_dispatch`; concurrency
+  `docs-<ref>`, cancelling superseded pull-request runs only): job `build` (guard as above,
+  `timeout-minutes: 10`; Python 3.13 with the pip cache keyed on `docs-site/requirements.txt`;
+  `pip install --require-hashes`; `mkdocs build --strict` through `scripts/ci-annotate.sh`; the
+  Pages artifact of `site/`) and job `deploy` (needs `build`; only in `ZeraOrg/tidemark` for
+  `refs/heads/main` on push or `workflow_dispatch`; `timeout-minutes: 10`; permissions
+  `pages: write`, `id-token: write`; environment `github-pages`). The repository's Pages source
+  must be "GitHub Actions".
 - Workflows avoid redundant runs: no per-branch or per-PR runs of expensive jobs (Windows, image
   build) without need; contributors verify locally (`make check`, `make test-integration`)
   before pushing.
@@ -2203,7 +2546,8 @@ Normative details:
   `golangci/golangci-lint-action@v9`, `actions/upload-artifact@v7`, `actions/download-artifact@v8`
   (all on the Node 24 runtime), and for releases (§17.6) `actions/attest-build-provenance@v4`,
   `docker/setup-qemu-action@v4`, `docker/setup-buildx-action@v4`, `docker/login-action@v4`,
-  `docker/build-push-action@v7`; golangci-lint `v2.14.0`,
+  `docker/build-push-action@v7`, and for the documentation site `actions/setup-python@v7`,
+  `actions/upload-pages-artifact@v5`, `actions/deploy-pages@v5`; golangci-lint `v2.14.0`,
   govulncheck `v1.9.0`, go-licenses `v2.0.1` (Makefile/build.ps1), Trivy `0.75.0`
   (`aquasec/trivy` image). Linux jobs run on `ubuntu-24.04` rather than `ubuntu-latest`, so the
   runner image changes (e.g. the announced move of `ubuntu-latest` to Ubuntu 26) only through a
@@ -2224,7 +2568,7 @@ Normative details:
 
 Single-node remains the default. HA mode is enabled by configuration only — same binary.
 
-**Topology (reference: 3 servers, `deploy/ha/`)**: each server runs one Tidemark node, one
+**Topology (reference: 3 servers, `deploy/ha/`)**: each server runs one OpenTidemark node, one
 ClickHouse replica and one ClickHouse Keeper (Raft quorum of 3). Metadata lives in an external
 HA PostgreSQL (`TIDEMARK_META_DRIVER=postgres`). A load balancer (HAProxy/nginx/Caddy examples in
 `deploy/ha/`) spreads HTTP and OTLP traffic across nodes; no sticky sessions are needed.
@@ -2268,7 +2612,9 @@ HA PostgreSQL (`TIDEMARK_META_DRIVER=postgres`). A load balancer (HAProxy/nginx/
 - **Rolling upgrades:** upgrade one node at a time; additive migrations (§8.5) keep old nodes
   working; the first upgraded node migrates under the migration lock.
 - A node whose WAL holds data for a failed ClickHouse keeps it until a replica is reachable; a
-  permanently lost node loses only its unflushed WAL (bounded, alerted via self-metrics). With
+  permanently lost node loses only its unflushed WAL (bounded by `TIDEMARK_WAL_MAX_BYTES`; the
+  backlog is visible as `tidemark_wal_bytes` and `tidemark_pipeline_queue_depth`, failing inserts
+  as `tidemark_pipeline_write_errors_total` and `/readyz`, §11.6, so it can be alerted on). With
   quorum inserts, no acknowledged *and flushed* data is lost when one server fails.
 
 ### 17.6 Releases & versioning
@@ -2294,41 +2640,101 @@ HA PostgreSQL (`TIDEMARK_META_DRIVER=postgres`). A load balancer (HAProxy/nginx/
   heading is `[<semver>] - <valid date>` and the section of `VERSION` exists and is not empty, so
   the release workflow cannot fail on a missing section.
 - `scripts/release-notes.sh <version> [<changelog>]` prints the body of that section (leading and
-  trailing blank lines and the link references removed) and fails with a clear message when the
-  section is missing or empty; it is the release notes source.
+  trailing blank lines and the link references removed), followed by an `## Install` section with
+  the version substituted: a table asset → platform → quick commands (Docker bundle,
+  both Linux archives, the Windows archive, `docker pull ghcr.io/zeraorg/tidemark:<version>`,
+  the offline documentation bundle `tidemark_<version>_docs.zip`), a
+  pointer to the `INSTALL.md` of each archive, to `docs/installation.md` at tag
+  `v<version>` and to the documentation site, and the verification commands (`sha256sum -c`, `gh attestation verify` for an
+  archive and the image). It fails with a clear message when the section is missing or empty; it
+  is the release notes source.
 
 **Archives (`make dist` / `.\build.ps1 dist`).** Both read the version from `VERSION` only (never
 from git, so the same commit gives the same archives locally and in CI), fail unless it matches
 the pattern, run `web`, recreate `dist/` and build for each of `linux/amd64`, `linux/arm64` and
 `windows/amd64` with `CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=<version>"`
 (`tidemark version` prints `tidemark <version>`), the web UI embedded. Each archive holds one
-directory `tidemark_<version>_<os>_<arch>/` with the binary (`tidemark` / `tidemark.exe`) and the
-files of the shared lists (`DIST_FILES` in the Makefile, `$DistFiles` in build.ps1; kept equal
-and existing by `TestDistFileListsMatch`): `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`,
+directory `tidemark_<version>_<os>_<arch>/` with the binary (`tidemark` / `tidemark.exe`),
+`INSTALL.md` (copied from `deploy/install/INSTALL-<os>.md`) and the files of the shared lists
+(`DIST_FILES` in the Makefile, `$DistFiles` in build.ps1; kept equal and existing by
+`TestDistFileListsMatch`): `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`,
 `README.md`, `CHANGELOG.md`, `deploy/.env.example`, `deploy/clickhouse/config.d/tidemark.xml`,
 `deploy/clickhouse/users.d/tidemark.xml`, plus for Linux `deploy/install.sh` and
 `deploy/tidemark.service`, for Windows `deploy/install.ps1` (so `sudo ./deploy/install.sh native
 ./tidemark` and `.\deploy\install.ps1 -Mode Native -Binary .\tidemark.exe` work from the unpacked
 archive). Linux archives are `tidemark_<version>_linux_<arch>.tar.gz` (file modes kept), the
-Windows archive `tidemark_<version>_windows_amd64.zip`; build.ps1 packs both with the `tar.exe`
-of Windows 10+ (`-a`), the Makefile with `tar -czf` and `zip -qrX`. The staging directories are
-removed; `dist/checksums.txt` lists `<sha256>  <archive>` for every archive (sha256sum format,
-LF line endings). Release archives are built on Linux by the workflow below.
+Windows archive `tidemark_<version>_windows_amd64.zip`.
+
+The **Docker bundle** `tidemark_<version>_docker.tar.gz` and `.zip` (both: the zip for Windows
+users, the tar for file modes) holds `tidemark_<version>_docker/` with the files of
+`DIST_FILES_DOCKER` / `$DistFilesDocker` (kept equal and existing by `TestDistFileListsMatch`)
+with a leading `deploy/` removed — `LICENSE`, `NOTICE`, `README.md`, `CHANGELOG.md`,
+`.env.example`, `install.sh`, `install.ps1`, `otel-collector.yaml`,
+`clickhouse/config.d/{tidemark,docker-listen}.xml`, `clickhouse/users.d/tidemark.xml` — plus
+`INSTALL.md` (from `deploy/install/INSTALL-docker.md`) and `docker-compose.yml` generated from
+`deploy/docker-compose.yml`: the `build:` block of the `tidemark` service removed, its image
+line `image: ${TM_IMAGE:-tidemark:local}` replaced by
+`image: ${TM_IMAGE:-ghcr.io/zeraorg/tidemark:<version>}` (`DIST_IMAGE` / `$DistImage`) and
+`deploy/.env` in the hint texts replaced by `.env` (Makefile: `sed`; build.ps1:
+`Convert-DistCompose`; the same rules in `TestDistDockerCompose`). `dist` fails when the
+generated file still contains a `build:` key or lacks the pinned image line. The files sit at
+the top level, so `install.sh` / `install.ps1` (which use their own directory) work unchanged.
+
+The **offline documentation bundle** `tidemark_<version>_docs.zip` holds
+`tidemark_<version>_docs/`, the documentation site (§17.4) built from `mkdocs.offline.yml`, which
+inherits `mkdocs.yml` (`INHERIT`) and adds Material's `offline` plugin: no directory URLs, the
+search index embedded as `search/search_index.js`, so the site works from `file://` with
+working search, and the same `llms.txt` / `llms-full.txt` with relative addresses. It restates
+the theme features without `navigation.instant` (on `file://` Material skips instant
+navigation but completes its document stream with the feature on, so copy buttons, table
+scrolling and the followed table of contents would not mount). The plugin would load the iframe-worker shim (which replaces `Worker` on `file://`,
+where browsers refuse workers) from a CDN; instead `extra.polyfills` names
+`assets/javascripts/iframe-worker.js` and `docs-site/hooks.py` copies the vendored, unmodified
+`docs-site/offline/iframe-worker.js` (iframe-worker 1.0.4, MIT, notice in its header, §19.1)
+there, so the bundle makes no network request. `make docs-offline` / `.\build.ps1 docs-offline`
+(the MkDocs requirements installed, §17.4) build it into `dist/` (`mkdocs build --strict -f
+mkdocs.offline.yml -d dist/tidemark_<version>_docs`, zipped with `zip -qrX` / `tar.exe -a`, the
+directory removed) and then rewrite `checksums.txt` (`make checksums` / `.\build.ps1
+checksums`), so the bundle is listed next to the archives. The online site never uses the
+offline configuration.
+
+`deploy/install/INSTALL-{linux,windows,docker}.md` are version-independent and use only absolute
+`https://` links (`TestInstallDocs`); they cover verifying the download (checksum and
+`gh attestation verify`), installing (Linux: `sudo ./deploy/install.sh native ./tidemark` and a
+short ClickHouse setup; Windows: `Unblock-File` or `-ExecutionPolicy Bypass`, Administrator,
+the SmartScreen note for the unsigned `tidemark.exe`, ClickHouse in Docker Desktop; Docker:
+`./install.sh docker` / `.\install.ps1 -Mode Docker`, `TM_BIND_ADDR=127.0.0.1`, the collector
+profile), service management, upgrade and uninstall, matching the installers and
+`docs/installation.md`.
+
+Tar archives are written with `--owner=0 --group=0 --numeric-owner` (Makefile, GNU tar; `TAR`
+selects another tar, e.g. `gtar` on macOS) or `--uid 0 --gid 0 --numeric-owner` (build.ps1). The
+Makefile packs with `tar -czf` and `zip -qrX`; build.ps1 with `%SystemRoot%\System32\tar.exe`
+(the bsdtar of Windows 10+, `-a`; called by path because a GNU tar earlier in `PATH`, e.g. from
+Git Bash, cannot write zip). The staging directories are removed; `dist/checksums.txt` lists
+`<sha256>  <archive>` for every archive (sha256sum format, LF line endings). Release archives
+are built on Linux by the workflow below.
 
 **`.github/workflows/release.yml`** (one file for every repository; the main public repository
 `ZeraOrg/tidemark` is recognised by `github.repository == 'ZeraOrg/tidemark'` in expressions and
 the workflow env `PUBLIC`):
-- Triggers: `workflow_run` of `ci` (`completed`, branch `main`) and `workflow_dispatch`.
-  Workflow permissions `{}`; every job declares its own; `run` steps use `bash` (`-eo pipefail`).
+- Triggers: `workflow_call` (from the `release` job of `ci.yml`, which runs only after the `go`,
+  `integration`, `notices` and `web` jobs succeeded for a push to `main` of the main public
+  repository, §17.4) and `workflow_dispatch`. Calling it from ci instead of a `workflow_run`
+  trigger means no release run exists in other repositories unless started by hand, and the
+  release waits for the whole gate including the web e2e. Workflow permissions `{}`; every job
+  declares its own (the calling job grants `contents: write`, `packages: write`,
+  `id-token: write`, `attestations: write`, `actions: read`); `run` steps use `bash`
+  (`-eo pipefail`); every job sets `timeout-minutes`.
 - Job `prepare` ("decide", `contents: read`, `actions: read`) runs for `workflow_dispatch`, or in
-  the main public repository for a `workflow_run` whose conclusion is `success`, whose event is
-  `push` and whose head repository is this one (pull-request ci runs never release). Its first
-  step uses REST calls only (no checkout): it reads `VERSION` at the source commit
-  (`workflow_run.head_sha`, else `github.sha`) and fails on a non-semver value. In the main public
+  the main public repository for a push to `main` (the ci call; pull-request ci runs never
+  release). Its first step uses REST calls only (no checkout): it reads `VERSION` at the source
+  commit (`github.sha`) and fails on a non-semver value. In the main public
   repository it ends with a `::notice::` and `proceed=false` when the tag `v<version>` already
   exists (the cheap, normal case of every push that does not bump `VERSION`), when a manual run
   is not on `main`, when the commit is no longer the tip of `main` (the newer commit releases
-  itself) or when the latest `push` ci run for it is not `completed/success`. Outputs: `version`,
+  itself) or, for a manual run, when the jobs of the latest `push` ci run for it other than its
+  `release / …` jobs did not all succeed (so a manual run can recover a failed release). Outputs: `version`,
   `tag`, `sha`, `prerelease` (version contains `-`), `name` (`v<version>`; elsewhere
   `v<version> (private test build <7-hex sha>)`), `created` (commit date), `image-tags`
   (`ghcr.io/zeraorg/tidemark:<version>`, plus `:<major>.<minor>` and `:latest` unless
@@ -2336,15 +2742,24 @@ the workflow env `PUBLIC`):
   the run with an error annotation).
 - Job `build` ("archives", `contents: read`, `id-token: write`, `attestations: write`): checkout
   of the source commit, setup-go (`go-version-file`), setup-node 22 (npm cache), `make dist`
-  through `scripts/ci-annotate.sh`; in the main public repository a build provenance attestation
-  of every archive (`actions/attest-build-provenance`, `subject-checksums: dist/checksums.txt`);
-  uploads `dist/` as artifact `dist` (7 days).
+  through `scripts/ci-annotate.sh`, then setup-python 3.13 (pip cache keyed on
+  `docs-site/requirements.txt`), `pip install --require-hashes` and `make docs-offline` (the
+  documentation bundle above, which rewrites `checksums.txt`); in the main public repository a
+  build provenance attestation of every archive and the bundle
+  (`actions/attest-build-provenance`, `subject-checksums: dist/checksums.txt`); uploads `dist/`
+  as artifact `dist` (7 days). `internal/repotest` (`TestReleaseDocsBundle`) checks that the
+  workflow, both task runners, `mkdocs.offline.yml`, the hook and the release notes keep the
+  bundle.
 - Job `image` ("container image", needs `build`; `contents: read`, `packages: write`,
   `id-token: write`, `attestations: write`; concurrency `release-image-<version>`, no cancel):
   `docker/build-push-action` with the Dockerfile, build argument `VERSION=<version>`, the
-  `image-tags` and OCI labels `org.opencontainers.image.{title=Tidemark, description, version,
+  `image-tags` and OCI labels `org.opencontainers.image.{title=OpenTidemark, description, version,
   revision=<sha>, created, source=url=https://github.com/ZeraOrg/tidemark, licenses=Apache-2.0}`.
-  In the main public repository: QEMU and Buildx set up, login to `ghcr.io` with the workflow
+  Before that, in every repository, a `linux/amd64` build of the same Dockerfile is loaded into
+  the runner's Docker (`load: true`) and scanned with Trivy (`aquasec/trivy:<TRIVY_VERSION>`,
+  the version of `security.yml`, kept equal by `TestReleaseScanUsesSecurityTrivy`;
+  HIGH/CRITICAL, fixed only, `--exit-code 1`), so a vulnerable image fails the run before any
+  push, tag or release. In the main public repository: QEMU and Buildx set up, login to `ghcr.io` with the workflow
   token, platforms `linux/amd64,linux/arm64`, push, then a provenance attestation of the image
   digest pushed to the registry (`push-to-registry: true`, `create-storage-record: false`); a
   failed build/push adds an error annotation explaining the package prerequisites (organisation
@@ -2352,15 +2767,15 @@ the workflow env `PUBLIC`):
   access, a new package must be made public once). Elsewhere: Buildx only, `linux/amd64`, no
   push, no login.
 - Job `release` ("GitHub release", needs `build` and `image`; `contents: write`; concurrency
-  `release-<version>`, no cancel): downloads `dist`, writes the notes (passed through an
-  environment variable, never inlined into the script). In the main public repository it checks
-  the tag again (a parallel run may have released meanwhile, then it ends with a notice) and runs
-  `gh release create v<version> dist/* --target <sha> --title v<version> --notes-file …
-  --prerelease=<true|false>`, which uploads the assets before publishing and creates the
-  lightweight tag on the released commit. Elsewhere it looks up a draft release with the same
-  `name` (all pages): absent ⇒ create a draft (`tag_name v<version>`, `target_commitish <sha>`,
-  body = notes; a draft creates no tag); present ⇒ update its target and body and delete its
-  assets; then upload every file of `dist/` to it. The run summary links the release.
+  `release-<version>`, no cancel): downloads `dist`, writes the notes (passed through an environment
+  variable, never inlined into the script). In the main public repository it checks the tag again (a
+  parallel run may have released meanwhile, then it ends with a notice) and runs `gh release create
+  v<version> dist/* --target <sha> --title "OpenTidemark v<version>" --notes-file …
+  --prerelease=<true|false>`, which uploads the assets before publishing and creates the lightweight
+  tag on the released commit. Elsewhere it looks up a draft release with the same `name` (all
+  pages): absent ⇒ create a draft (`tag_name v<version>`, `target_commitish <sha>`, body = notes; a
+  draft creates no tag); present ⇒ update its target and body and delete its assets; then upload
+  every file of `dist/` to it. The run summary links the release.
 - Because the release job runs last, a failed build or image push leaves no tag behind, so the
   next successful ci run of `main` (or a manual run) retries the same version.
 
@@ -2373,14 +2788,14 @@ oci://ghcr.io/zeraorg/tidemark:<version> --repo ZeraOrg/tidemark`.
 | Layer | Requirement |
 |---|---|
 | Go unit | `go test -race ./...` (Linux), `go test ./...` (Windows). Table-driven. Coverage ≥ 85% for `internal/tql`, `internal/normalize`, `internal/ingest/...`, `internal/auth`, `internal/retention`; ≥ 70% overall. |
-| TQL | Golden tests: queries in `internal/tql/testdata/*.tql` (`%cursor`/`%where` directives) ⇒ `*.golden` (canonical form, SQL + args + columns, or error with position and caret); regenerate with `go test ./internal/tql -run TestGolden -update`. Every §10.1 example is read from `docs/query-language.md` (`TestDocExamplesParseAndCompile`) and must parse and compile; `internal/repotest` (`TestTQLDocExamplesMatchSpec`) asserts that block equals the §10.1 block of this file. Fuzz test `FuzzParse` (no panics, positioned errors, stable canonical round trip, no user text in SQL); found inputs are kept in `testdata/fuzz`. SQL-injection table (quotes, backticks, `--`, `;`, unicode, keys with `'`) and a max-size pathological-input timing test. |
+| TQL | Golden tests: queries in `internal/tql/testdata/*.tql` (`%cursor`/`%streams a,b|none`/`%where` directives) ⇒ `*.golden` (canonical form, SQL + args + columns, or error with position and caret); regenerate with `go test ./internal/tql -run TestGolden -update`. Every §10.1 example is read from `docs/query-language.md` (`TestDocExamplesParseAndCompile`) and must parse and compile; `internal/repotest` (`TestTQLDocExamplesMatchSpec`) asserts that block equals the §10.1 block of this file. Fuzz test `FuzzParse` (no panics, positioned errors, stable canonical round trip, no user text in SQL); found inputs are kept in `testdata/fuzz`. SQL-injection table (quotes, backticks, `--`, `;`, unicode, keys with `'`) and a max-size pathological-input timing test. |
 | Ingestion | Fixture bodies in `testdata/` captured from real clients: Serilog Seq sink (CLEF), NLog Seq target (legacy JSON), Filebeat/Fluent Bit/Vector/Logstash `_bulk`, OTLP JSON + protobuf logs/traces/metrics. |
-| Integration | Build tag `integration`; needs `TIDEMARK_TEST_CLICKHOUSE_ADDR` (+ `TIDEMARK_TEST_CLICKHOUSE_{DATABASE,WRITER_USER,WRITER_PASSWORD,READER_USER,READER_PASSWORD}`). `scripts/with-clickhouse.sh <cmd>` starts a throw-away local server (binary from `$CLICKHOUSE_BIN`, `/opt/clickhouse/clickhouse` or `PATH`; temp dir; free loopback port; users from `deploy/clickhouse/users.d` with random passwords; a `backups` disk in the temp dir), exports those variables, runs the command and stops the server; with the variable already set it just runs the command. Packages run with `-p 1` because they share the `tidemark` database. Covers migrations, the reader against real data (`internal/store/clickhouse`), and end to end (`internal/app`): connection keys created via the API, rejection without a key / with a wrong-protocol key, Seq, ES `_bulk`, OTLP HTTP (JSON + protobuf) and native fixtures, then `POST /query` (events + cursor paging, table, timeseries), histogram, facets, fields, event by id + context, trace + trace search, metric names, export and live tail; retention TTL DDL. CI uses a ClickHouse service container (Linux job). Also covers insert deduplication of a replayed WAL batch and of a replayed import job (`tidemark import clef` of 12,345 lines, then the whole job re-run from an empty checkpoint: the row count is unchanged), address failover, operator commands (backup/restore/doctor) and the importers against fake sources. The replicated-schema test additionally needs `TIDEMARK_TEST_CLICKHOUSE_CLUSTER` and `TIDEMARK_TEST_CLICKHOUSE_CLUSTER_ADDRS` (a 1-shard, 3-replica cluster with Keeper, e.g. `deploy/ha/clickhouse/`); `scripts/with-clickhouse-cluster.sh <cmd>` starts such a cluster on loopback (three servers, each embedding Keeper with IPv6 disabled, free ports, users from `deploy/ha/clickhouse/users.d`, cluster `tidemark_cluster`), exports `TIDEMARK_TEST_CLICKHOUSE_{ADDR,CLUSTER,CLUSTER_ADDRS,WRITER_PASSWORD,READER_PASSWORD}` and removes it afterwards; PostgreSQL contract, bus and restore tests need `TIDEMARK_TEST_POSTGRES_DSN`. |
+| Integration | Build tag `integration`; needs `TIDEMARK_TEST_CLICKHOUSE_ADDR` (+ `TIDEMARK_TEST_CLICKHOUSE_{DATABASE,WRITER_USER,WRITER_PASSWORD,READER_USER,READER_PASSWORD}`). `scripts/with-clickhouse.sh <cmd>` starts a throw-away local server (binary from `$CLICKHOUSE_BIN`, `/opt/clickhouse/clickhouse` or `PATH`; temp dir; free loopback port; users from `deploy/clickhouse/users.d` with random passwords; a `backups` disk in the temp dir), exports those variables, runs the command and stops the server; with the variable already set it just runs the command. Packages run with `-p 1` because they share the `tidemark` database. Covers migrations, the reader against real data (`internal/store/clickhouse`), and end to end (`internal/app`): connection keys created via the API, rejection without a key / with a wrong-protocol key, Seq, ES `_bulk`, OTLP HTTP (JSON + protobuf) and native fixtures, then `POST /query` (events + cursor paging, table, timeseries), histogram, facets, fields, event by id + context, trace + trace search, metric names, export and live tail; stream access (`TestIntegrationStreamAccess`: logs, spans and metrics in two streams; a team member of one stream sees none of the other on every §15.10 path — queries incl. `stats count() by stream`, histogram, facets, fields, completion, event by id and context, CSV and NDJSON export, tail, trace search, a cross-stream trace, metric names and queries, streams list and fields; the selection never widens the scope; environments filter logs only; alert rules must name streams within the editor's scope, are hidden outside it and keep their streams after the author leaves the team; a team-less user sees every stream until deny-by-default is on and then sees nothing, without errors; an event naming a stream outside its connection's allowed streams lands in the default stream); retention TTL DDL. CI uses a ClickHouse service container (Linux job). Also covers insert deduplication of a replayed WAL batch and of a replayed import job (`tidemark import clef` of 12,345 lines, then the whole job re-run from an empty checkpoint: the row count is unchanged), address failover, operator commands (backup/restore/doctor) and the importers against fake sources. The replicated-schema test additionally needs `TIDEMARK_TEST_CLICKHOUSE_CLUSTER` and `TIDEMARK_TEST_CLICKHOUSE_CLUSTER_ADDRS` (a 1-shard, 3-replica cluster with Keeper, e.g. `deploy/ha/clickhouse/`); `scripts/with-clickhouse-cluster.sh <cmd>` starts such a cluster on loopback (three servers, each embedding Keeper with IPv6 disabled, free ports, users from `deploy/ha/clickhouse/users.d`, cluster `tidemark_cluster`), exports `TIDEMARK_TEST_CLICKHOUSE_{ADDR,CLUSTER,CLUSTER_ADDRS,WRITER_PASSWORD,READER_PASSWORD}` and removes it afterwards; PostgreSQL contract, bus and restore tests need `TIDEMARK_TEST_POSTGRES_DSN`. |
 | Security | Tests for auth on every route (table of routes × roles), CSRF, rate limits, key restrictions (protocol, CIDR, expiry, revoke), SSRF dialer, headers, SQL-injection attempts through TQL (fuzz corpus). |
-| Web | `tsc --noEmit`, ESLint (0 warnings), Prettier, Vitest with coverage ≥ 80 % statements/lines/functions and ≥ 70 % branches for `src/tql/**`, `src/lib/**` and `src/api/client.ts` (TQL highlighter, template renderer, builder↔TQL round-trip, client CSRF/errors/offsets, components), production build + static CSP check, `npm audit --audit-level=high`, Playwright smoke against the mock build served with the production CSP (login + default-credentials banner, query, autocomplete, detail, analytics + add to dashboard, signal save, traces, metrics, dashboard create/edit, alerts drawer, streams purge dry run, connection create, settings pages, light theme, keyboard, 390 px); every e2e test fails on a CSP violation or page error and writes design-review screenshots. |
+| Web | `tsc --noEmit`, ESLint (0 warnings), Prettier, Vitest with coverage ≥ 80 % statements/lines/functions and ≥ 70 % branches for `src/tql/**`, `src/lib/**` and `src/api/client.ts` (TQL highlighter, template renderer, builder↔TQL round-trip, client CSRF/errors/offsets, components; the scope helpers and `useDataScope` URL ↔ state round trip, the scope picker with one, many and no streams and its keyboard flow, the Teams pages and the endpoint parameters of the selection and team routes), production build + static CSP check, `npm audit --audit-level=high`, Playwright smoke against the mock build served with the production CSP (login + default-credentials banner, query, autocomplete, detail, analytics + add to dashboard, signal save, traces, metrics, dashboard create/edit, alerts drawer with the streams field, streams purge dry run, connection create with allowed streams, settings pages, the scope picker, an admin creating a team and granting a stream to a viewer who then sees only that stream with a static chip and an orphaned span, deny by default leading to the empty state without queries, light theme, keyboard, 390 px with the scope sheet); every e2e test fails on a CSP violation or page error and writes design-review screenshots. |
 | Static | `gofmt`, `go vet`, `golangci-lint` (errcheck, govet, staticcheck, gosec, revive, gocritic, bodyclose, contextcheck, nilerr), `govulncheck`. |
-| Docs | `docs/query-language.md`, `docs/ingestion.md` and `docs/configuration.md` are derived from §10, §9 and §7 and updated with them in the same commit. `docs/configuration.md` lists exactly the variables of `internal/config` with their defaults (`TestConfigurationDocMatchesVariables`) and only §7 variables of this file (`internal/repotest`, `TestConfigurationDocMatchesSpec`); the §10.1 examples as above. |
-| Release | `internal/repotest`: `TestVersionAndChangelog` (`VERSION` format, `CHANGELOG.md` shape and a non-empty section for `VERSION`) and `TestDistFileListsMatch` (Makefile and build.ps1 archive file lists equal and existing) (§17.6). `make dist` is run and its archives inspected (contents, `tidemark version`) before changing the release tooling. |
+| Docs | `docs/query-language.md`, `docs/ingestion.md` and `docs/configuration.md` are derived from §10, §9 and §7 and updated with them in the same commit. `docs/configuration.md` lists exactly the variables of `internal/config` with their defaults (`TestConfigurationDocMatchesVariables`) and only §7 variables of this file (`internal/repotest`, `TestConfigurationDocMatchesSpec`); the §10.1 examples as above. Every chapter of `docs/manual/` is in the site navigation (`TestManualPagesInNav`, §17.4); `mkdocs build --strict` (both configurations) passes without warnings before a docs change is committed. |
+| Release | `internal/repotest`: `TestVersionAndChangelog` (`VERSION` format, `CHANGELOG.md` shape and a non-empty section for `VERSION`), `TestDistFileListsMatch` (Makefile and build.ps1 archive file lists, Docker bundle list included, equal and existing), `TestDistDockerCompose` (the bundle rewrite of `deploy/docker-compose.yml` leaves no `build:` key, pins the release image and removes only the build block; Makefile and build.ps1 use the same image), `TestInstallDocs` (every `INSTALL-*.md` exists and links only to absolute `https://` URLs), `TestReleaseDocsBundle` (the offline documentation bundle stays in the workflow, the task runners, `mkdocs.offline.yml`, the hook and the release notes) and `TestReleaseScanUsesSecurityTrivy` (§17.6). `make dist` is run and its archives inspected (contents, `tidemark version`) before changing the release tooling. |
 | Regression | Every bug fix adds a failing test first. No test may be deleted or weakened to make CI pass without a spec-recorded reason. |
 
 Definition of done for any change: spec updated · tests added/updated · `make check` (or
@@ -2393,25 +2808,40 @@ Definition of done for any change: spec updated · tests added/updated · `make 
 ### 19.1 Licence, notices and dependency policy
 - `LICENSE` — the **Apache License, Version 2.0**, verbatim (the text of
   <https://www.apache.org/licenses/LICENSE-2.0.txt>; `internal/repotest` checks its SHA-256
-  `cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30`). Tidemark is open source
+  `cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30`). OpenTidemark is open source
   for every use, commercial included; there are **no editions, licence keys or user limits**
   (removed in 0.10.0: `TIDEMARK_LICENSE` is now an unknown variable that only produces the startup
   warning of §7, and a `license.key` row left in `settings` by 0.9 is ignored).
-- `NOTICE` — Apache-style: `Tidemark`, `Copyright 2026 The Tidemark Authors (zeraOrg, …)`, a line
-  that the product is licensed under Apache-2.0, and a pointer to `THIRD_PARTY_NOTICES.md`. It
-  must ship with every distribution (repository, release archives, container image at
-  `/licenses/`, §17.2), as Apache-2.0 §4(d) requires.
+- `NOTICE` — Apache-style: `OpenTidemark`, `Copyright 2026 The Tidemark Authors (zeraOrg, …)`, a
+  line that the product is licensed under Apache-2.0, and a pointer to `THIRD_PARTY_NOTICES.md`. It
+  must ship with every distribution (repository, release archives, container image at `/licenses/`,
+  §17.2), as Apache-2.0 §4(d) requires.
 - `LICENSING.md` — short plain-language note: Apache-2.0, keep LICENSE/NOTICE when
   redistributing, third-party software, contributions (§19.2), trademarks.
+- **Trademark notice policy.** The trademark notice lives in `LICENSING.md` § Trademarks and names
+  the owners of the third-party marks the project mentions (Elasticsearch, Kibana, Logstash and
+  Beats — elasticsearch B.V.; OpenTelemetry and Prometheus — The Linux Foundation; OpenSearch —
+  LF Projects, LLC; ClickHouse — ClickHouse, Inc.; Seq — Datalust Pty Ltd), states that
+  OpenTidemark is independent and not affiliated with, endorsed or sponsored by them, that
+  compatibility statements describe protocol interoperability only, and that the Elasticsearch
+  endpoint implements only the `_bulk` ingestion API and does not identify itself as
+  Elasticsearch (§9.3). The README licence section and the documentation site footer
+  (`mkdocs.yml` `copyright`, "Trademarks") link to it; `NOTICE` stays limited to the Apache-2.0
+  §4(d) attribution. Third-party names are used only referentially ("accepts the Elasticsearch
+  `_bulk` ingestion API", "familiar to Seq and Kibana users", "alternative to Seq and to
+  Elasticsearch/Kibana"), never in product, package or domain names, without logos and without
+  claims of endorsement or of compatibility beyond what is implemented; ® marks the first
+  prominent mention of OpenTelemetry, Prometheus and ClickHouse in the README and on the
+  documentation home page. A new third-party name in public text is added to the notice.
 - `THIRD_PARTY_NOTICES.md` — licences of bundled dependencies; generated by
   `make notices` (`go-licenses report` + `license-checker` for `web/`) and checked in CI.
 - **Dependency policy.** Shipped code may only depend on permissive licences that are compatible
-  with distributing Tidemark under Apache-2.0 and impose no conditions beyond keeping notices:
+  with distributing OpenTidemark under Apache-2.0 and impose no conditions beyond keeping notices:
   MIT, BSD-2-Clause, BSD-3-Clause, Apache-2.0, ISC, and MPL-2.0 for unmodified files (its
   file-level copyleft applies only to the MPL files themselves, which are used as is). Copyleft
   licences (GPL/AGPL/LGPL/SSPL and similar) are rejected because they would force the combined
   work under other terms, and unknown licences fail closed. CI fails on anything else.
-- Go allow-list (`make licences` / `.\build.ps1 licences`, run by `notices` and by `security.yml`):
+- Go allow-list (`make licences` / `.\build.ps1 licences`, run by `notices` and by ci's `notices` job):
   `go-licenses check ./cmd/... --ignore <own module> --ignore <each reviewed exception> --allowed_licenses=Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,MIT,MPL-2.0`
   (go-licenses v2). `THIRD_PARTY_NOTICES.md` lists one row per licence file and detected licence
   (`go-licenses report`, one row per library directory that has its own licence file), followed by
@@ -2440,9 +2870,11 @@ Definition of done for any change: spec updated · tests added/updated · `make 
   (`#` / `--` / `/* */` / `<!-- -->` / `{{/* */}}` comment styles as appropriate) within its first
   5 lines (after a shebang, doctype or XML declaration). Exempt: the untracked `vendor/` snapshot
   (§17.4), `LICENSE`, `NOTICE`, `go.sum`, generated `THIRD_PARTY_NOTICES.md`, `VERSION` (a bare
-  version number read by tools, §17.6), data files that
+  version number read by tools, §17.6), the vendored `docs-site/offline/iframe-worker.js`
+  (unmodified third-party code under MIT with its own notice in the header; shipped only in the
+  offline documentation bundle, §17.6, and named in `LICENSING.md`), data files that
   cannot hold comments (JSON, `testdata/`, the common password list, binary assets) and build
-  output (`dist/`, `bin/`, and the untracked web outputs `dist-mock/`, `mock-public/`,
+  output (`dist/`, `bin/`, `site/`, and the untracked web outputs `dist-mock/`, `mock-public/`,
   `coverage/`, `test-results/`, `playwright-report/`). Enforced by `internal/repotest` (`TestSPDXHeaders`, `TestLicenseIsApache2`).
 
 ### 19.2 Contributions
@@ -2461,22 +2893,32 @@ Definition of done for any change: spec updated · tests added/updated · `make 
 ### 19.3 Public repository and publishing
 - **Public repository** `zeraOrg/tidemark` holds the source code and this specification. It is
   published from the maintainers' development repository as **one squashed commit per sync**,
-  subject `Sync from private <first 12 hex digits of the source commit>`, after `ci` and
-  `security` succeeded for that commit; the commit carries `Co-authored-by` trailers for the
+  subject `Sync from private <first 12 hex digits of the source commit>`, after the exported tree
+  passed a standalone check (gofmt, `go vet` with and without `integration`, `go test -race`);
+  the full `ci` (and, for dependency changes, `security`) then runs on the public repository for
+  every sync commit. The commit carries `Co-authored-by` trailers for the
   `Signed-off-by` lines of the changes it contains. Its `main` only receives these sync commits,
   as fast-forwards (never forced); pull requests are reviewed on the public repository and
   applied by the maintainers (§19.2), then closed with a link to the sync commit.
 - **The public tree is standalone:** `go build`, `go vet` (with and without `integration`) and
-  `go test ./...` pass with exactly the files of §6.1, and `ci.yml`, `security.yml`, `web.yml`
-  and `dependabot.yml` run there unchanged. Maintainer-only development tooling (publishing
+  `go test ./...` pass with exactly the files of §6.1, and `ci.yml`, `security.yml`, `release.yml`,
+  `docs.yml` and `dependabot.yml` run there unchanged. Maintainer-only development tooling (publishing
   automation, offline dependency snapshots, design review material) is kept outside the public
   tree, is specified separately and is never referenced by public files.
 - **Docs:** `docs/query-language.md`, `docs/ingestion.md` and `docs/configuration.md` are the user
-  docs derived from §10, §9 and §7 (§18). Code comments cite this file as `SPEC §n`.
-- The public `README.md` is written for an open-source project (status, features, quick start
-  with the install options, docs, building, releases and changelog, contributing, licence) and
-  must stay true: every change that affects a statement in it updates it in the same commit;
-  `CONTRIBUTING.md` describes the contribution workflow.
+  docs derived from §10, §9 and §7 (§18); the operations manual `docs/manual/` is derived from
+  this specification as a whole (§17.4). Every user doc and manual chapter in `docs/` starts
+  with an H1 followed by a one-sentence summary paragraph naming its topic (the page description
+  of the documentation site and its entry in `llms.txt`). `docs/` is published by `docs.yml` as
+  the documentation site <https://zeraorg.github.io/tidemark/> (§17.4), and every release
+  attaches it as the offline bundle `tidemark_<version>_docs.zip` (§17.6). Code comments cite
+  this file as `SPEC §n`.
+- The public `README.md` is written for an open-source project (a descriptive title and a first
+  paragraph that name what the product is and the protocols and tools it works with, status, why
+  OpenTidemark (only claims that hold for OpenTidemark itself), about with screenshots, features,
+  quick start with the install options, docs, building, releases and changelog, contributing,
+  licence) and must stay true: every change that affects a statement in it updates it in the same
+  commit; `CONTRIBUTING.md` describes the contribution workflow.
 - **Releases** are made in the public repository only, by its release workflow (§17.6): tags
   `v<version>`, GitHub releases with the archives, `checksums.txt` and provenance attestations,
   and the image `ghcr.io/zeraorg/tidemark`. The maintainers' development repository never
@@ -2514,6 +2956,37 @@ items of M0–M3b:
 
 | Version | Date | Change |
 |---|---|---|
+| 0.28.0 | 2026-10-14 | Operations manual and offline documentation (§6.1, §17.4, §17.6, §18, §19.1, §19.3): `docs/manual/` (fourteen chapters for operators and agents, written from this specification and verified against a test installation, including teams and stream access, `allowedStreams`, `tidemark_ingest_rerouted_total`, `tidemark_wal_bytes`, `connection_id`) joins the site as the navigation section "Operations manual" (`TestManualPagesInNav`); `mkdocs.yml` adds `pymdownx.tabbed`, `pymdownx.tasklist` and `content.tabs.link`; `docs-site/hooks.py` includes `docs/manual/`, resolves relative links against the page before rewriting those that leave `docs/` to GitHub, and writes `llms.txt` and `llms-full.txt`; `mkdocs.offline.yml` (Material's offline plugin, vendored iframe-worker shim instead of a CDN, SPDX-exempt) builds the offline bundle `tidemark_<version>_docs.zip` with `make docs-offline` / `.\build.ps1 docs-offline` (new targets `docs`, `docs-offline`, `checksums`), which the release workflow attaches, attests and lists in `checksums.txt` and the release notes (`TestReleaseDocsBundle`); `site/` and `__pycache__/` are build output skipped by the SPDX check; README and docs home link the manual, the bundle and the llms files; `LICENSING.md` names the bundle's third-party code. |
+| 0.27.2 | 2026-10-14 | README screenshots refreshed from the mock build after the stream-access work; two new ones, `scope-picker.png` and `teams.png`, join the About table (§6.1). |
+| 0.27.1 | 2026-10-14 | Explorer columns and row actions reviewed (§16.3, §16.6): the Columns dialog shows the chosen columns in order with move / remove and the other fields with a filter; shown columns shrink to 72 px before the list scrolls sideways with its header; the detail row actions anchor to the first line with a fade, get 28 px touch targets and are not offered on phones. |
+| 0.27.0 | 2026-10-14 | Stream access in the web UI (§16.1, §16.3, §16.4, §16.6, §18): the scope picker (streams and environment, URL `streams`/`env`, remembered in `tm.scope`, static chip for one visible stream, bottom sheet on phones), every search request carries the selection, the empty state for users without streams, Settings → Teams (`/settings/teams`, `/settings/teams/:id`: deny-by-default card, teams table, team details / members / streams cards with their own save state), Teams column and assignment on the Users page, the account card's access summary, the tokens note, the alert editor's Streams field, allowed streams and an edit dialog for connections, "parent span not visible" in the trace waterfall; the mock server implements teams and the §15.10 scope; Vitest and Playwright coverage. |
+| 0.26.0 | 2026-10-14 | TQL built-in `connection_id` (alias `connectionid`) for logs, spans and metrics (§10.4), mapped to the existing `connection_id` columns (stored lower case); golden cases added. |
+| 0.25.0 | 2026-10-14 | Self-metrics listed (§11.6) and a new gauge `tidemark_wal_bytes{signal}` (size of each signal's WAL on disk, read at scrape time; `selfmetrics.Metrics.WALBytes`, registered when the WAL is opened). §17.5 names the metrics that make a WAL backlog and failing inserts visible instead of an unspecified "alerted via self-metrics". |
+| 0.24.3 | 2026-10-14 | Abandoned WAL waits (§9.8): rows whose client went away while waiting for the fsync are already written and stored, so they count as enqueued instead of `dropped{reason="backpressure"}` and the request fails with the context error; `pipeline.Journal` documents that `Append` returns the context error only after writing. |
+| 0.24.2 | 2026-10-14 | Corrections found while writing the operations manual (spec matches the code): §15.7 lists `X-Frame-Options: DENY` and HSTS among the response headers; §13.1 says `version` and `timeRange.from/to` are required (`variables`, `panels`, `refresh` optional); §11.4 separates TQL errors in panel queries (`invalid_query` with `pos/len/hint/panelId`) from wrong-kind queries and other document errors (`bad_request` with `details.field`); §11.5 documents the connection body fields, their limits and the connection object; §9.7 documents how syslog lines from the bundled Collector are mapped (raw line as message, parsed parts as properties `hostname`, `appname`, …, empty host). User docs: the Windows service is queried with `sc.exe qc Tidemark`; the header list and the syslog mapping. |
+| 0.24.1 | 2026-10-14 | Trademark notice policy (§19.1): `LICENSING.md` § Trademarks names the owners of the third-party marks, states independence and that compatibility means protocol interoperability only (the Elasticsearch endpoint implements only `_bulk` and does not identify as Elasticsearch); linked from the README licence section and the documentation site footer (`mkdocs.yml` `copyright`), not from `NOTICE`. Referential wording (§1, §6.1, §7, §9.3): "Elasticsearch-compatible" ⇒ "the Elasticsearch `_bulk` ingestion API" (§9.3 renamed), "Kibana/Elastic" ⇒ "Elasticsearch/Kibana"; README and docs home use "familiar to Seq and Kibana users" and ® at the first prominent OpenTelemetry and ClickHouse mention. |
+| 0.24.0 | 2026-10-14 | The Elasticsearch endpoint no longer identifies itself as Elasticsearch (§4, §9.3, §9.5, §11.5): no `X-Elastic-Product` header, no tagline; cluster info reduced to `name`, `cluster_name` and `version.number` (`8.11.0`, the implemented API level). Logstash's `elasticsearch` output (product check) and the official Elasticsearch clients are not supported; Logstash uses its `http` output to the native endpoint, and the `logstash` connection snippet renders that. Verified with Filebeat 8.15.3, Fluent Bit 3.1.9, Vector 0.41.1 (`_bulk`) and Logstash 8.15.3 (`http`). |
+| 0.23.0 | 2026-10-13 | Connection allowed streams (§8.4, §9.1, §11.5, §15.5, §15.10, §18): meta migration 0008 adds `connections.allowed_streams` (JSON array, `[]` = any); API field `allowedStreams` (≤ 100 valid names, must include the default and any pinned stream, audited); at ingest an explicit stream outside the list goes to the default stream and is counted in `tidemark_ingest_rerouted_total{protocol,reason}` (new `ingest.Observer.Rerouted`); the stream access integration test covers a rerouted event. |
+| 0.22.0 | 2026-10-13 | Teams API (§11.2, §11.5, §15.5, §15.10): admin routes `GET/POST /teams`, `GET /teams/access` (`{denyByDefault, usersWithoutTeam}`), `GET/PATCH/DELETE /teams/{id}`, `PUT /teams/{id}/members`, `PUT /teams/{id}/streams`, `PUT /users/{id}/teams` with limits and audit (`team.*`, `user.teams`; `user.delete` records the user's teams); `/users` objects include `teams`; `GET /auth/me` adds `allStreams`, `streams`, `teams`, `streamAccess`; route × role table extended; the stream access integration test manages its team through the API. |
+| 0.21.0 | 2026-10-13 | Alert rules read chosen streams (§11.4, §14.1, §14.2, §15.10, §18): `streams` on the alert API (`null` = every stream, only for callers who see every stream; else a non-empty subset of the editor's scope), stored in `alert_rules.streams`; the evaluator reads the stored streams (`alerting.RuleScope`); rules outside the caller's scope are hidden and 404; `alert.create`/`alert.update` audit the streams; `service.NewAlerts` takes `AlertsDeps`. |
+| 0.20.0 | 2026-10-13 | Data access by stream enforced on every search path (§11.3, §11.5, §15.10, §18): `service.Search` and `StreamAdmin` resolve the caller's scope (`SearchDeps.Access`, `StreamAdminDeps.Access`); selection `streams`/`environments` (`POST /query`) and `streams`/`env` (GET search routes; ≤ 100 stream names, ≤ 20 environments of 1…256 bytes) intersected with the scope, environments filtering logs only; events, context, traces and stream fields outside the scope are 404; trace summaries cover visible spans only; the tail re-resolves the scope every poll; `GET /streams` lists visible streams; the export audit records the selection; integration test `TestIntegrationStreamAccess`. |
+| 0.19.0 | 2026-10-13 | Stream access resolution (§11.5, §15.10): `auth.Principal.UserRole` (the user's own role; tokens keep `Role` limited by scope); `service.Access` resolves a principal's scope and mode (`admin`, `teams`, `default-all`, `default-none`) from the user's role, teams and the new setting `access.denyByDefault` (default false), on every request; `GET/PATCH /settings` include `access` (strict `{denyByDefault}`, audited); the upgrade test proves upgraded users see every stream. |
+| 0.18.0 | 2026-10-13 | Teams in the metadata (§8.4, §8.5, §12.7, §15.10): migration 0007 adds `teams` (case-insensitive unique name), `team_members` and `team_streams` (cascading on team/user delete) and the nullable `alert_rules.streams`; repository `meta.Teams` (CRUD, member/stream/user-team replacement with added/removed sets, per-user stream union, memberships, team-less user count, grant revocation); teams are part of the JSON export; deleting a stream revokes its grants (audited as `revokedFromTeams`); upgrade fixture `meta-0.1.0.db` (release 0.1.0 schema) proves existing users have no team after the upgrade. |
+| 0.17.1 | 2026-10-13 | Store reads take the stream scope (§6.2, §15.10): `store.Querier` `Fields`/`Event`/`Context`/`Trace`/`MetricNames` and `StreamAdmin.Mappings` gain a `model.StreamScope` parameter, `store.Filter` carries `Streams`; the ClickHouse reader adds the stream condition to every fixed query (trace summaries count visible spans only) and fails with `store.ErrNoScope` when the scope is unset. Services still pass all streams; no behaviour change yet. |
+| 0.17.0 | 2026-10-13 | Stream scope groundwork (§8.1, §10.6, §15.10 new, §18): `model.StreamScope` (all / none / named streams, fail-closed zero value); `tql.Options.Streams` is required and compiles to `AND stream IN (?, …)` (or `AND 0` when empty) after the time range; golden directive `%streams`; purge uses all streams and compile-only validation the empty scope. No behaviour change yet. |
+| 0.16.2 | 2026-10-13 | Editorial: the 0.14.0 row contained a backspace control character instead of `` in `.uild.ps1`. |
+| 0.16.1 | 2026-10-13 | Social preview image `docs/images/social-preview.png` (1280×640: logo, name, tagline, compatibility line, cropped explorer screenshot, dark token colours; §6.1, §17.4); the documentation site uses it as `og:image` / `twitter:image` with a large-image card. |
+| 0.16.0 | 2026-10-13 | Documentation site (§6.1, §17.4, §19.3): `mkdocs.yml` (MkDocs 1.6.1 + Material for MkDocs 9.7.7, hashed requirements in `docs-site/`), `docs-site/hooks.py` (only top-level pages and `docs/images/`, meta descriptions from the summary paragraphs, links outside `docs/` to GitHub, logo from the web favicon), `docs-site/overrides/main.html` (Open Graph tags, token colours), new home page `docs/index.md`, public workflow `docs.yml` building with `--strict` and deploying to GitHub Pages (<https://zeraorg.github.io/tidemark/>) from `main` of `ZeraOrg/tidemark`; `site/` ignored; README links the site. The installation guide's contents link to section 3 follows the heading renamed in 0.15.0. |
+| 0.15.1 | 2026-10-13 | Search-friendly wording (§19.3): the README has a descriptive title ("OpenTidemark — open-source, self-hosted log management, metrics and distributed tracing") and a first paragraph naming OpenTelemetry (OTLP), Seq/Serilog, Elasticsearch `_bulk`, ClickHouse and the Seq and Kibana/Elastic alternatives; every user doc starts with an H1 and a one-sentence summary paragraph. |
+| 0.15.0 | 2026-10-13 | Product renamed to **OpenTidemark** (owner decision): new "Name" paragraph in §1 listing the technical identifiers that keep `tidemark`; every prose and display reference uses the new name (docs, README "Why OpenTidemark", UI wordmark, page title, login page, system card and connection snippets §16.2, Windows service display name "OpenTidemark observability" and its stop message, alert notification texts "Open in OpenTidemark" and the test notification §14.2, Elasticsearch "not supported" messages §9.3, release titles `OpenTidemark v<version>` and the OCI title label §17.6, NOTICE heading §19.1); identifiers, the `GET /api` product reply and the copyright holder are unchanged; README screenshots retaken. |
+| 0.14.0 | 2026-10-13 | Ready-to-use release bundles (§6.1, §17.2, §17.6, §18): `make dist` / `.\build.ps1 dist` also build the Docker bundle `tidemark_<version>_docker.tar.gz` and `.zip` (Compose file without `build:` pinned to `ghcr.io/zeraorg/tidemark:<version>`, `.env.example`, installers, collector config, ClickHouse config incl. `docker-listen.xml`, `INSTALL.md`, licence files, README, changelog; `dist` fails on a remaining `build:` or a missing pin); every archive carries an `INSTALL.md` from `deploy/install/INSTALL-{linux,windows,docker}.md`; tar archives with owner/group 0; build.ps1 calls Windows' own `tar.exe` by path and reads the Compose file as UTF-8; `scripts/release-notes.sh` appends a version-substituted Install section; `release.yml` scans a linux/amd64 build with the pinned Trivy before pushing, tagging or releasing; new tests `TestDistDockerCompose`, `TestInstallDocs`, `TestReleaseScanUsesSecurityTrivy`. |
+| 0.13.4 | 2026-10-13 | Workflows streamlined (§6.1, §17.4, §17.6, §19.1, §19.3): `web.yml` removed, its full gate (incl. Playwright e2e and the Go embed check) is ci job `web`; every ci and security job runs automatically only in `ZeraOrg/tidemark` (elsewhere only on `workflow_dispatch`) and has `timeout-minutes` and Go/npm caches; govulncheck in ci on Linux only; the cross-compile step reduced to `linux/arm64`; `security.yml` runs weekly, by hand and on dependency/Dockerfile pushes, without the duplicate licence job (ci `notices` runs `make licences`); `release.yml` is called by ci (`workflow_call`) after a green push to `main` instead of a `workflow_run` trigger, a manual run checks ci's gate jobs; the `ui/screenshots` publishing is gone. |
+| 0.13.3 | 2026-10-13 | README "Why Tidemark" section (§6.1, §19.3): why the project exists, backed only by claims that hold for Tidemark itself (no outbound connections of its own, no third-party web assets, secrets at rest, Apache-2.0 without editions, release checksums and attestations, own Linux/Windows hardware or Docker). |
+| 0.13.2 | 2026-10-13 | ClickHouse hardening (§6.1, §17.2, §17.3): `deploy/clickhouse/config.d/tidemark.xml`, which also ships in the native archives, no longer sets `listen_host 0.0.0.0` (a native server keeps the loopback default); the container listen address moved to the Compose-only `config.d/docker-listen.xml`. `tidemark.xml` and the HA `cluster.xml` disable ClickHouse crash reports (`send_crash_reports`). |
+| 0.13.1 | 2026-10-13 | README "About" section with screenshots in `docs/images/` (§6.1, §19.3); the images are the e2e screenshots of the mock build halved to 1440×900 and saved as 256-colour PNGs. The mock build reports the release from `VERSION` (§5). |
+| 0.13.0 | 2026-10-13 | Explorer columns (§16.3): the event detail's icon-only *pin column* became a labelled *Show in column* / *Hide column* toggle; built-in fields `environment`, `host`, `trace_id`, `span_id`, `event_type` can be shown as columns too (also in the Columns dialog); column headers get a *Remove column* × button. |
+| 0.12.2 | 2026-10-13 | User doc `docs/installation.md` (§6.1): installation guide for every platform of §17.1 (install-method table, requirements and ports, release archives/image/source, Compose with `.env`, `TM_*` settings, collector profile and health checks, native Linux with `install.sh native` and native or Docker ClickHouse, native Windows service with ClickHouse in Docker Desktop on `127.0.0.1:9000`, macOS development, first sign-in, TLS/reverse proxy and exposure, HA pointer, operator commands, backups, upgrades, uninstalling, troubleshooting); §17.3 records how the ClickHouse passwords reach a separately run ClickHouse; README and `docs/quickstart.md` link the guide. |
+| 0.12.1 | 2026-10-13 | User doc `docs/quickstart.md` (§6.1): running Tidemark locally with Docker Compose (`.env`, `TM_BIND_ADDR=127.0.0.1`, published image or local build, first sign-in, a first CLEF event, client addresses, everyday commands, troubleshooting); README links it and notes `TM_BIND_ADDR`. |
 | 0.12.0 | 2026-10-13 | Releases (new §17.6): `VERSION` (0.1.0, SemVer without `v`, SPDX-exempt §19.1) and `CHANGELOG.md` (Keep a Changelog; `[Unreleased]` + dated sections) define releases; `make dist` / `.\build.ps1 dist` build the archives `tidemark_<version>_{linux_amd64,linux_arm64}.tar.gz` / `_windows_amd64.zip` (binary stamped with the version, licence files, README, CHANGELOG, installer files) and `checksums.txt` into `dist/`; `scripts/release-notes.sh`; `.github/workflows/release.yml` releases automatically in the public repository after a green `ci` on `main` when the tag `v<VERSION>` does not exist (provenance attestations, multi-arch image `ghcr.io/zeraorg/tidemark` with `<version>`, `<major>.<minor>`, `latest` and OCI labels, tag + GitHub release from the changelog section, pre-releases marked) and builds draft test releases elsewhere on demand; repository tests `TestVersionAndChangelog`, `TestDistFileListsMatch` (§18). Dockerfile cross-compiles on the build platform for multi-arch images (§17.2); published image usage with Compose (§17.2); `.dockerignore` excludes `dist`; release action versions pinned (§17.4); README content rules and releases in §19.3; §6.1 tree. |
 | 0.11.3 | 2026-10-13 | §20 status brought up to date: M0–M3b implemented, with the known open items listed (no end-to-end smoke test with real clients or Docker, `examples/` not yet in the tree, G7 performance target not measured, UI polish items); M4 stays planned; §6.1 marks `examples/` as not yet present. |
 | 0.11.2 | 2026-10-13 | `TIDEMARK_NODE_ID` must start with a letter or digit (§7): the startup error and `docs/configuration.md` now state that rule (both claimed any of `[A-Za-z0-9._-]` was allowed first), pinned by a regression test. |

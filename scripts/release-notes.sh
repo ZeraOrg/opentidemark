@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Prints the release notes of one version (SPEC §17.6): the body of the "## [<version>] - <date>"
-# section of CHANGELOG.md, without leading and trailing blank lines. Fails when the section is
-# missing or empty, so a release cannot go out without user-facing notes.
+# section of CHANGELOG.md, without leading and trailing blank lines, followed by an "Install"
+# section for that version (assets, quick commands, verification). Fails when the changelog
+# section is missing or empty, so a release cannot go out without user-facing notes.
 #
 #   scripts/release-notes.sh <version> [<changelog>]
 set -euo pipefail
@@ -31,3 +32,31 @@ if [[ -z "${notes//[[:space:]]/}" ]]; then
   exit 1
 fi
 printf '%s\n' "$notes"
+
+v="$version"
+cat <<NOTES
+
+## Install
+
+| Asset | Platform | Quick start |
+|---|---|---|
+| \`tidemark_${v}_docker.tar.gz\` or \`.zip\` | Docker Compose: Linux, Windows (Docker Desktop), macOS | \`tar -xzf tidemark_${v}_docker.tar.gz && cd tidemark_${v}_docker && ./install.sh docker\` (Windows: \`.\\install.ps1 -Mode Docker\`) |
+| \`tidemark_${v}_linux_amd64.tar.gz\` | Linux x86-64, systemd service | \`tar -xzf tidemark_${v}_linux_amd64.tar.gz && cd tidemark_${v}_linux_amd64 && sudo ./deploy/install.sh native ./tidemark\` |
+| \`tidemark_${v}_linux_arm64.tar.gz\` | Linux arm64, systemd service | \`tar -xzf tidemark_${v}_linux_arm64.tar.gz && cd tidemark_${v}_linux_arm64 && sudo ./deploy/install.sh native ./tidemark\` |
+| \`tidemark_${v}_windows_amd64.zip\` | Windows 10/11, Server 2019+, Windows service | in the unpacked folder, as Administrator: \`.\\deploy\\install.ps1 -Mode Native -Binary .\\tidemark.exe\` |
+| \`ghcr.io/zeraorg/tidemark:${v}\` | Container image, linux/amd64 and linux/arm64 | \`docker pull ghcr.io/zeraorg/tidemark:${v}\` |
+| \`tidemark_${v}_docs.zip\` | Offline documentation (user guides and the operations manual, with search) | unzip, open \`tidemark_${v}_docs/index.html\` in a browser |
+
+Every archive contains an \`INSTALL.md\` with the steps for its platform (ClickHouse setup, service
+management, upgrade, uninstall). The full OpenTidemark installation guide is
+<https://github.com/ZeraOrg/tidemark/blob/v${v}/docs/installation.md>; the documentation site is
+<https://zeraorg.github.io/tidemark/>.
+
+**Verify the download:**
+
+\`\`\`bash
+sha256sum -c checksums.txt --ignore-missing
+gh attestation verify tidemark_${v}_linux_amd64.tar.gz --repo ZeraOrg/tidemark
+gh attestation verify oci://ghcr.io/zeraorg/tidemark:${v} --repo ZeraOrg/tidemark
+\`\`\`
+NOTES

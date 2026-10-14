@@ -8,3 +8,7 @@ source metrics | value > 10 and route:/a and count >= 0 | stats max(value), last
 source metrics | route:5 and route > 3 and route:* and route:null and code in [1, 2] and sum:12 and min < 1 and max:*
 source metrics | free text
 %cursor source metrics
+# stream scope (SPEC §15.10)
+%streams team-a source metrics | name:http_requests_total | stats rate(value) by service
+# connection id built-in
+source metrics | connection_id:abc

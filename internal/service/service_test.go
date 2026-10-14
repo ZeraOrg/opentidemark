@@ -235,6 +235,27 @@ func TestSnippetsHTTPS(t *testing.T) {
 	}
 }
 
+// TestSnippetLogstashUsesHTTPOutput: Logstash's elasticsearch output refuses servers that do not
+// identify as Elasticsearch, so the snippet uses the http output to the native endpoint (SPEC §9.3).
+func TestSnippetLogstashUsesHTTPOutput(t *testing.T) {
+	pub, _ := url.Parse("https://logs.example.com")
+	var logstash string
+	for _, sn := range Snippets(meta.Connection{DefaultStream: "app"}, pub) {
+		if sn.ID == "logstash" {
+			logstash = sn.Content
+		}
+	}
+	for _, want := range []string{"http {", `url => "https://logs.example.com/api/v1/ingest/logs"`,
+		`format => "json_batch"`, `"X-Tidemark-Key" => "` + KeyPlaceholder + `"`} {
+		if !strings.Contains(logstash, want) {
+			t.Errorf("missing %q in %s", want, logstash)
+		}
+	}
+	if strings.Contains(logstash, "elasticsearch") {
+		t.Errorf("elasticsearch output in %s", logstash)
+	}
+}
+
 func TestTokensLimit(t *testing.T) {
 	ctx := context.Background()
 	db := openDB(t)

@@ -160,7 +160,7 @@ func (e *Evaluator) Evaluate(ctx context.Context, r meta.AlertRule, now time.Tim
 	doc, err := ParseRule(r.Doc)
 	var samples []Sample
 	if err == nil {
-		samples, err = e.sample(ctx, doc, now)
+		samples, err = e.sample(ctx, doc, RuleScope(r.Streams), now)
 	}
 	if err != nil {
 		st, tr := prev.Fail(err, now)
@@ -219,8 +219,17 @@ func AlertURL(base, id string) string {
 	return strings.TrimRight(base, "/") + "/alerts/" + id
 }
 
-// sample runs the rule query over [now-window, now) and converts the rows.
-func (e *Evaluator) sample(ctx context.Context, doc *RuleDoc, now time.Time) ([]Sample, error) {
+// RuleScope is the stream scope of a rule's stored streams: nil reads every stream, a list
+// only those streams (SPEC §14.1). The rule keeps this scope when its author loses access.
+func RuleScope(streams []string) model.StreamScope {
+	if streams == nil {
+		return model.AllStreams()
+	}
+	return model.OnlyStreams(streams...)
+}
+
+// sample runs the rule query over [now-window, now) in the rule's streams and converts the rows.
+func (e *Evaluator) sample(ctx context.Context, doc *RuleDoc, streams model.StreamScope, now time.Time) ([]Sample, error) {
 	var indexed map[model.Source]map[string]string
 	if e.d.Indexed != nil {
 		cols, err := e.d.Indexed.Columns(ctx)
@@ -229,7 +238,7 @@ func (e *Evaluator) sample(ctx context.Context, doc *RuleDoc, now time.Time) ([]
 		}
 		indexed = cols
 	}
-	c, err := doc.Compile(now, e.d.Database, indexed)
+	c, err := doc.Compile(now, e.d.Database, indexed, streams)
 	if err != nil {
 		return nil, err
 	}

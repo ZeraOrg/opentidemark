@@ -393,7 +393,7 @@ func TestEmailNotifier(t *testing.T) {
 	}
 	for _, want := range []string{"Subject: [FIRING] Checkout  Bcc: evil@example.com", "multipart/alternative",
 		"Content-Type: text/plain; charset=utf-8", "Content-Type: text/html; charset=utf-8", "Severity: critical",
-		"Date: Tue, 13 Oct 2026 12:00:00 +0000", "&gt; 25", "Open in Tidemark"} {
+		"Date: Tue, 13 Oct 2026 12:00:00 +0000", "&gt; 25", "Open in OpenTidemark"} {
 		if !strings.Contains(srv.data, want) {
 			t.Errorf("message missing %q:\n%s", want, srv.data)
 		}

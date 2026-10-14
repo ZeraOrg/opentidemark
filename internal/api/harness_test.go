@@ -82,7 +82,8 @@ func newEnv(t *testing.T) *env {
 	audit := service.NewAuditor(meta.NewAuditLog(db), logger, time.Now)
 	sm := auth.NewSessionManager(sessRepo, usersRepo, clock, time.Hour, 24*time.Hour)
 	users := service.NewUsers(service.UsersDeps{Store: usersRepo, Sessions: sm, Tokens: tokRepo, Settings: settings,
-		Hasher: hasher, Policy: policy, Audit: audit, Now: time.Now})
+		Hasher: hasher, Policy: policy, Teams: meta.NewTeams(db), Audit: audit, Now: time.Now})
+	teams := service.NewTeams(service.TeamsDeps{Repo: meta.NewTeams(db), Users: usersRepo, Settings: settings, Audit: audit})
 	login, err := auth.NewLogin(usersRepo, hasher, sm, clock)
 	if err != nil {
 		t.Fatal(err)
@@ -100,7 +101,7 @@ func newEnv(t *testing.T) *env {
 	}
 	indexed := service.NewIndexedFields(meta.NewIndexedFields(db), admin, audit)
 	streamAdmin := service.NewStreamAdmin(service.StreamAdminDeps{Repo: streams, Registry: registry, Storage: admin,
-		Retention: rs, Indexed: indexed, Audit: audit, Leader: alwaysLeader{}, Now: time.Now, Logger: logger})
+		Grants: meta.NewTeams(db), Access: service.NewAccess(meta.NewTeams(db), meta.NewSettings(db)), Retention: rs, Indexed: indexed, Audit: audit, Leader: alwaysLeader{}, Now: time.Now, Logger: logger})
 	purges := service.NewPurges(meta.NewPurgeJobs(db), admin, streams, audit, logger)
 	dashboards, err := service.NewDashboards(meta.NewDashboards(db), audit)
 	if err != nil {
@@ -117,13 +118,16 @@ func newEnv(t *testing.T) *env {
 	evaluator := alerting.NewEvaluator(alerting.EvaluatorDeps{Rules: ruleRepo, Querier: &fakeQuerier{value: 42},
 		Notify: alerting.NewDispatcher(channels, logger, time.Now), Clock: wallClock{}, Leader: alwaysLeader{},
 		Database: "tidemark", Logger: logger})
-	alerts := service.NewAlerts(ruleRepo, channels, evaluator, audit, time.Now)
+	alerts := service.NewAlerts(service.AlertsDeps{Repo: ruleRepo, Channels: channels, Evaluator: evaluator,
+		Access: service.NewAccess(meta.NewTeams(db), meta.NewSettings(db)), Audit: audit, Now: time.Now})
 	rt.Register(
 		&AlertsAPI{Alerts: alerts, Channels: channels, ClientIP: ip},
 		&DashboardsAPI{Dashboards: dashboards, ClientIP: ip},
 		&StreamsAPI{Streams: streamAdmin, Indexed: indexed, Purges: purges, ClientIP: ip},
-		&AuthAPI{Login: login, Sessions: sm, Users: users, Audit: audit, ClientIP: ip},
-		&UsersAPI{Users: users, ClientIP: ip},
+		&AuthAPI{Login: login, Sessions: sm, Users: users, Access: service.NewAccess(meta.NewTeams(db), settings), Teams: teams,
+			Audit: audit, ClientIP: ip},
+		&UsersAPI{Users: users, Teams: teams, ClientIP: ip},
+		&TeamsAPI{Teams: teams, ClientIP: ip},
 		&TokensAPI{Tokens: service.NewTokens(tokRepo, audit, time.Now), ClientIP: ip},
 		&ConnectionsAPI{Connections: service.NewConnections(connRepo, auth.NewConnectionAuthenticator(connRepo, clock), audit, time.Now), PublicURL: pub, ClientIP: ip},
 		&SettingsAPI{Settings: service.NewSettings(settings, rs, audit), ClientIP: ip},

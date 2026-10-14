@@ -55,6 +55,7 @@ type connectionView struct {
 	Protocols          []string       `json:"protocols"`
 	DefaultStream      string         `json:"defaultStream"`
 	AllowedCIDRs       []string       `json:"allowedCidrs"`
+	AllowedStreams     []string       `json:"allowedStreams"`
 	MinimumLevel       *string        `json:"minimumLevel"`
 	AppliedProperties  map[string]any `json:"appliedProperties"`
 	RateLimitEPS       int            `json:"rateLimitEps"`
@@ -71,7 +72,7 @@ type connectionView struct {
 
 func toConnectionView(c meta.Connection) connectionView {
 	v := connectionView{ID: c.ID, Name: c.Name, Description: c.Description, KeyPrefix: c.KeyPrefix,
-		Protocols: nonNil(c.Protocols), DefaultStream: c.DefaultStream, AllowedCIDRs: nonNil(c.AllowedCIDRs),
+		Protocols: nonNil(c.Protocols), DefaultStream: c.DefaultStream, AllowedCIDRs: nonNil(c.AllowedCIDRs), AllowedStreams: nonNil(c.AllowedStreams),
 		AppliedProperties: c.AppliedProperties, RateLimitEPS: c.RateLimitEPS, ExpiresAt: c.ExpiresAt,
 		RevokedAt: c.RevokedAt, RotationGraceUntil: c.PrevKeyExpiresAt, LastUsedAt: c.LastUsedAt,
 		LastUsedIP: c.LastUsedIP, EventsReceived: c.EventsReceived, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt}

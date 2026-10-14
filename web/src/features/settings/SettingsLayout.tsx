@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
-// Settings area (SPEC §16.1, DESIGN §5.20): a 200 px sub-nav (Connections, Users, API tokens,
-// Channels, Audit log, System, Import) next to the page. Admin-only entries are hidden for other
+// Settings area (SPEC §16.1, DESIGN §5.20): a 200 px sub-nav (Connections, Users, Teams, API
+// tokens, Channels, Audit log, System, Import) next to the page. Admin-only entries are hidden for other
 // roles; Import is shown only when the server offers the import API (GET /imports ≠ 404).
 
 import { useQuery } from '@tanstack/react-query';
@@ -22,6 +22,7 @@ interface Item {
 export const SETTINGS_NAV: readonly Item[] = [
   { to: 'connections', label: 'Connections', role: 'admin' },
   { to: 'users', label: 'Users', role: 'viewer' },
+  { to: 'teams', label: 'Teams', role: 'admin' },
   { to: 'tokens', label: 'API tokens', role: 'viewer' },
   { to: 'channels', label: 'Channels', role: 'viewer' },
   { to: 'audit', label: 'Audit log', role: 'admin' },

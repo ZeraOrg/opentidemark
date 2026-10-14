@@ -81,7 +81,7 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
               />
             )}
           </Field>
-          <Field label="Scope">
+          <Field label="Scope" help="Limits what the token may do; it sees the same streams as you.">
             {(id) => (
               <Select
                 id={id}
@@ -142,7 +142,8 @@ export default function TokensPage() {
       <div className={s.head}>
         <h1>API tokens</h1>
         <span className={l.subtle}>
-          Personal tokens for scripts and integrations · shown once, stored hashed
+          Personal tokens for scripts and integrations · shown once, stored hashed · a token sees the same
+          streams as your account
         </span>
         <span className={s.headActions}>
           <Button variant="ghost" icon={<Plus size={14} />} onClick={() => setCreating(true)}>

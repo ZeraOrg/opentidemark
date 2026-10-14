@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 <#
 .SYNOPSIS
-  Tidemark installer for Windows (SPEC §17.2, §17.3).
+  OpenTidemark installer for Windows (SPEC §17.2, §17.3).
 
 .DESCRIPTION
   -Mode Docker
@@ -13,7 +13,7 @@
       %ProgramData%\Tidemark\tidemark.env (random secrets on first run), registers the Windows
       service `Tidemark` (delayed auto start, restart on failure, virtual account
       NT SERVICE\Tidemark) and restricts the data directory to Administrators, SYSTEM and the
-      service account. Firewall rules for the Tidemark ports are added only with -OpenFirewall.
+      service account. Firewall rules for the OpenTidemark ports are added only with -OpenFirewall.
       ClickHouse runs separately (Docker Desktop) with the users from deploy\clickhouse\users.d and
       the passwords written to tidemark.env.
 

@@ -97,6 +97,22 @@ func specVariables(t *testing.T) map[string]bool {
 	return out
 }
 
+// TestManualPagesInNav checks that every chapter of the operations manual (docs/manual/*.md) is
+// in the navigation of the documentation site (mkdocs.yml, SPEC §17.4), so a chapter cannot be
+// published without a way to reach it.
+func TestManualPagesInNav(t *testing.T) {
+	nav := readRepoFile(t, "mkdocs.yml")
+	pages, err := filepath.Glob(filepath.Join(repoRoot(t), "docs", "manual", "*.md"))
+	if err != nil || len(pages) == 0 {
+		t.Fatalf("docs/manual/*.md: %v (%d files)", err, len(pages))
+	}
+	for _, page := range pages {
+		if entry := "manual/" + filepath.Base(page); !strings.Contains(nav, ": "+entry+"\n") {
+			t.Errorf("mkdocs.yml nav lacks %s", entry)
+		}
+	}
+}
+
 // TestConfigurationDocMatchesSpec checks that docs/configuration.md documents only SPEC §7
 // variables (internal/config checks it against the binary's variables and defaults, SPEC §18).
 func TestConfigurationDocMatchesSpec(t *testing.T) {

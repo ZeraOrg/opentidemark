@@ -1,8 +1,8 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 # Changelog
 
-All notable changes to Tidemark are documented in this file. The format is based on
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Tidemark uses
+All notable changes to OpenTidemark are documented in this file. The format is based on
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and OpenTidemark uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Before 1.0, minor versions may
 contain breaking changes; upgrades never lose data (see the upgrade rules in `SPEC.md`).
 
@@ -10,6 +10,96 @@ Release archives, checksums and container images are on the
 [releases page](https://github.com/ZeraOrg/tidemark/releases).
 
 ## [Unreleased]
+
+## [0.2.0] - 2026-10-14
+
+### Added
+
+- **Operations manual** in the documentation (`docs/manual/`, section "Operations manual" on
+  the site): deployment topologies and a production checklist, security hardening, users, roles,
+  tokens and teams, ingestion recipes per protocol and shipper, integrations, metrics and
+  Prometheus monitoring with ready-made alert rules, streams and retention, a TQL cookbook,
+  dashboards as code, alerting with the webhook signature, day-2 operations and an incident
+  runbook, the automation API and a guide for automation agents.
+- Every release attaches the documentation as an offline bundle, `tidemark_<version>_docs.zip`,
+  that works from `file://` with search (`make docs-offline` builds it locally).
+- The documentation site publishes `llms.txt` (an index of every page) and `llms-full.txt` (the
+  full text) for agents and language models; the offline bundle contains them too.
+- Query language: the built-in field `connection_id` filters and groups logs, spans and metrics
+  by the connection that sent them.
+- New metric `tidemark_wal_bytes{signal}`: the size of the write-ahead log on disk, so a
+  growing backlog (for example while ClickHouse is down) can be alerted on.
+- A trademark notice in `LICENSING.md`, linked from the README and the documentation site
+  footer, names the owners of the third-party products OpenTidemark works with.
+- **Teams**: admins group users into teams and grant each team the streams it may see
+  (`/api/v1/teams`, `PUT /api/v1/users/{id}/teams`). `GET /api/v1/auth/me` reports which
+  streams the signed-in user can see, and user objects list their teams.
+- **Data access by stream**: searches, histograms, facets, field lists, events, traces,
+  metrics, exports, the live tail and the streams list show only the streams a user may see.
+  Admins see every stream, members of teams see the streams granted to their teams, and users
+  in no team see every stream unless *deny by default* is turned on in the settings. Search
+  requests can be narrowed to some streams (`streams`) and, for logs, environments (`env`).
+- Web UI: **Settings → Teams** manages teams, their members and streams, and the deny-by-default
+  setting; the Users page shows and assigns teams, and your account page tells you which streams
+  you can see.
+- Web UI: a **scope picker** in the top bar of Events, Traces, Metrics and dashboards narrows
+  the view to some of your streams and, for logs, to environments; the choice is in the URL and
+  remembered. Users without any stream get a clear empty state instead of empty results.
+- Web UI: alert rules can be limited to streams in the rule editor; connections get an
+  "Allowed streams" field and an edit dialog; a trace shows "parent span not visible" when the
+  parent is in a stream you cannot see.
+- Connections can be limited to **allowed streams**: data that names another stream is written
+  to the connection's default stream and counted in `tidemark_ingest_rerouted_total`.
+- Alert rules can be limited to chosen streams. Users who see only some streams must choose
+  streams they can see, and they only see alert rules over those streams. Existing rules keep
+  reading every stream.
+- **Documentation website** at <https://zeraorg.github.io/tidemark/> with search, built from the
+  guides in `docs/`.
+- Log explorer: **Show in column** in the event detail adds any field to the event list as a
+  column, now including built-in fields such as host, environment and trace ID. Remove a column
+  with the × in its header. The Columns dialog lists the shown columns in order (move, remove)
+  and the other fields with a filter; with many columns the list scrolls sideways instead of
+  squeezing the message.
+- A step-by-step guide for running OpenTidemark locally with Docker Compose (`docs/quickstart.md`).
+- A detailed installation guide for every supported platform (`docs/installation.md`). It covers
+  Docker Compose, native Linux (systemd) and Windows (service) installs with ClickHouse, macOS for
+  development, hardening, upgrades, backups and troubleshooting.
+- **Ready-to-use Docker bundle** in every release: `tidemark_<version>_docker.tar.gz` (and
+  `.zip`) contains a Compose file that runs the published image of that release, the installers,
+  the ClickHouse configuration and an `INSTALL.md`. Unpack it and run `./install.sh docker`
+  (`.\install.ps1 -Mode Docker` on Windows); no source checkout or image build is needed.
+- Every release archive now contains an `INSTALL.md` with the installation steps for its
+  platform (verification, installing, ClickHouse, service management, upgrade, uninstall).
+- The release notes list the assets with quick install commands and how to verify them.
+
+### Changed
+
+- The Elasticsearch endpoint no longer identifies itself as Elasticsearch: the
+  `X-Elastic-Product` header and the tagline are gone, and the cluster info only reports the
+  name and the API version. Filebeat, Fluent Bit and Vector keep working. Logstash's
+  `elasticsearch` output refuses such a server; send from Logstash with its `http` output to the
+  native JSON endpoint instead (see "Logstash" in `docs/ingestion.md`). The Logstash connection
+  snippet now shows that configuration.
+- The project is now called OpenTidemark; commands, settings, the image and the API are
+  unchanged.
+
+### Fixed
+
+- `tidemark_pipeline_dropped_total{reason="backpressure"}` no longer counts events whose client
+  disconnected or timed out while they were being written to the write-ahead log. Those events
+  are stored, so they were never lost; they now count as enqueued.
+
+### Security
+
+- The ClickHouse configuration in the release archives (`deploy/clickhouse/config.d/tidemark.xml`)
+  no longer makes ClickHouse listen on every network interface. A native ClickHouse install that
+  uses it now keeps ClickHouse's default loopback-only listen address; the Docker Compose stack
+  gets the container listen address from a separate Compose-only file (`docker-listen.xml`). If
+  you deleted the `listen_host` line by hand before, there is nothing to change.
+- The shipped ClickHouse configuration (single server and high availability) switches off
+  ClickHouse's crash reports to the ClickHouse developers.
+- The container image is scanned for known vulnerabilities (HIGH and CRITICAL with an available
+  fix) before a release is published; a finding stops the release.
 
 ## [0.1.0] - 2026-10-13
 
@@ -46,5 +136,6 @@ First public release.
   windows/amd64 (systemd unit and Windows service installers), and a multi-arch container image
   with a Docker Compose setup.
 
-[Unreleased]: https://github.com/ZeraOrg/tidemark/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/ZeraOrg/tidemark/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/ZeraOrg/tidemark/releases/tag/v0.2.0
 [0.1.0]: https://github.com/ZeraOrg/tidemark/releases/tag/v0.1.0

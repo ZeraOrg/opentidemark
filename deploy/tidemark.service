@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # systemd unit for a native Linux install (SPEC §15.9, §17.3); installed by deploy/install.sh.
 [Unit]
-Description=Tidemark observability platform
+Description=OpenTidemark observability platform
 Documentation=https://github.com/ZeraOrg/tidemark
 After=network-online.target clickhouse-server.service
 Wants=network-online.target

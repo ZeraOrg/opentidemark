@@ -1,11 +1,11 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 # Contributing
 
-Thanks for your interest in Tidemark.
+Thanks for your interest in OpenTidemark.
 
 ## Licence of contributions (inbound = outbound)
 
-Tidemark is licensed under the [Apache License, Version 2.0](LICENSE). Any contribution you
+OpenTidemark is licensed under the [Apache License, Version 2.0](LICENSE). Any contribution you
 submit is licensed under the same terms, as described in section 5 of the licence. There is no
 separate contributor licence agreement and no relicensing grant.
 

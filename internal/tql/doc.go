@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package tql implements the Tidemark Query Language (SPEC §10): a lexer and
+// Package tql implements the OpenTidemark Query Language (SPEC §10): a lexer and
 // recursive-descent parser producing an AST, a semantic checker, dashboard
 // variable substitution, a compiler to parameterised ClickHouse SQL, and
 // syntactic autocomplete.
@@ -9,7 +9,8 @@
 //
 //	q, err := tql.Parse(text)                  // syntax; falls back to free text (§10.6)
 //	q, err = tql.Substitute(q, vars)            // dashboards only (§13.1)
-//	c, err := tql.Compile(q, tql.Options{From: from, To: to, Database: "tidemark"})
+//	c, err := tql.Compile(q, tql.Options{From: from, To: to, Database: "tidemark",
+//		Streams: scope}) // the caller's model.StreamScope; required
 //	rows, err := conn.Query(ctx, c.SQL, c.Args...)
 //
 // Query errors are *Error values carrying a byte position, length, message

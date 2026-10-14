@@ -13,6 +13,7 @@ import (
 
 	"github.com/ZeraOrg/tidemark/internal/auth"
 	"github.com/ZeraOrg/tidemark/internal/meta"
+	"github.com/ZeraOrg/tidemark/internal/model"
 	"github.com/ZeraOrg/tidemark/internal/tql"
 )
 
@@ -185,7 +186,7 @@ func TestDashboardTemplatesCompile(t *testing.T) {
 				if err != nil {
 					t.Fatalf("%s/%s: %v", tpl.ID, p.ID, err)
 				}
-				if _, err := tql.Compile(q, tql.Options{Database: "tidemark", From: to.Add(-time.Hour), To: to}); err != nil {
+				if _, err := tql.Compile(q, tql.Options{Database: "tidemark", From: to.Add(-time.Hour), To: to, Streams: model.AllStreams()}); err != nil {
 					t.Errorf("%s/%s compile %q: %v", tpl.ID, p.ID, q.String(), err)
 				}
 			}

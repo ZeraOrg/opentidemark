@@ -31,7 +31,9 @@ const (
 	DropWALDecode  = "wal_decode"
 )
 
-// Journal is the write-ahead log of one signal (implemented by *wal.Log).
+// Journal is the write-ahead log of one signal (implemented by *wal.Log). Append returns ctx's
+// error only after the record was written, when the caller stopped waiting for its fsync; the
+// record still becomes durable and is read like any other.
 type Journal interface {
 	Append(ctx context.Context, payload []byte) (wal.Pos, error)
 	ReadFrom(from wal.Pos, maxRecords int, maxBytes int64) ([]wal.Record, error)
@@ -91,7 +93,9 @@ func NewWALQueue[T any](signal string, cfg Config, d WALQueueDeps[T]) *WALQueue[
 }
 
 // Enqueue appends the admitted rows to the WAL and returns once they are durable. A full WAL
-// (size cap) or a failing disk yields ingest.ErrBackpressure; nothing is acknowledged then.
+// (size cap) or a failing disk yields ingest.ErrBackpressure; nothing is acknowledged then. When
+// ctx ends while the rows wait for their fsync, they are already written and will be stored, so
+// they count as enqueued and ctx's error is returned (SPEC §9.8).
 func (q *WALQueue[T]) Enqueue(ctx context.Context, rows []T) error {
 	rows = admitRows(ctx, q.signal, rows, q.d.Gate, q.d.Stream, q.d.Metrics)
 	if len(rows) == 0 {
@@ -109,16 +113,25 @@ func (q *WALQueue[T]) Enqueue(ctx context.Context, rows []T) error {
 		return err
 	}
 	if _, err := q.d.Journal.Append(ctx, payload); err != nil {
+		if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
+			q.written(len(rows))
+			return fmt.Errorf("wal append: %w", err)
+		}
 		q.d.Metrics.Dropped(q.signal, DropBackpressure, len(rows))
 		if errors.Is(err, wal.ErrFull) {
 			return ingest.ErrBackpressure
 		}
 		return fmt.Errorf("%w: wal append: %w", ingest.ErrBackpressure, err)
 	}
-	depth := q.pending.Add(int64(len(rows)))
-	q.d.Metrics.Enqueued(q.signal, len(rows))
-	q.d.Metrics.QueueDepth(q.signal, int(depth))
+	q.written(len(rows))
 	return nil
+}
+
+// written counts n rows that are in the WAL and will be committed by the flusher.
+func (q *WALQueue[T]) written(n int) {
+	depth := q.pending.Add(int64(n))
+	q.d.Metrics.Enqueued(q.signal, n)
+	q.d.Metrics.QueueDepth(q.signal, int(depth))
 }
 
 // Depth returns rows acknowledged but not yet committed (backlog from a previous run is counted

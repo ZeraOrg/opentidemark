@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ZeraOrg/tidemark/internal/model"
 	"github.com/ZeraOrg/tidemark/internal/tql"
 )
 
@@ -129,7 +130,7 @@ func TestRuleMutedAndCompileRange(t *testing.T) {
 	if !d.Muted(t0) || d.Muted(until) {
 		t.Error("mute window")
 	}
-	c, err := d.Compile(t0, "tidemark", nil)
+	c, err := d.Compile(t0, "tidemark", nil, model.AllStreams())
 	if err != nil {
 		t.Fatal(err)
 	}

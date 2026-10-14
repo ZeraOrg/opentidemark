@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <!--
-  Tidemark ClickHouse users (SPEC §8.2, §15.8).
+  OpenTidemark ClickHouse users (SPEC §8.2, §15.8).
   tidemark_writer: migrations, inserts and admin DDL on the tidemark database only.
   tidemark_reader: readonly=2 user for user queries (SELECT only; settings may be tightened per query).
   Passwords come from the environment of the ClickHouse process (see deploy/.env.example).

@@ -52,7 +52,7 @@ func (a *SearchAPI) export(w http.ResponseWriter, r *http.Request) error {
 		return nil
 	}
 	_, err = a.Search.Export(r.Context(), actor(r, a.ClientIP), principal(r), service.ExportRequest{Q: q.Get("q"),
-		Range: rng, Format: format, Signals: listParam(q, "signals")}, func(res store.Result) error {
+		Range: rng, Format: format, Signals: listParam(q, "signals"), Select: selectionParam(q)}, func(res store.Result) error {
 		if !started {
 			if err := start(); err != nil {
 				return err

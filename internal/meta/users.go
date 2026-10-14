@@ -16,7 +16,7 @@ const (
 	RoleViewer = "viewer"
 )
 
-// User is a Tidemark user account.
+// User is an OpenTidemark user account.
 type User struct {
 	ID                 string
 	Username           string

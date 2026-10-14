@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 )
@@ -118,7 +119,7 @@ func contractConnections(t *testing.T, open opener) {
 	r := NewConnections(open(t))
 	c := &Connection{Name: "checkout", KeyPrefix: "tmk_abcd", KeyHash: "hash1", Protocols: []string{"seq", "otlp"},
 		DefaultStream: "app", AllowedCIDRs: []string{"10.0.0.0/8"}, MinimumLevel: "Warning",
-		AppliedProperties: map[string]any{"team": "a"}, RateLimitEPS: 100}
+		AppliedProperties: map[string]any{"team": "a"}, RateLimitEPS: 100, AllowedStreams: []string{"app", "web"}}
 	if err := r.Create(ctx, c); err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +128,8 @@ func contractConnections(t *testing.T, open opener) {
 	}
 	got, err := r.GetByKeyHash(ctx, "hash1", t0)
 	if err != nil || got.Name != "checkout" || len(got.Protocols) != 2 || got.AppliedProperties["team"] != "a" ||
-		got.AllowedCIDRs[0] != "10.0.0.0/8" || got.RateLimitEPS != 100 || got.MinimumLevel != "Warning" {
+		got.AllowedCIDRs[0] != "10.0.0.0/8" || got.RateLimitEPS != 100 || got.MinimumLevel != "Warning" ||
+		!slices.Equal(got.AllowedStreams, []string{"app", "web"}) {
 		t.Fatalf("get: %+v %v", got, err)
 	}
 	grace := t0.Add(10 * time.Minute)
@@ -147,7 +149,7 @@ func contractConnections(t *testing.T, open opener) {
 		t.Errorf("rotate without grace kept old key: %v", err)
 	}
 	got, _ = r.Get(ctx, c.ID)
-	got.Description, got.Protocols, got.AppliedProperties, got.AllowedCIDRs = "d", nil, nil, nil
+	got.Description, got.Protocols, got.AppliedProperties, got.AllowedCIDRs, got.AllowedStreams = "d", nil, nil, nil, nil
 	if err := r.Update(ctx, &got); err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +161,7 @@ func contractConnections(t *testing.T, open opener) {
 	}
 	got, _ = r.GetByName(ctx, "checkout")
 	if got.EventsReceived != 10 || got.LastUsedIP != "9.9.9.9" || got.Description != "d" || got.KeyPrefix != "tmk_ijkl" ||
-		got.Protocols == nil || len(got.Protocols) != 0 {
+		got.Protocols == nil || len(got.Protocols) != 0 || got.AllowedStreams == nil || len(got.AllowedStreams) != 0 {
 		t.Errorf("after update: %+v", got)
 	}
 	if err := r.Revoke(ctx, c.ID, t0); err != nil {
@@ -301,14 +303,22 @@ func contractAlertRules(t *testing.T, open opener) {
 		t.Fatalf("history %+v %v", h, err)
 	}
 	got, _ := r.Get(ctx, a.ID)
-	if got.State != "firing" || *got.LastValue != 42 || string(got.EvalState) != `{"groups":{}}` {
+	if got.State != "firing" || *got.LastValue != 42 || string(got.EvalState) != `{"groups":{}}` || got.Streams != nil {
 		t.Errorf("%+v", got)
 	}
+	got.Streams = []string{"api", "web"}
 	if err := r.Update(ctx, &got); err != nil {
 		t.Fatal(err)
 	}
-	if list, _ := r.List(ctx); len(list) != 1 {
-		t.Error("list")
+	if list, _ := r.List(ctx); len(list) != 1 || !slices.Equal(list[0].Streams, []string{"api", "web"}) {
+		t.Errorf("list %+v", list)
+	}
+	scoped := &AlertRule{Name: "scoped", Doc: json.RawMessage(`{}`), Streams: []string{}}
+	if err := r.Create(ctx, scoped); err != nil {
+		t.Fatal(err)
+	}
+	if g, _ := r.Get(ctx, scoped.ID); g.Streams == nil || len(g.Streams) != 0 {
+		t.Errorf("an empty stream list must stay distinct from all streams: %#v", g.Streams)
 	}
 	if err := r.Delete(ctx, a.ID); err != nil {
 		t.Fatal(err)

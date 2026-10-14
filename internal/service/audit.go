@@ -44,7 +44,7 @@ type Actor struct {
 	IP string
 }
 
-// SystemActor is used for actions performed by Tidemark itself.
+// SystemActor is used for actions performed by OpenTidemark itself.
 var SystemActor = Actor{ID: "system"}
 
 // Auditor records audit entries. Failures are logged, never returned to callers, so an audit

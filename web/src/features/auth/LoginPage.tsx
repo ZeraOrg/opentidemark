@@ -122,14 +122,16 @@ export function LoginPage() {
         <div className={s.brand}>
           <LogoMark size={36} />
           <div>
-            <div className={s.word}>Tidemark</div>
+            <div className={s.word}>OpenTidemark</div>
             <div className={s.tagline}>logs · traces · metrics</div>
           </div>
         </div>
         {step === 'login' ? (
           <form className={s.card} onSubmit={(e) => void submit(e)} noValidate>
             <h1 className={s.title}>Sign in</h1>
-            <p className={s.note}>Use your Tidemark account. Sessions expire after a period of inactivity.</p>
+            <p className={s.note}>
+              Use your OpenTidemark account. Sessions expire after a period of inactivity.
+            </p>
             <Field label="Username">
               {(id) => (
                 <TextInput
@@ -233,7 +235,7 @@ export function LoginPage() {
           </form>
         )}
         <div className={s.footer}>
-          Tidemark{product.data !== undefined ? ` v${product.data.Version}` : ''} · Status:{' '}
+          OpenTidemark{product.data !== undefined ? ` v${product.data.Version}` : ''} · Status:{' '}
           <span className={ready.isError ? s.down : s.up}>
             {ready.isPending ? '…' : ready.isError ? 'storage unavailable' : 'ready'}
           </span>

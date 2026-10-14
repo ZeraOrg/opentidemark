@@ -24,14 +24,19 @@ const (
 const spanSelect = "start_time, trace_id, span_id, parent_span_id, stream, service, name, kind, duration_ns, " +
 	"status_code, status_message, connection_id, attrs, attrs_num, resource_json, events_json, links_json"
 
-// Trace returns the spans of a trace (by start time) and the events with its trace id.
-func (r *Reader) Trace(ctx context.Context, traceID string) ([]model.Span, []model.Event, error) {
-	spans, err := r.traceSpans(ctx, traceID)
+// Trace returns the spans of a trace (by start time) and the events with its trace id, both
+// limited to scope; ErrNotFound when nothing is visible.
+func (r *Reader) Trace(ctx context.Context, scope model.StreamScope, traceID string) ([]model.Span, []model.Event, error) {
+	cond, args, err := streamCond(scope)
+	if err != nil {
+		return nil, nil, err
+	}
+	spans, err := r.traceSpans(ctx, cond, concatArgs(args, []any{traceID}))
 	if err != nil {
 		return nil, nil, err
 	}
 	events, err := r.readEvents(ctx, maxTraceEvents, "SELECT "+logEventSelect+" FROM "+r.cfg.Database+
-		".events WHERE trace_id = ? ORDER BY timestamp ASC, id ASC LIMIT ?", traceID, maxTraceEvents)
+		".events WHERE "+cond+" AND trace_id = ? ORDER BY timestamp ASC, id ASC LIMIT ?", append(args, traceID, maxTraceEvents)...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -41,9 +46,11 @@ func (r *Reader) Trace(ctx context.Context, traceID string) ([]model.Span, []mod
 	return spans, events, nil
 }
 
-func (r *Reader) traceSpans(ctx context.Context, traceID string) ([]model.Span, error) {
+// traceSpans reads the spans matching cond (the stream condition) and trace_id; args holds
+// the arguments of cond followed by the trace id.
+func (r *Reader) traceSpans(ctx context.Context, cond string, args []any) ([]model.Span, error) {
 	rows, cancel, err := r.query(ctx, maxTraceSpans, nil, model.SourceSpans, "SELECT "+spanSelect+" FROM "+r.cfg.Database+
-		".spans WHERE trace_id = ? ORDER BY start_time ASC, span_id ASC LIMIT ?", []any{traceID, maxTraceSpans})
+		".spans WHERE "+cond+" AND trace_id = ? ORDER BY start_time ASC, span_id ASC LIMIT ?", append(args, maxTraceSpans))
 	if err != nil {
 		return nil, err
 	}
@@ -106,8 +113,12 @@ func decodeList[T any](s string) []T {
 }
 
 // Traces finds the newest traces with a span matching f and summarizes each over all of its
-// spans in the (slightly widened) range.
+// spans inside f.Streams in the (slightly widened) range.
 func (r *Reader) Traces(ctx context.Context, f store.Filter, limit int) ([]store.TraceSummary, error) {
+	cond, scopeArgs, err := streamCond(f.Streams)
+	if err != nil {
+		return nil, err
+	}
 	ids, err := r.matchingTraces(ctx, f, limit)
 	if err != nil || len(ids) == 0 {
 		return []store.TraceSummary{}, err
@@ -119,10 +130,10 @@ func (r *Reader) Traces(ctx context.Context, f store.Filter, limit int) ([]store
 		"min(start_time), (max(toUnixTimestamp64Nano(start_time) + toInt64(duration_ns)) - " +
 		"toUnixTimestamp64Nano(min(start_time))) / 1e6, count(), countIf(status_code = 'error'), " +
 		"arraySort(groupUniqArray(service)) FROM " + r.cfg.Database + ".spans " +
-		"WHERE has(?, trace_id) AND start_time >= toDateTime64(?, 9, 'UTC') AND start_time < toDateTime64(?, 9, 'UTC') " +
+		"WHERE " + cond + " AND has(?, trace_id) AND start_time >= toDateTime64(?, 9, 'UTC') AND start_time < toDateTime64(?, 9, 'UTC') " +
 		"GROUP BY trace_id"
 	rows, cancel, err := r.query(ctx, len(ids), nil, model.SourceSpans, sql,
-		[]any{ids, f.Range.From.Add(-traceSlack), f.Range.To.Add(traceSlack)})
+		append(scopeArgs, ids, f.Range.From.Add(-traceSlack), f.Range.To.Add(traceSlack)))
 	if err != nil {
 		return nil, err
 	}

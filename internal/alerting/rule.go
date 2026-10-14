@@ -197,14 +197,15 @@ func (d *RuleDoc) Validate() error {
 			return ruleErr("channels", "ids must be non-empty and unique")
 		}
 	}
-	_, err := d.Compile(time.Unix(0, 0).UTC(), "", nil)
+	_, err := d.Compile(time.Unix(0, 0).UTC(), "", nil, model.NoStreams())
 	return err
 }
 
 // Compile parses the query and compiles it for the window ending at now. The query must be
 // a single stats stage without span whose by-fields equal groupBy and whose only aggregate
-// is numeric (SPEC §14.1).
-func (d *RuleDoc) Compile(now time.Time, database string, indexed map[model.Source]map[string]string) (*tql.Compiled, error) {
+// is numeric (SPEC §14.1). streams is the stream scope the query reads (SPEC §15.10).
+func (d *RuleDoc) Compile(now time.Time, database string, indexed map[model.Source]map[string]string,
+	streams model.StreamScope) (*tql.Compiled, error) {
 	if strings.TrimSpace(d.Query) == "" || len(d.Query) > maxQueryLen {
 		return nil, ruleErr("query", "is required (at most 8 KiB)")
 	}
@@ -216,7 +217,7 @@ func (d *RuleDoc) Compile(now time.Time, database string, indexed map[model.Sour
 		return nil, err
 	}
 	c, err := tql.Compile(q, tql.Options{Database: database, From: now.Add(-time.Duration(d.Window)), To: now, Now: now,
-		MaxRows: MaxGroups, IndexedFields: indexed})
+		MaxRows: MaxGroups, IndexedFields: indexed, Streams: streams})
 	if err != nil {
 		return nil, err
 	}

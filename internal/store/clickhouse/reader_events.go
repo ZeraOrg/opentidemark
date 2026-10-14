@@ -91,10 +91,14 @@ func (r *Reader) readEvents(ctx context.Context, limit int, sql string, args ...
 	return out, nil
 }
 
-// Event returns one event by id.
-func (r *Reader) Event(ctx context.Context, id uuid.UUID) (model.Event, error) {
+// Event returns one event by id; an event outside scope is not found.
+func (r *Reader) Event(ctx context.Context, scope model.StreamScope, id uuid.UUID) (model.Event, error) {
+	cond, args, err := streamCond(scope)
+	if err != nil {
+		return model.Event{}, err
+	}
 	evs, err := r.readEvents(ctx, eventLookupRows, "SELECT "+logEventSelect+" FROM "+r.cfg.Database+
-		".events WHERE id = toUUID(?) LIMIT 1", id.String())
+		".events WHERE "+cond+" AND id = toUUID(?) LIMIT 1", append(args, id.String())...)
 	if err != nil {
 		return model.Event{}, err
 	}
@@ -104,17 +108,20 @@ func (r *Reader) Event(ctx context.Context, id uuid.UUID) (model.Event, error) {
 	return evs[0], nil
 }
 
-// Context returns events of the same service and host around ev: older newest-last, newer
-// oldest-first, both within contextWindow of ev.
-func (r *Reader) Context(ctx context.Context, ev model.Event, before, after int) ([]model.Event, []model.Event, error) {
+// Context returns events of the same service and host around ev inside scope: older
+// newest-last, newer oldest-first, both within contextWindow of ev.
+func (r *Reader) Context(ctx context.Context, scope model.StreamScope, ev model.Event, before, after int) ([]model.Event, []model.Event, error) {
+	cond, scopeArgs, err := streamCond(scope)
+	if err != nil {
+		return nil, nil, err
+	}
 	before, after = clamp(before, 0, maxContextEvents), clamp(after, 0, maxContextEvents)
-	base := "SELECT " + logEventSelect + " FROM " + r.cfg.Database + ".events WHERE service = ? AND host = ? AND "
+	base := "SELECT " + logEventSelect + " FROM " + r.cfg.Database + ".events WHERE " + cond + " AND service = ? AND host = ? AND "
+	args := func(rest ...any) []any { return concatArgs(scopeArgs, []any{ev.Service, ev.Host}, rest) }
 	older, newer := []model.Event{}, []model.Event{}
-	var err error
 	if before > 0 {
 		older, err = r.readEvents(ctx, before, base+"timestamp >= toDateTime64(?, 9, 'UTC') AND (timestamp, id) < (toDateTime64(?, 9, 'UTC'), toUUID(?)) "+
-			"ORDER BY timestamp DESC, id DESC LIMIT ?", ev.Service, ev.Host, ev.Timestamp.Add(-contextWindow),
-			ev.Timestamp, ev.ID.String(), before)
+			"ORDER BY timestamp DESC, id DESC LIMIT ?", args(ev.Timestamp.Add(-contextWindow), ev.Timestamp, ev.ID.String(), before)...)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -122,8 +129,7 @@ func (r *Reader) Context(ctx context.Context, ev model.Event, before, after int)
 	}
 	if after > 0 {
 		newer, err = r.readEvents(ctx, after, base+"timestamp < toDateTime64(?, 9, 'UTC') AND (timestamp, id) > (toDateTime64(?, 9, 'UTC'), toUUID(?)) "+
-			"ORDER BY timestamp ASC, id ASC LIMIT ?", ev.Service, ev.Host, ev.Timestamp.Add(contextWindow),
-			ev.Timestamp, ev.ID.String(), after)
+			"ORDER BY timestamp ASC, id ASC LIMIT ?", args(ev.Timestamp.Add(contextWindow), ev.Timestamp, ev.ID.String(), after)...)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -136,6 +142,9 @@ func clamp(v, lo, hi int) int { return max(lo, min(v, hi)) }
 // Tail returns events ingested in (after, until] that match f, oldest first, plus the total
 // count of such events (the caller reports the excess as dropped).
 func (r *Reader) Tail(ctx context.Context, f store.Filter, after, until time.Time, limit int) ([]store.TailEvent, uint64, error) {
+	if err := checkFilter(f); err != nil {
+		return nil, 0, err
+	}
 	if f.Source != model.SourceLogs {
 		return nil, 0, errors.New("tail: only logs can be tailed")
 	}

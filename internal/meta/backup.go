@@ -38,8 +38,8 @@ var ErrNotEmpty = errors.New("target metadata database is not empty")
 // exportTables lists every metadata table in foreign-key order (parents first).
 var exportTables = []string{
 	"users", "sessions", "connections", "api_tokens", "signals", "dashboards", "alert_rules", "alert_history",
-	"channels", "streams", "indexed_fields", "purge_jobs", "audit_log", "settings", "leases", "import_jobs",
-	"schema_migrations", "schema_info",
+	"channels", "streams", "teams", "team_members", "team_streams", "indexed_fields", "purge_jobs", "audit_log",
+	"settings", "leases", "import_jobs", "schema_migrations", "schema_info",
 }
 
 // bookkeepingTables are exported for reference but never imported (the target is migrated by

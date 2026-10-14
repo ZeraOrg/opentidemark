@@ -95,14 +95,15 @@ func TestResultKinds(t *testing.T) {
 
 func TestCompileOptionsErrors(t *testing.T) {
 	q, _ := Parse("x")
-	base := goldenOptions()
+	base, all := goldenOptions(), model.AllStreams()
 	bad := []Options{
 		{},
-		{From: base.To, To: base.From},
-		{Database: "bad-db; DROP", From: base.From, To: base.To},
-		{From: base.From, To: base.To, IndexedFields: map[model.Source]map[string]string{model.SourceLogs: {"k": "props['x']"}}},
-		{From: base.From, To: base.To, AutoSpan: 1500 * time.Millisecond},
-		{From: base.From, To: base.To, AutoSpan: -time.Second},
+		{From: base.To, To: base.From, Streams: all},
+		{Database: "bad-db; DROP", From: base.From, To: base.To, Streams: all},
+		{From: base.From, To: base.To, Streams: all, IndexedFields: map[model.Source]map[string]string{model.SourceLogs: {"k": "props['x']"}}},
+		{From: base.From, To: base.To, Streams: all, AutoSpan: 1500 * time.Millisecond},
+		{From: base.From, To: base.To, Streams: all, AutoSpan: -time.Second},
+		{Database: base.Database, From: base.From, To: base.To}, // no stream scope (SPEC §15.10)
 	}
 	for i, o := range bad {
 		if _, err := Compile(q, o); !errors.Is(err, ErrInvalidOptions) {

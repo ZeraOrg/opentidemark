@@ -325,6 +325,42 @@ func TestWALCapReturns503(t *testing.T) {
 	}
 }
 
+// abandonedWait is a journal whose caller stops waiting for the fsync: the record is written
+// (and made durable by the syncer) but Append reports the caller's context error.
+type abandonedWait struct{ *wal.Log }
+
+func (j abandonedWait) Append(ctx context.Context, payload []byte) (wal.Pos, error) {
+	pos, err := j.Log.Append(context.WithoutCancel(ctx), payload)
+	if err != nil {
+		return pos, err
+	}
+	return pos, ctx.Err()
+}
+
+// TestWALCancelledWaitIsNotBackpressure: a client that gives up while its rows wait for the
+// fsync loses nothing — the rows are stored — so they are counted as enqueued, never as dropped
+// for backpressure, and the error is the context error (SPEC §9.8).
+func TestWALCancelledWaitIsNotBackpressure(t *testing.T) {
+	st := &dedupStore{byToken: map[string]int{}}
+	e := newWALEnv(t, t.TempDir(), st, nil)
+	e.q.d.Journal = abandonedWait{e.log}
+	e.q.Start()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := e.q.Enqueue(ctx, events(3, "gone"))
+	if !errors.Is(err, context.Canceled) || errors.Is(err, ingest.ErrBackpressure) {
+		t.Fatalf("err = %v, want the context error without backpressure", err)
+	}
+	waitFor(t, func() bool { return st.count() == 3 })
+	if err := e.close(t, time.Second); err != nil {
+		t.Fatal(err)
+	}
+	enq, written, _, _ := e.stats.get()
+	if enq != 3 || written != 3 || e.stats.dropped[DropBackpressure] != 0 || e.stats.lastDepth != 0 {
+		t.Errorf("enqueued %d written %d dropped %v depth %d", enq, written, e.stats.dropped, e.stats.lastDepth)
+	}
+}
+
 func TestCodecsRoundTrip(t *testing.T) {
 	id := uuid.Must(uuid.NewV7())
 	ev := events(2, "codec")

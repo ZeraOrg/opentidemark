@@ -16,8 +16,16 @@ export interface TailHandlers {
 }
 
 /** Live tail transport (SPEC §11.3 GET /tail, Server-Sent Events). */
+export interface TailParams {
+  q: string;
+  signals: readonly string[];
+  /** The scope selection (SPEC §11.3). */
+  streams?: readonly string[];
+  env?: readonly string[];
+}
+
 export interface TailSource {
-  open(params: { q: string; signals: readonly string[] }, handlers: TailHandlers): () => void;
+  open(params: TailParams, handlers: TailHandlers): () => void;
 }
 
 /**
@@ -84,8 +92,8 @@ function parseJSON(data: unknown): unknown {
 /** EventSource-based tail: `event: events` (JSON array), `dropped` (count), `error` (message). */
 export function eventSourceTail(api: ApiClient): TailSource {
   return {
-    open({ q, signals }, h) {
-      const es = new EventSource(api.url('/tail', { q, signals }));
+    open({ q, signals, streams, env }, h) {
+      const es = new EventSource(api.url('/tail', { q, signals, streams, env }));
       es.addEventListener('events', (e) => {
         const data = parseJSON((e as MessageEvent).data);
         if (Array.isArray(data)) h.onEvents(data as LogEvent[]);

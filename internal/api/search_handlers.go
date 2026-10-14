@@ -84,6 +84,12 @@ func intParam(q url.Values, name string) (int, error) {
 	return n, nil
 }
 
+// selectionParam reads the stream and environment selection of a GET search route
+// (`streams=a,b`, `env=prod`; comma-separated and/or repeated, SPEC §11.3).
+func selectionParam(q url.Values) service.Selection {
+	return service.Selection{Streams: listParam(q, "streams"), Environments: listParam(q, "env")}
+}
+
 // listParam reads a comma-separated and/or repeated parameter.
 func listParam(q url.Values, name string) []string {
 	var out []string
@@ -98,13 +104,15 @@ func listParam(q url.Values, name string) []string {
 }
 
 type queryRequest struct {
-	Q       string   `json:"q"`
-	From    string   `json:"from"`
-	To      string   `json:"to"`
-	Limit   int      `json:"limit"`
-	Cursor  string   `json:"cursor"`
-	Span    string   `json:"span"`
-	Signals []string `json:"signals"`
+	Q            string   `json:"q"`
+	From         string   `json:"from"`
+	To           string   `json:"to"`
+	Limit        int      `json:"limit"`
+	Cursor       string   `json:"cursor"`
+	Span         string   `json:"span"`
+	Signals      []string `json:"signals"`
+	Streams      []string `json:"streams"`
+	Environments []string `json:"environments"`
 }
 
 func (a *SearchAPI) query(w http.ResponseWriter, r *http.Request) error {
@@ -121,7 +129,8 @@ func (a *SearchAPI) query(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	res, err := a.Search.Query(r.Context(), principal(r), service.QueryRequest{Q: in.Q, Range: rng, Limit: in.Limit,
-		Cursor: cur, Span: in.Span, Signals: in.Signals})
+		Cursor: cur, Span: in.Span, Signals: in.Signals,
+		Select: service.Selection{Streams: in.Streams, Environments: in.Environments}})
 	if err != nil {
 		return err
 	}
@@ -185,7 +194,7 @@ func (a *SearchAPI) histogram(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	h, err := a.Search.Histogram(r.Context(), principal(r), service.HistogramRequest{Q: q.Get("q"), Range: rng,
-		Buckets: buckets, Signals: listParam(q, "signals")})
+		Buckets: buckets, Signals: listParam(q, "signals"), Select: selectionParam(q)})
 	if err != nil {
 		return err
 	}
@@ -204,7 +213,7 @@ func (a *SearchAPI) facets(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	fs, err := a.Search.Facets(r.Context(), principal(r), service.FacetsRequest{Q: q.Get("q"), Range: rng,
-		Fields: listParam(q, "fields"), Top: top, Signals: listParam(q, "signals")})
+		Fields: listParam(q, "fields"), Top: top, Signals: listParam(q, "signals"), Select: selectionParam(q)})
 	if err != nil {
 		return err
 	}
@@ -225,7 +234,7 @@ func (a *SearchAPI) fields(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	fs, err := a.Search.Fields(r.Context(), sourceParam(q), rng)
+	fs, err := a.Search.Fields(r.Context(), principal(r), sourceParam(q), rng, selectionParam(q))
 	if err != nil {
 		return err
 	}
@@ -238,7 +247,7 @@ func (a *SearchAPI) fields(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (a *SearchAPI) event(w http.ResponseWriter, r *http.Request) error {
-	ev, err := a.Search.Event(r.Context(), r.PathValue("id"))
+	ev, err := a.Search.Event(r.Context(), principal(r), r.PathValue("id"))
 	if err != nil {
 		return err
 	}
@@ -266,7 +275,7 @@ func (a *SearchAPI) eventContext(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
-	c, err := a.Search.Context(r.Context(), r.PathValue("id"), before, after)
+	c, err := a.Search.Context(r.Context(), principal(r), r.PathValue("id"), before, after)
 	if err != nil {
 		return err
 	}
@@ -284,7 +293,8 @@ func (a *SearchAPI) traces(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	ts, err := a.Search.Traces(r.Context(), principal(r), service.TracesRequest{Q: q.Get("q"), Range: rng, Limit: limit})
+	ts, err := a.Search.Traces(r.Context(), principal(r), service.TracesRequest{Q: q.Get("q"), Range: rng, Limit: limit,
+		Select: selectionParam(q)})
 	if err != nil {
 		return err
 	}
@@ -303,7 +313,7 @@ type traceView struct {
 }
 
 func (a *SearchAPI) trace(w http.ResponseWriter, r *http.Request) error {
-	spans, events, err := a.Search.Trace(r.Context(), r.PathValue("traceId"))
+	spans, events, err := a.Search.Trace(r.Context(), principal(r), r.PathValue("traceId"))
 	if err != nil {
 		return err
 	}
@@ -321,7 +331,7 @@ func (a *SearchAPI) metricNames(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	names, err := a.Search.MetricNames(r.Context(), q.Get("q"), rng)
+	names, err := a.Search.MetricNames(r.Context(), principal(r), q.Get("q"), rng, selectionParam(q))
 	if err != nil {
 		return err
 	}
@@ -343,7 +353,7 @@ func (a *SearchAPI) complete(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
-	c, err := a.Search.Complete(r.Context(), principal(r), text, pos, sourceParam(q))
+	c, err := a.Search.Complete(r.Context(), principal(r), text, pos, sourceParam(q), selectionParam(q))
 	if err != nil {
 		return err
 	}

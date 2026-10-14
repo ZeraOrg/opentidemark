@@ -85,6 +85,12 @@ func hexID(name, column string, aliases ...string) builtin {
 	return builtin{name: name, column: column, typ: typeString, aliases: aliases, lowerStored: true}
 }
 
+// connectionID is the built-in for the id of the connection that ingested a row (SPEC §10.4);
+// ids are lower-case UUIDs.
+func connectionID() builtin {
+	return builtin{name: "connection_id", column: "connection_id", typ: typeString, aliases: []string{"connectionid"}, lowerStored: true}
+}
+
 func ec(expr, name string, t ColumnType) eventColumn {
 	return eventColumn{expr: expr, col: Column{Name: name, Type: t}}
 }
@@ -102,7 +108,7 @@ func logsSchema() *sourceSchema {
 			str("service", "service"), str("environment", "environment", "env"),
 			str("host", "host"), str("stream", "stream"),
 			hexID("trace_id", "trace_id", "traceid", "@tr"), hexID("span_id", "span_id", "spanid", "@sp"),
-			str("event_type", "event_type", "@i"), str("protocol", "protocol"),
+			str("event_type", "event_type", "@i"), str("protocol", "protocol"), connectionID(),
 			{name: "id", column: "id", typ: typeUUID, lowerStored: true},
 		},
 		eventCols: []eventColumn{
@@ -130,7 +136,7 @@ func spansSchema() *sourceSchema {
 			str("service", "service"), str("name", "name"), str("kind", "kind"),
 			str("status", "status_code", "status_code"), str("status_message", "status_message"),
 			{name: "duration", aliases: []string{"@duration"}, column: "duration_ns", typ: typeDuration},
-			str("stream", "stream"),
+			str("stream", "stream"), connectionID(),
 		},
 		eventCols: []eventColumn{
 			ec("start_time", "start_time", ColumnTime), ec("trace_id", "trace_id", ColumnString),
@@ -154,7 +160,7 @@ func metricsSchema() *sourceSchema {
 			{name: "@timestamp", aliases: []string{"timestamp"}, column: "timestamp", typ: typeTime},
 			str("name", "name"), str("service", "service"), str("kind", "kind"), str("unit", "unit"),
 			num("value", "value"), num("count", "`count`"), num("sum", "`sum`"),
-			num("min", "`min`"), num("max", "`max`"), str("stream", "stream"),
+			num("min", "`min`"), num("max", "`max`"), str("stream", "stream"), connectionID(),
 		},
 		eventCols: []eventColumn{
 			ec("timestamp", "timestamp", ColumnTime), ec("stream", "stream", ColumnString),

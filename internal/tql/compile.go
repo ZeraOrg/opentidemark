@@ -44,6 +44,10 @@ type Options struct {
 	AutoSpan      time.Duration                      // bucket used for `span auto` (0 ⇒ chosen for ≤ DefaultAutoBuckets buckets)
 	IndexedFields map[model.Source]map[string]string // property key ⇒ materialized column f_<slug> (§12.4)
 	ExtraFilters  []*Query                           // active signals: filters ANDed with the query (no stages)
+	// Streams is the caller's stream scope (SPEC §15.10) and is required: an unset scope fails
+	// with ErrInvalidOptions. All adds no condition, an empty scope adds `AND 0` (no rows), any
+	// other scope `AND stream IN (?, …)`.
+	Streams model.StreamScope
 }
 
 // Compiled is a ready-to-run ClickHouse statement. SQL contains only trusted
@@ -140,6 +144,9 @@ func extraFilter(i int, ef *Query, src model.Source) (Expr, error) {
 }
 
 func normalizeOptions(o Options) (Options, error) {
+	if !o.Streams.IsSet() {
+		return o, fmt.Errorf("%w: a stream scope is required", ErrInvalidOptions)
+	}
 	if o.From.IsZero() || o.To.IsZero() || !o.From.Before(o.To) {
 		return o, fmt.Errorf("%w: a time range with From before To is required", ErrInvalidOptions)
 	}
@@ -182,9 +189,29 @@ func (c *compiler) where(b *sqlBuf) {
 	b.arg(c.o.From.UTC())
 	b.w(" AND ", c.s.timeCol, " < ")
 	b.arg(c.o.To.UTC())
+	c.streamScope(b)
 	for _, e := range append(append([]Expr{}, c.p.filters...), c.extra...) {
 		b.w(" AND ")
 		c.exprParen(b, e)
+	}
+}
+
+// streamScope renders the stream condition of the caller's scope (SPEC §15.10). Every source
+// table has the `stream` column first in its sort key, so the condition prunes by primary index.
+func (c *compiler) streamScope(b *sqlBuf) {
+	switch sc := c.o.Streams; {
+	case sc.All():
+	case sc.Empty():
+		b.w(" AND 0")
+	default:
+		b.w(" AND stream IN (")
+		for i, n := range sc.Names() {
+			if i > 0 {
+				b.w(", ")
+			}
+			b.arg(n)
+		}
+		b.w(")")
 	}
 }
 

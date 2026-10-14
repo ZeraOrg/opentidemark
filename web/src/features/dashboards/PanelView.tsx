@@ -10,6 +10,7 @@ import { Link } from 'react-router-dom';
 import { errorMessage } from '../../api/client';
 import { dashboards as dashApi, search } from '../../api/endpoints';
 import type { LogEvent, Panel, QueryResponse } from '../../api/types';
+import { useDataScope } from '../../app/scope';
 import { useApi, usePalette } from '../../app/services';
 import { Chart, colorVar, Legend, Sparkline } from '../../components/Chart';
 import { LevelChip, Spinner } from '../../components/controls';
@@ -252,9 +253,10 @@ function LogsBody({ resp }: { resp: QueryResponse }) {
 
 function TracesBody({ q, range }: { q: string; range: TimeRange }) {
   const api = useApi();
+  const scope = useDataScope();
   const traces = useQuery({
-    queryKey: ['traces', q, range.from, range.to, TRACE_LIMIT],
-    queryFn: ({ signal }) => search.traces(api, { q, ...range, limit: TRACE_LIMIT }, signal),
+    queryKey: ['traces', q, range.from, range.to, TRACE_LIMIT, scope.key],
+    queryFn: ({ signal }) => search.traces(api, { q, ...range, limit: TRACE_LIMIT, ...scope.params }, signal),
   });
   if (traces.isPending) return <Spinner />;
   if (traces.isError) return <div className={s.panelError}>{errorMessage(traces.error)}</div>;
@@ -289,10 +291,15 @@ function QueryBody({
   refetchMs: number | null;
 }) {
   const api = useApi();
+  const scope = useDataScope();
   const res = useQuery({
-    queryKey: ['query', q, range.from, range.to, panel.type],
+    queryKey: ['query', q, range.from, range.to, panel.type, scope.key],
     queryFn: ({ signal }) =>
-      search.query(api, { q, ...range, limit: panel.type === 'logs' ? LOG_LIMIT : undefined }, signal),
+      search.query(
+        api,
+        { q, ...range, limit: panel.type === 'logs' ? LOG_LIMIT : undefined, ...scope.body },
+        signal,
+      ),
     refetchInterval: refetchMs ?? false,
   });
   if (res.isPending) return <Spinner />;

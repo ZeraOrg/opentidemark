@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package meta stores Tidemark metadata (users, sessions, connections, …) in SQLite (single node)
+// Package meta stores OpenTidemark metadata (users, sessions, connections, …) in SQLite (single node)
 // or PostgreSQL (HA) (SPEC §8.4). Repositories are written once against a small dialect
 // abstraction; migrations are per dialect with identical version numbers, transactional, locked,
 // backed up beforehand and guarded against downgrades (SPEC §8.5).

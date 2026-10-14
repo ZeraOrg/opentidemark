@@ -117,6 +117,13 @@
   color: var(--tm-color-fg-subtle);
 }
 
+/* Touch devices show the actions all the time, so the hover hint would be wrong. */
+@media (hover: none) {
+  .hint {
+    display: none;
+  }
+}
+
 .cardHead .cardActions ~ .hint,
 .hint + .cardActions {
   margin-left: 0;
@@ -212,22 +219,43 @@
 }
 
 .actions {
-  margin-left: auto;
+  /* Floats over the end of the row so values keep the full width. Anchored to the first line
+     (not the middle) so a wrapped value is covered predictably, with a fade on the left so the
+     covered text reads as cut off rather than missing. Hidden until hover or keyboard focus, but
+     still in the tab order (WCAG 2.1.1). */
+  position: absolute;
+  top: 2px;
+  right: 10px;
   display: inline-flex;
   gap: 2px;
-  flex: none;
-  /* Hidden until hover or keyboard focus, but still in the tab order (WCAG 2.1.1). */
+  padding-left: 22px;
+  border-radius: 4px;
+  background: linear-gradient(to right, transparent, var(--tm-color-bg-hover) 18px);
   opacity: 0;
+  pointer-events: none;
 }
 
 .propRow:hover .actions,
 .propRow:focus-within .actions {
   opacity: 1;
+  pointer-events: auto;
 }
 
 @media (hover: none) {
   .actions {
+    position: static;
+    margin-left: auto;
+    flex: none;
+    padding-left: 0;
+    background: none;
     opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* Touch targets (WCAG 2.5.8). */
+  .actions button {
+    min-width: 28px;
+    height: 28px;
   }
 }
 
@@ -241,6 +269,15 @@
   background: none;
   color: var(--tm-color-fg-muted);
   font-family: var(--tm-font-mono);
+}
+
+.actions button.labelled {
+  gap: 4px;
+  grid-auto-flow: column;
+  padding: 0 6px;
+  font-family: var(--tm-font-sans);
+  font-size: var(--tm-text-xs);
+  white-space: nowrap;
 }
 
 .actions button:hover {
@@ -331,6 +368,11 @@
 @media (max-width: 599px) {
   .detail {
     padding: 4px 12px 12px;
+  }
+
+  /* Phones show events as cards without columns (DESIGN §9.12). */
+  .actions button.labelled {
+    display: none;
   }
 
   .propRow {

@@ -14,6 +14,7 @@ import (
 
 	"github.com/ZeraOrg/tidemark/internal/auth"
 	"github.com/ZeraOrg/tidemark/internal/meta"
+	"github.com/ZeraOrg/tidemark/internal/service"
 )
 
 // fixtureManifest describes testdata/upgrade/meta-<version>.db (SPEC §8.5 item 6).
@@ -69,7 +70,32 @@ func checkUpgrade(t *testing.T, fixture string) {
 	assertLogin(ctx, t, db, m)
 	assertKeys(ctx, t, db, m)
 	assertContent(ctx, t, db)
+	assertNoTeams(ctx, t, db)
 	assertCounts(ctx, t, db, m.RowCounts)
+}
+
+// assertNoTeams checks that upgraded users belong to no team, so they keep seeing every
+// stream unless deny-by-default is switched on (SPEC §15.10).
+func assertNoTeams(ctx context.Context, t *testing.T, db *meta.DB) {
+	t.Helper()
+	teams := meta.NewTeams(db)
+	if list, err := teams.List(ctx); err != nil || len(list) != 0 {
+		t.Errorf("teams after upgrade: %+v %v", list, err)
+	}
+	users, err := meta.NewUsers(db).List(ctx)
+	if err != nil || len(users) == 0 {
+		t.Fatalf("users: %v", err)
+	}
+	access := service.NewAccess(teams, meta.NewSettings(db))
+	for _, u := range users {
+		if n, streams, err := teams.StreamsForUser(ctx, u.ID); err != nil || n != 0 || len(streams) != 0 {
+			t.Errorf("user %s after upgrade: %d teams %v %v", u.Username, n, streams, err)
+		}
+		p := auth.Principal{UserID: u.ID, Role: auth.Role(u.Role), UserRole: auth.Role(u.Role)}
+		if r, err := access.Resolve(ctx, p); err != nil || !r.Scope.All() {
+			t.Errorf("user %s after upgrade must see every stream: %+v %v", u.Username, r, err)
+		}
+	}
 }
 
 func assertCounts(ctx context.Context, t *testing.T, db *meta.DB, want map[string]int64) {

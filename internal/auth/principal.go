@@ -19,6 +19,7 @@ type Principal struct {
 	UserID             string
 	Username           string
 	Role               Role // effective role (token scope applied)
+	UserRole           Role // the user's own role (decides the stream scope, SPEC §15.10)
 	SessionID          string
 	TokenID            string
 	MustChangePassword bool

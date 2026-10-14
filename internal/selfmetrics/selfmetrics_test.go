@@ -11,11 +11,29 @@ import (
 	"github.com/ZeraOrg/tidemark/internal/model"
 )
 
+// TestWALBytes: the size of each signal's write-ahead log is read at scrape time.
+func TestWALBytes(t *testing.T) {
+	m := New()
+	size := int64(1024)
+	m.WALBytes("events", func() int64 { return size })
+	m.WALBytes("spans", func() int64 { return 0 })
+	size = 4096
+	w := httptest.NewRecorder()
+	m.Handler("").ServeHTTP(w, httptest.NewRequest("GET", "/metrics", nil))
+	body := w.Body.String()
+	for _, want := range []string{`tidemark_wal_bytes{signal="events"} 4096`, `tidemark_wal_bytes{signal="spans"} 0`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q in %s", want, body)
+		}
+	}
+}
+
 func TestMetricsAndHandler(t *testing.T) {
 	m := New()
 	m.Accepted("seq", model.SourceLogs, 5)
 	m.Dropped("seq", "below_minimum_level", 2)
 	m.Rejected("seq", "auth")
+	m.Rerouted("otlp", "stream_not_allowed", 3)
 	p := m.Pipeline()
 	p.Enqueued("events", 5)
 	p.Written("events", 4)
@@ -25,13 +43,15 @@ func TestMetricsAndHandler(t *testing.T) {
 	p.QueueDepth("events", 3)
 	tot := m.Totals()
 	if tot["ingested.logs"] != 5 || tot["written.events"] != 4 || tot["deadlettered.events"] != 1 ||
-		tot["ingest_dropped.below_minimum_level"] != 2 || tot["ingest_rejected.auth"] != 1 || tot["pipeline_dropped.stream_paused"] != 1 {
+		tot["ingest_dropped.below_minimum_level"] != 2 || tot["ingest_rejected.auth"] != 1 || tot["pipeline_dropped.stream_paused"] != 1 ||
+		tot["ingest_rerouted.stream_not_allowed"] != 3 {
 		t.Errorf("totals %v", tot)
 	}
 	w := httptest.NewRecorder()
 	m.Handler("").ServeHTTP(w, httptest.NewRequest("GET", "/metrics", nil))
 	body, _ := io.ReadAll(w.Body)
 	for _, want := range []string{`tidemark_ingest_items_total{protocol="seq",source="logs"} 5`, `tidemark_pipeline_queue_depth{signal="events"} 3`,
+		`tidemark_ingest_rerouted_total{protocol="otlp",reason="stream_not_allowed"} 3`,
 		"go_goroutines"} {
 		if !strings.Contains(string(body), want) {
 			t.Errorf("missing %q", want)

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 <#
 .SYNOPSIS
-  Windows task runner for Tidemark (SPEC §6.1, §17.4, §18). Same targets as the Makefile.
+  Windows task runner for OpenTidemark (SPEC §6.1, §17.4, §18). Same targets as the Makefile.
 
 .EXAMPLE
   .\build.ps1 check
@@ -10,7 +10,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('help', 'build', 'web', 'cross', 'dist', 'test', 'test-integration', 'lint', 'vuln', 'web-check', 'check', 'licences', 'notices', 'dev', 'clean')]
+    [ValidateSet('help', 'build', 'web', 'cross', 'dist', 'checksums', 'docs', 'docs-offline', 'test', 'test-integration', 'lint', 'vuln', 'web-check', 'check', 'licences', 'notices', 'dev', 'clean')]
     [string]$Target = 'build'
 )
 
@@ -32,6 +32,12 @@ $SemVerPattern = '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z
 $DistFiles = @('LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.md', 'README.md', 'CHANGELOG.md', 'deploy/.env.example', 'deploy/clickhouse/config.d/tidemark.xml', 'deploy/clickhouse/users.d/tidemark.xml')
 $DistFilesLinux = @('deploy/install.sh', 'deploy/tidemark.service')
 $DistFilesWindows = @('deploy/install.ps1')
+# Docker bundle tidemark_<version>_docker: these files with a leading deploy/ removed, INSTALL.md,
+# and docker-compose.yml rewritten to run the published image (no build: block).
+$DistFilesDocker = @('LICENSE', 'NOTICE', 'README.md', 'CHANGELOG.md', 'deploy/.env.example', 'deploy/install.sh', 'deploy/install.ps1', 'deploy/otel-collector.yaml', 'deploy/clickhouse/config.d/tidemark.xml', 'deploy/clickhouse/config.d/docker-listen.xml', 'deploy/clickhouse/users.d/tidemark.xml')
+$DistImage = 'ghcr.io/zeraorg/tidemark'
+# The bsdtar of Windows 10+ (it writes zip as well); a GNU tar earlier in PATH (Git Bash) cannot.
+$WindowsTar = if ($env:SystemRoot) { Join-Path $env:SystemRoot 'System32\tar.exe' } else { 'tar' }
 $DevDir = '.dev'
 $DevClickHousePort = if ($env:DEV_CLICKHOUSE_PORT) { $env:DEV_CLICKHOUSE_PORT } else { '19000' }
 $DevClickHousePassword = 'tidemark-dev' # loopback-only dev server, same as the Makefile
@@ -66,7 +72,7 @@ function WithEnv {
 }
 
 function Target-Help {
-    'build web cross dist test test-integration lint vuln web-check check licences notices dev clean' -split ' ' | ForEach-Object { "  $_" }
+    'build web cross dist checksums docs docs-offline test test-integration lint vuln web-check check licences notices dev clean' -split ' ' | ForEach-Object { "  $_" }
 }
 
 function Target-Web {
@@ -109,10 +115,44 @@ function Get-DistVersion {
 # New-DistArchive packs dist/<name> into dist/<name>.zip (Windows) or .tar.gz with the tar.exe
 # (bsdtar) that ships with Windows 10 and later.
 function New-DistArchive {
-    param([Parameter(Mandatory)][string]$Name, [Parameter(Mandatory)][string]$Os)
-    $suffix = if ($Os -eq 'windows') { 'zip' } else { 'tar.gz' }
+    param([Parameter(Mandatory)][string]$Name, [Parameter(Mandatory)][ValidateSet('zip', 'tar.gz')][string]$Format)
     # -C applies to the files that follow; the archive path stays relative to the repository root.
-    Invoke tar @('-C', $DistDir, '-a', '-c', '-f', (Join-Path $DistDir "$Name.$suffix"), $Name)
+    # Tar archives record owner and group 0 without names, like the Makefile.
+    $owner = if ($Format -eq 'tar.gz') { @('--uid', '0', '--gid', '0', '--numeric-owner') } else { @() }
+    Invoke $WindowsTar (@($owner) + @('-C', $DistDir, '-a', '-c', '-f', (Join-Path $DistDir "$Name.$Format"), $Name))
+}
+
+# Convert-DistCompose rewrites deploy/docker-compose.yml for the Docker bundle: the build: block
+# of the tidemark service is removed, its image is pinned to the release image (TM_IMAGE still
+# overrides it) and the .env hints drop the deploy/ prefix. Same rules as the Makefile's sed.
+function Convert-DistCompose {
+    param([Parameter(Mandatory)][string]$Text, [Parameter(Mandatory)][string]$Image)
+    $pinned = 'image: ${TM_IMAGE:-' + $Image + '}'
+    $out = $Text -replace '(?m)^    build:\r?\n(?:      .*\r?\n)+', ''
+    $out = $out.Replace('image: ${TM_IMAGE:-tidemark:local}', $pinned).Replace('deploy/.env', '.env')
+    if ($out -match '(?m)^\s*build:' -or -not $out.Contains($pinned)) {
+        throw "dist: the Docker bundle's docker-compose.yml must not build and must pin $Image"
+    }
+    return $out
+}
+
+# New-DistDockerBundle stages and packs tidemark_<version>_docker (.tar.gz and .zip).
+function New-DistDockerBundle {
+    param([Parameter(Mandatory)][string]$Version)
+    $name = "tidemark_${Version}_docker"
+    $stage = Join-Path $DistDir $name
+    Write-Host "dist $name"
+    foreach ($f in $DistFilesDocker) {
+        $dest = Join-Path $stage ($f -replace '^deploy/', '')
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dest) | Out-Null
+        Copy-Item -LiteralPath $f -Destination $dest
+    }
+    Copy-Item -LiteralPath 'deploy/install/INSTALL-docker.md' -Destination (Join-Path $stage 'INSTALL.md')
+    $compose = Convert-DistCompose -Text ([IO.File]::ReadAllText((Join-Path $PSScriptRoot 'deploy/docker-compose.yml'))) -Image "${DistImage}:$Version"
+    [IO.File]::WriteAllText((Join-Path $PSScriptRoot (Join-Path $stage 'docker-compose.yml')), $compose)
+    New-DistArchive -Name $name -Format 'tar.gz'
+    New-DistArchive -Name $name -Format 'zip'
+    Remove-Item -LiteralPath $stage -Recurse -Force
 }
 
 # Target-Dist builds the release archives and checksums.txt into dist/ (same layout as make dist).
@@ -134,15 +174,41 @@ function Target-Dist {
             New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dest) | Out-Null
             Copy-Item -LiteralPath $f -Destination $dest
         }
-        New-DistArchive -Name $name -Os $os
+        Copy-Item -LiteralPath "deploy/install/INSTALL-$os.md" -Destination (Join-Path $stage 'INSTALL.md')
+        New-DistArchive -Name $name -Format $(if ($os -eq 'windows') { 'zip' } else { 'tar.gz' })
         Remove-Item -LiteralPath $stage -Recurse -Force
     }
+    New-DistDockerBundle -Version $version
+    Target-Checksums
+}
+
+# Target-Checksums rewrites dist/checksums.txt for every archive in dist/ (sha256sum format).
+function Target-Checksums {
     $lines = Get-ChildItem -LiteralPath $DistDir -Filter 'tidemark_*' | Sort-Object Name | ForEach-Object {
         "$((Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant())  $($_.Name)"
     }
     $sums = Join-Path $PSScriptRoot (Join-Path $DistDir 'checksums.txt')
     [IO.File]::WriteAllText($sums, (($lines -join "`n") + "`n"))
     Get-Content -LiteralPath $sums
+}
+
+# Target-Docs builds the documentation site into site/ (SPEC §17.4); install MkDocs first with
+# `pip install --require-hashes -r docs-site/requirements.txt`.
+function Target-Docs { Invoke mkdocs @('build', '--strict') }
+
+# Target-DocsOffline builds the offline documentation bundle dist/tidemark_<version>_docs.zip from
+# mkdocs.offline.yml (SPEC §17.6) and rewrites checksums.txt, like `make docs-offline`.
+function Target-DocsOffline {
+    $version = Get-DistVersion
+    $name = "tidemark_${version}_docs"
+    New-Item -ItemType Directory -Force -Path $DistDir | Out-Null
+    foreach ($p in @((Join-Path $DistDir $name), (Join-Path $DistDir "$name.zip"))) {
+        if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Recurse -Force }
+    }
+    Invoke mkdocs @('build', '--strict', '-f', 'mkdocs.offline.yml', '-d', (Join-Path $DistDir $name))
+    New-DistArchive -Name $name -Format 'zip'
+    Remove-Item -LiteralPath (Join-Path $DistDir $name) -Recurse -Force
+    Target-Checksums
 }
 
 # The race detector needs CGO, which Windows CI does not have; SPEC §18 runs plain tests there.
@@ -270,6 +336,9 @@ switch ($Target) {
     'web' { Target-Web }
     'cross' { Target-Cross }
     'dist' { Target-Dist }
+    'checksums' { Target-Checksums }
+    'docs' { Target-Docs }
+    'docs-offline' { Target-DocsOffline }
     'test' { Target-Test }
     'test-integration' { Target-TestIntegration }
     'lint' { Target-Lint }

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 )
 
 func openLog(t *testing.T, dir string, opts Options) (*Log, RecoveryReport) {
@@ -80,6 +81,28 @@ func lastSegment(t *testing.T, dir string) string {
 		t.Fatalf("segments: %v %v", seqs, err)
 	}
 	return segmentPath(dir, seqs[len(seqs)-1])
+}
+
+// TestAppendWithCancelledContextStillWrites: ctx only bounds the wait for the fsync, so a
+// caller that gives up never loses its record (the pipeline relies on this, SPEC §9.8).
+func TestAppendWithCancelledContextStillWrites(t *testing.T) {
+	l, _ := openLog(t, t.TempDir(), Options{})
+	defer func() { _ = l.Close() }()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	end, err := l.Append(ctx, []byte("abandoned"))
+	if err != nil && !errors.Is(err, context.Canceled) {
+		t.Fatalf("append: %v", err)
+	}
+	for deadline := time.Now().Add(5 * time.Second); l.Durable().Less(end); {
+		if time.Now().After(deadline) {
+			t.Fatal("record never became durable")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if recs := readAll(t, l, Pos{}); len(recs) != 1 || string(recs[0].Payload) != "abandoned" {
+		t.Fatalf("records %+v", recs)
+	}
 }
 
 func TestCrashRecovery(t *testing.T) {

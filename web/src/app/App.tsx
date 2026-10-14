@@ -27,6 +27,8 @@ const StreamsPage = lazy(() => import('../features/streams/StreamsPage'));
 const SettingsLayout = lazy(() => import('../features/settings/SettingsLayout'));
 const ConnectionsPage = lazy(() => import('../features/settings/ConnectionsPage'));
 const UsersPage = lazy(() => import('../features/settings/UsersPage'));
+const TeamsPage = lazy(() => import('../features/settings/TeamsPage'));
+const TeamPage = lazy(() => import('../features/settings/TeamPage'));
 const TokensPage = lazy(() => import('../features/settings/TokensPage'));
 const ChannelsPage = lazy(() => import('../features/settings/ChannelsPage'));
 const AuditPage = lazy(() => import('../features/settings/AuditPage'));
@@ -204,6 +206,22 @@ export function AppRoutes() {
             element={
               <Lazy>
                 <UsersPage />
+              </Lazy>
+            }
+          />
+          <Route
+            path="teams"
+            element={
+              <Lazy>
+                <TeamsPage />
+              </Lazy>
+            }
+          />
+          <Route
+            path="teams/:id"
+            element={
+              <Lazy>
+                <TeamPage />
               </Lazy>
             }
           />
