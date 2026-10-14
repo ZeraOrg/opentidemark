@@ -6,7 +6,7 @@
 # distroless static as nonroot. The build stages run on the build platform, so a multi-arch build
 # (linux/amd64 + linux/arm64, SPEC §17.6) needs no emulation for npm or the Go compiler.
 
-FROM --platform=$BUILDPLATFORM node:24-bookworm-slim AS web
+FROM --platform=$BUILDPLATFORM node:26-bookworm-slim AS web
 WORKDIR /src/web
 COPY web/ ./
 RUN if [ -f package.json ]; then npm ci && npm run build; else mkdir -p dist; fi
