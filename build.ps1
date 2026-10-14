@@ -254,11 +254,16 @@ function Target-WebCheck {
 function Target-Check { Target-Lint; Target-Test; Target-Vuln; Target-WebCheck }
 
 # go-licenses recognises the standard library by its GOROOT path, so GOROOT is passed explicitly
-# (a toolchain selected through GOTOOLCHAIN lives in the module cache).
+# (a toolchain selected through GOTOOLCHAIN lives in the module cache). It analyses the packages
+# for linux, like the Makefile and CI, so THIRD_PARTY_NOTICES.md is the same on every host
+# (some dependencies, e.g. prometheus/procfs, are imported only on Linux).
 function Invoke-GoLicenses {
     param([Parameter(Mandatory)][string[]]$Arguments)
-    $tool = "github.com/google/go-licenses/v2@$GoLicensesVersion"
-    WithEnv @{ GOROOT = (go env GOROOT) } { & go run $tool @Arguments }
+    # Built for this host first; only its analysis targets linux.
+    $toolDir = Join-Path ([IO.Path]::GetTempPath()) "tidemark-go-licenses-$GoLicensesVersion"
+    WithEnv @{ GOBIN = $toolDir } { Invoke go @('install', "github.com/google/go-licenses/v2@$GoLicensesVersion") }
+    $tool = Join-Path $toolDir "go-licenses$(go env GOEXE)"
+    WithEnv @{ GOROOT = (go env GOROOT); GOOS = 'linux' } { & $tool @Arguments }
 }
 
 # Reviewed licence exceptions (scripts/licence-exceptions.txt, SPEC §19.1): objects with Module,
