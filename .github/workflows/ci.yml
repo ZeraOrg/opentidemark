@@ -5,7 +5,7 @@
 # and the whole web gate (lint, format, typecheck, unit tests, build, CSP check, Playwright e2e
 # against the mock build, npm audit, Go embed of web/dist). After a green push to main the
 # release workflow is called (SPEC §17.6). Jobs run automatically only in the main public
-# repository ZeraOrg/tidemark; anywhere else they run only when started by hand
+# repository ZeraOrg/opentidemark; anywhere else they run only when started by hand
 # (workflow_dispatch). Failing steps publish their output as annotations (scripts/ci-annotate.sh,
 # web/scripts/ci-annotate.mjs).
 name: ci
@@ -34,7 +34,7 @@ env:
 jobs:
   go:
     name: go (${{ matrix.os }})
-    if: github.repository == 'ZeraOrg/tidemark' || github.event_name == 'workflow_dispatch'
+    if: github.repository == 'ZeraOrg/opentidemark' || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
@@ -91,7 +91,7 @@ jobs:
 
   integration:
     name: integration (ClickHouse)
-    if: github.repository == 'ZeraOrg/tidemark' || github.event_name == 'workflow_dispatch'
+    if: github.repository == 'ZeraOrg/opentidemark' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     services:
@@ -135,7 +135,7 @@ jobs:
 
   notices:
     name: licences and notices
-    if: github.repository == 'ZeraOrg/tidemark' || github.event_name == 'workflow_dispatch'
+    if: github.repository == 'ZeraOrg/opentidemark' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -156,7 +156,7 @@ jobs:
 
   web:
     name: web (lint, test, build, e2e, embed)
-    if: github.repository == 'ZeraOrg/tidemark' || github.event_name == 'workflow_dispatch'
+    if: github.repository == 'ZeraOrg/opentidemark' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     defaults:
@@ -232,7 +232,7 @@ jobs:
     needs: [go, integration, notices, web]
     # A green push to main of the main public repository may release (SPEC §17.6): the called
     # workflow ends after one cheap step unless VERSION names a version without a tag yet.
-    if: github.repository == 'ZeraOrg/tidemark' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.repository == 'ZeraOrg/opentidemark' && github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: write # tag and GitHub release
       packages: write # image push to ghcr.io

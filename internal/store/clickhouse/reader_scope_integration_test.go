@@ -12,8 +12,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/ZeraOrg/tidemark/internal/model"
-	"github.com/ZeraOrg/tidemark/internal/store"
+	"github.com/ZeraOrg/opentidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/store"
 )
 
 // testStreamScope adds data of a second stream ("other": an event next to events[10], a span

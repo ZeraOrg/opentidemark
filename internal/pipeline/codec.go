@@ -12,7 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/ZeraOrg/tidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/model"
 )
 
 // WAL record payload (SPEC §9.8): version byte 1 | batch UUID (16 bytes) | JSON array of rows.

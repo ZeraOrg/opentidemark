@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/auth"
-	"github.com/ZeraOrg/tidemark/internal/model"
-	"github.com/ZeraOrg/tidemark/internal/store"
-	"github.com/ZeraOrg/tidemark/internal/tql"
+	"github.com/ZeraOrg/opentidemark/internal/auth"
+	"github.com/ZeraOrg/opentidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/store"
+	"github.com/ZeraOrg/opentidemark/internal/tql"
 )
 
 // FacetValue is one value of a facet with its count.

@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/meta"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
 )
 
 // userView is the JSON form of a user.

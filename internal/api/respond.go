@@ -11,13 +11,13 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/ZeraOrg/tidemark/internal/auth"
-	"github.com/ZeraOrg/tidemark/internal/httpx"
-	"github.com/ZeraOrg/tidemark/internal/jsonx"
-	"github.com/ZeraOrg/tidemark/internal/meta"
-	"github.com/ZeraOrg/tidemark/internal/service"
-	"github.com/ZeraOrg/tidemark/internal/store"
-	"github.com/ZeraOrg/tidemark/internal/tql"
+	"github.com/ZeraOrg/opentidemark/internal/auth"
+	"github.com/ZeraOrg/opentidemark/internal/httpx"
+	"github.com/ZeraOrg/opentidemark/internal/jsonx"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
+	"github.com/ZeraOrg/opentidemark/internal/service"
+	"github.com/ZeraOrg/opentidemark/internal/store"
+	"github.com/ZeraOrg/opentidemark/internal/tql"
 )
 
 // Local sentinel errors.

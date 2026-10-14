@@ -56,4 +56,4 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/ZeraOrg/tidemark
+        - github.com/ZeraOrg/opentidemark

@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/service"
-	"github.com/ZeraOrg/tidemark/internal/store"
+	"github.com/ZeraOrg/opentidemark/internal/service"
+	"github.com/ZeraOrg/opentidemark/internal/store"
 )
 
 // exportWriteTimeout replaces the server write deadline for an export download (up to

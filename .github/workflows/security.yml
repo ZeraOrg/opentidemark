@@ -3,7 +3,7 @@
 # Supply-chain checks (SPEC §15.9, §17.4): govulncheck, npm audit and a Trivy scan of the
 # container image. Runs weekly for new advisories, by hand, and on pushes to main that change
 # dependencies or the image. (The licence allow-list runs in ci's notices job.) Jobs run
-# automatically only in the main public repository ZeraOrg/tidemark; anywhere else they run only
+# automatically only in the main public repository ZeraOrg/opentidemark; anywhere else they run only
 # when started by hand. Failing steps publish their output through scripts/ci-annotate.sh.
 name: security
 
@@ -34,7 +34,7 @@ env:
 
 jobs:
   govulncheck:
-    if: github.repository == 'ZeraOrg/tidemark' || github.event_name == 'workflow_dispatch'
+    if: github.repository == 'ZeraOrg/opentidemark' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -48,7 +48,7 @@ jobs:
           scripts/ci-annotate.sh govulncheck -- govulncheck ./...
 
   npm-audit:
-    if: github.repository == 'ZeraOrg/tidemark' || github.event_name == 'workflow_dispatch'
+    if: github.repository == 'ZeraOrg/opentidemark' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -65,7 +65,7 @@ jobs:
           ../scripts/ci-annotate.sh "npm audit" -- npm audit --audit-level=high
 
   image:
-    if: github.repository == 'ZeraOrg/tidemark' || github.event_name == 'workflow_dispatch'
+    if: github.repository == 'ZeraOrg/opentidemark' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:

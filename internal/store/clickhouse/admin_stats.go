@@ -9,8 +9,8 @@ import (
 	"sort"
 	"strconv"
 
-	"github.com/ZeraOrg/tidemark/internal/model"
-	"github.com/ZeraOrg/tidemark/internal/store"
+	"github.com/ZeraOrg/opentidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/store"
 )
 
 // partTotals are the active-part totals of one table from system.parts.

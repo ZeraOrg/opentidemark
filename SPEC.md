@@ -8,7 +8,7 @@
 > well. Any change to behaviour, APIs, schema, configuration, layout, UI or tooling **must**
 > update this spec in the same commit. Version history is in §21.
 
-**Spec version:** 0.28.0 · **Last updated:** 2026-10-14
+**Spec version:** 0.29.0 · **Last updated:** 2026-10-14
 
 ---
 
@@ -45,7 +45,7 @@ and metrics**, intended as a low-cost alternative to commercial log platforms su
 Elasticsearch/Kibana and Seq, with comparable day-to-day quality. It is licensed under the **Apache
 License 2.0** for everyone, including commercial use; every feature is available and the number
 of users is not limited (§19). The source code and this specification are published in the
-public repository `zeraOrg/tidemark` (§19.3).
+public repository `ZeraOrg/opentidemark` (§19.3).
 
 **Name.** The product is called **OpenTidemark** (it was called Tidemark before SPEC 0.15.0).
 Every prose and display reference uses that name: documentation, the web UI, release titles,
@@ -56,13 +56,21 @@ commands; the `TIDEMARK_*` variables; the headers `X-Tidemark-Key`, `X-Tidemark-
 `tm.*`; the Windows service `Tidemark` (account `NT SERVICE\Tidemark`, event log source
 `Tidemark`, `%ProgramFiles%\Tidemark`, `%ProgramData%\Tidemark`, firewall rules
 `Tidemark TCP <port>`); the Linux user and group `tidemark`, `/etc/tidemark`,
-`/var/lib/tidemark` and the systemd unit `tidemark.service`; the Go module
-`github.com/ZeraOrg/tidemark` and the repository `ZeraOrg/tidemark`; the image
+`/var/lib/tidemark` and the systemd unit `tidemark.service`; the image
 `ghcr.io/zeraorg/tidemark`; the release archives `tidemark_<version>_…`; the ClickHouse database
 `tidemark` and users `tidemark_writer` / `tidemark_reader`; the Prometheus metrics `tidemark_*`;
 the OTLP attribute `tidemark.stream`; the webhook user agent `Tidemark-Alerting/1`; the
 Seq-compatible `GET /api` reply `{"Product":"Tidemark",…}` (§9.2); and file names such as
 `deploy/clickhouse/config.d/tidemark.xml`. The copyright line names "The Tidemark Authors".
+
+**Repository.** The public repository is `ZeraOrg/opentidemark`
+(<https://github.com/ZeraOrg/opentidemark>; it was `ZeraOrg/tidemark` up to release 0.2.0, and
+GitHub redirects the old repository, clone and release URLs to it). The Go module path follows
+the repository: `github.com/ZeraOrg/opentidemark`. The documentation site moved with it to
+<https://zeraorg.github.io/opentidemark/>. The container image keeps its name
+`ghcr.io/zeraorg/tidemark`, so existing installs, Compose files and `TM_IMAGE` settings keep
+pulling the same image. Release provenance of 0.2.0 and earlier names the former repository
+(§17.6).
 
 Goals:
 
@@ -215,7 +223,7 @@ Node **22 LTS** for builds. The built SPA is embedded in the Go binary via `go:e
 ├── .dockerignore              # keeps .git, local tool state, build output (incl. site/) and deploy/.env out of the image context
 ├── .editorconfig
 ├── .golangci.yml
-├── go.mod / go.sum            # module github.com/ZeraOrg/tidemark
+├── go.mod / go.sum            # module github.com/ZeraOrg/opentidemark
 ├── cmd/tidemark/main.go       # CLI entry: serve | service install/uninstall/start/stop (Windows) | admin reset-password | backup | restore | migrate | doctor | import | version | healthcheck (§17.2)
 ├── internal/
 │   ├── app/                   # composition root: builds every dependency, starts/stops servers
@@ -2449,8 +2457,8 @@ Normative details:
   web step is skipped while `web/package.json` does not exist. `web-check` = `npm ci`, `lint`,
   `format:check`, `typecheck`, `test:coverage`, `build`, `check:csp`, `npm audit --audit-level=high`.
 - Workflow guard: every job of `ci.yml` and `security.yml` (and the automatic path of
-  `release.yml`, §17.6) runs automatically only in the main public repository `ZeraOrg/tidemark`
-  (`github.repository == 'ZeraOrg/tidemark'`; GitHub compares strings case-insensitively) and
+  `release.yml`, §17.6) runs automatically only in the main public repository `ZeraOrg/opentidemark`
+  (`github.repository == 'ZeraOrg/opentidemark'`; GitHub compares strings case-insensitively) and
   elsewhere (forks, the maintainers' development repository) only on `workflow_dispatch`, so
   those repositories get at most runs whose jobs are all skipped (no runner time). GitHub has no
   workflow-level condition, so every job carries the guard. Every job sets `timeout-minutes`;
@@ -2486,7 +2494,7 @@ Normative details:
   `1.6.1` (BSD-2-Clause) with Material for MkDocs `9.7.7` (MIT), every transitive dependency
   pinned with hashes in `docs-site/requirements.txt` (generated from `docs-site/requirements.in`
   with pip-tools; all under licences of the §19.1 allow-list; build tooling only, never shipped),
-  builds `docs/` into `site/` (untracked) for <https://zeraorg.github.io/tidemark/>. Site name
+  builds `docs/` into `site/` (untracked) for <https://zeraorg.github.io/opentidemark/>. Site name
   OpenTidemark, keyword-rich `site_description`, repository and edit links, navigation: home
   (`docs/index.md`), quick start, installation, sending data, query language, configuration,
   migration from Seq and from Elasticsearch/Kibana, and the section **Operations manual** with
@@ -2534,7 +2542,7 @@ Normative details:
   `docs-<ref>`, cancelling superseded pull-request runs only): job `build` (guard as above,
   `timeout-minutes: 10`; Python 3.13 with the pip cache keyed on `docs-site/requirements.txt`;
   `pip install --require-hashes`; `mkdocs build --strict` through `scripts/ci-annotate.sh`; the
-  Pages artifact of `site/`) and job `deploy` (needs `build`; only in `ZeraOrg/tidemark` for
+  Pages artifact of `site/`) and job `deploy` (needs `build`; only in `ZeraOrg/opentidemark` for
   `refs/heads/main` on push or `workflow_dispatch`; `timeout-minutes: 10`; permissions
   `pages: write`, `id-token: write`; environment `github-pages`). The repository's Pages source
   must be "GitHub Actions".
@@ -2716,7 +2724,7 @@ Git Bash, cannot write zip). The staging directories are removed; `dist/checksum
 are built on Linux by the workflow below.
 
 **`.github/workflows/release.yml`** (one file for every repository; the main public repository
-`ZeraOrg/tidemark` is recognised by `github.repository == 'ZeraOrg/tidemark'` in expressions and
+`ZeraOrg/opentidemark` is recognised by `github.repository == 'ZeraOrg/opentidemark'` in expressions and
 the workflow env `PUBLIC`):
 - Triggers: `workflow_call` (from the `release` job of `ci.yml`, which runs only after the `go`,
   `integration`, `notices` and `web` jobs succeeded for a push to `main` of the main public
@@ -2754,7 +2762,7 @@ the workflow env `PUBLIC`):
   `id-token: write`, `attestations: write`; concurrency `release-image-<version>`, no cancel):
   `docker/build-push-action` with the Dockerfile, build argument `VERSION=<version>`, the
   `image-tags` and OCI labels `org.opencontainers.image.{title=OpenTidemark, description, version,
-  revision=<sha>, created, source=url=https://github.com/ZeraOrg/tidemark, licenses=Apache-2.0}`.
+  revision=<sha>, created, source=url=https://github.com/ZeraOrg/opentidemark, licenses=Apache-2.0}`.
   Before that, in every repository, a `linux/amd64` build of the same Dockerfile is loaded into
   the runner's Docker (`load: true`) and scanned with Trivy (`aquasec/trivy:<TRIVY_VERSION>`,
   the version of `security.yml`, kept equal by `TestReleaseScanUsesSecurityTrivy`;
@@ -2780,8 +2788,9 @@ the workflow env `PUBLIC`):
   next successful ci run of `main` (or a manual run) retries the same version.
 
 **Verifying a release (users).** `sha256sum -c checksums.txt` (PowerShell: `Get-FileHash`);
-`gh attestation verify <archive> --repo ZeraOrg/tidemark`; `gh attestation verify
-oci://ghcr.io/zeraorg/tidemark:<version> --repo ZeraOrg/tidemark`.
+`gh attestation verify <archive> --repo ZeraOrg/opentidemark`; `gh attestation verify
+oci://ghcr.io/zeraorg/tidemark:<version> --repo ZeraOrg/opentidemark`. Releases 0.2.0 and earlier
+were attested under the former repository name (§1) and verify with `--repo ZeraOrg/tidemark`.
 
 ## 18. Testing & quality gates
 
@@ -2891,7 +2900,7 @@ Definition of done for any change: spec updated · tests added/updated · `make 
   repository (`SECURITY.md`).
 
 ### 19.3 Public repository and publishing
-- **Public repository** `zeraOrg/tidemark` holds the source code and this specification. It is
+- **Public repository** `ZeraOrg/opentidemark` holds the source code and this specification. It is
   published from the maintainers' development repository as **one squashed commit per sync**,
   subject `Sync from private <first 12 hex digits of the source commit>`, after the exported tree
   passed a standalone check (gofmt, `go vet` with and without `integration`, `go test -race`);
@@ -2910,7 +2919,7 @@ Definition of done for any change: spec updated · tests added/updated · `make 
   this specification as a whole (§17.4). Every user doc and manual chapter in `docs/` starts
   with an H1 followed by a one-sentence summary paragraph naming its topic (the page description
   of the documentation site and its entry in `llms.txt`). `docs/` is published by `docs.yml` as
-  the documentation site <https://zeraorg.github.io/tidemark/> (§17.4), and every release
+  the documentation site <https://zeraorg.github.io/opentidemark/> (§17.4), and every release
   attaches it as the offline bundle `tidemark_<version>_docs.zip` (§17.6). Code comments cite
   this file as `SPEC §n`.
 - The public `README.md` is written for an open-source project (a descriptive title and a first
@@ -2956,6 +2965,7 @@ items of M0–M3b:
 
 | Version | Date | Change |
 |---|---|---|
+| 0.29.0 | 2026-10-14 | Repository renamed (§1, §6.1, §17.4, §17.6, §19.3): the public repository is `ZeraOrg/opentidemark` (old URLs redirect) and the Go module path is `github.com/ZeraOrg/opentidemark` (go.mod, imports, goimports `local-prefixes`, `MODULE` / `$Module`); every workflow guard compares `github.repository` with `ZeraOrg/opentidemark`; the image's OCI `source`/`url` labels, `mkdocs.yml` (`site_url` <https://zeraorg.github.io/opentidemark/>, `repo_url`, `repo_name`), `docs-site/hooks.py`, the release notes, the install guides, README, docs and `NOTICE` use the new URLs; releases 0.2.0 and earlier verify with `--repo ZeraOrg/tidemark`. Unchanged: the image `ghcr.io/zeraorg/tidemark`, the binary, archive names and every other technical identifier of §1. |
 | 0.28.0 | 2026-10-14 | Operations manual and offline documentation (§6.1, §17.4, §17.6, §18, §19.1, §19.3): `docs/manual/` (fourteen chapters for operators and agents, written from this specification and verified against a test installation, including teams and stream access, `allowedStreams`, `tidemark_ingest_rerouted_total`, `tidemark_wal_bytes`, `connection_id`) joins the site as the navigation section "Operations manual" (`TestManualPagesInNav`); `mkdocs.yml` adds `pymdownx.tabbed`, `pymdownx.tasklist` and `content.tabs.link`; `docs-site/hooks.py` includes `docs/manual/`, resolves relative links against the page before rewriting those that leave `docs/` to GitHub, and writes `llms.txt` and `llms-full.txt`; `mkdocs.offline.yml` (Material's offline plugin, vendored iframe-worker shim instead of a CDN, SPDX-exempt) builds the offline bundle `tidemark_<version>_docs.zip` with `make docs-offline` / `.\build.ps1 docs-offline` (new targets `docs`, `docs-offline`, `checksums`), which the release workflow attaches, attests and lists in `checksums.txt` and the release notes (`TestReleaseDocsBundle`); `site/` and `__pycache__/` are build output skipped by the SPDX check; README and docs home link the manual, the bundle and the llms files; `LICENSING.md` names the bundle's third-party code. |
 | 0.27.2 | 2026-10-14 | README screenshots refreshed from the mock build after the stream-access work; two new ones, `scope-picker.png` and `teams.png`, join the About table (§6.1). |
 | 0.27.1 | 2026-10-14 | Explorer columns and row actions reviewed (§16.3, §16.6): the Columns dialog shows the chosen columns in order with move / remove and the other fields with a filter; shown columns shrink to 72 px before the list scrolls sideways with its header; the detail row actions anchor to the first line with a fade, get 28 px touch targets and are not offered on phones. |

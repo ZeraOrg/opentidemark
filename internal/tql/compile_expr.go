@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/model"
 )
 
 // sqlBuf accumulates SQL text from trusted fragments and positional args.

@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"net/netip"
 
-	"github.com/ZeraOrg/tidemark/internal/meta"
-	"github.com/ZeraOrg/tidemark/internal/service"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
+	"github.com/ZeraOrg/opentidemark/internal/service"
 )
 
 // UsersAPI serves /users (admin). User objects include the user's teams.

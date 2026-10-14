@@ -14,10 +14,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ZeraOrg/tidemark/internal/config"
-	"github.com/ZeraOrg/tidemark/internal/meta"
-	"github.com/ZeraOrg/tidemark/internal/testutil"
-	"github.com/ZeraOrg/tidemark/internal/wal"
+	"github.com/ZeraOrg/opentidemark/internal/config"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
+	"github.com/ZeraOrg/opentidemark/internal/testutil"
+	"github.com/ZeraOrg/opentidemark/internal/wal"
 )
 
 // unreachableCH is a closed local port: ClickHouse checks fail fast.

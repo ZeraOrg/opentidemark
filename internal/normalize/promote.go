@@ -9,8 +9,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/ZeraOrg/tidemark/internal/jsonx"
-	"github.com/ZeraOrg/tidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/jsonx"
+	"github.com/ZeraOrg/opentidemark/internal/model"
 )
 
 // MaxFallbackMessage is the maximum size of the JSON message used when no message is found.

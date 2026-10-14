@@ -49,14 +49,14 @@ cat <<NOTES
 
 Every archive contains an \`INSTALL.md\` with the steps for its platform (ClickHouse setup, service
 management, upgrade, uninstall). The full OpenTidemark installation guide is
-<https://github.com/ZeraOrg/tidemark/blob/v${v}/docs/installation.md>; the documentation site is
-<https://zeraorg.github.io/tidemark/>.
+<https://github.com/ZeraOrg/opentidemark/blob/v${v}/docs/installation.md>; the documentation site is
+<https://zeraorg.github.io/opentidemark/>.
 
 **Verify the download:**
 
 \`\`\`bash
 sha256sum -c checksums.txt --ignore-missing
-gh attestation verify tidemark_${v}_linux_amd64.tar.gz --repo ZeraOrg/tidemark
-gh attestation verify oci://ghcr.io/zeraorg/tidemark:${v} --repo ZeraOrg/tidemark
+gh attestation verify tidemark_${v}_linux_amd64.tar.gz --repo ZeraOrg/opentidemark
+gh attestation verify oci://ghcr.io/zeraorg/tidemark:${v} --repo ZeraOrg/opentidemark
 \`\`\`
 NOTES

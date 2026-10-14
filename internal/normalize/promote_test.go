@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/jsonx"
-	"github.com/ZeraOrg/tidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/jsonx"
+	"github.com/ZeraOrg/opentidemark/internal/model"
 )
 
 func decode(t *testing.T, s string) map[string]any {

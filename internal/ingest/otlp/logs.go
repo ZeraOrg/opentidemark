@@ -8,8 +8,8 @@ import (
 	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	logspb "go.opentelemetry.io/proto/otlp/logs/v1"
 
-	"github.com/ZeraOrg/tidemark/internal/model"
-	"github.com/ZeraOrg/tidemark/internal/normalize"
+	"github.com/ZeraOrg/opentidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/normalize"
 )
 
 // LogsToEvents maps an OTLP logs request to events (SPEC §9.4 Logs).

@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/meta"
-	"github.com/ZeraOrg/tidemark/internal/service"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
+	"github.com/ZeraOrg/opentidemark/internal/service"
 )
 
 // SettingsAPI serves /settings (admin).

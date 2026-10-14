@@ -21,7 +21,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/meta"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
 )
 
 // SMTPConfig is the global SMTP configuration (SPEC §7 TIDEMARK_SMTP_*).

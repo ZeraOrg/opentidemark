@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/ingest"
-	"github.com/ZeraOrg/tidemark/internal/ingest/seq"
-	"github.com/ZeraOrg/tidemark/internal/model"
-	"github.com/ZeraOrg/tidemark/internal/testutil"
+	"github.com/ZeraOrg/opentidemark/internal/ingest"
+	"github.com/ZeraOrg/opentidemark/internal/ingest/seq"
+	"github.com/ZeraOrg/opentidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/testutil"
 )
 
 type env struct {

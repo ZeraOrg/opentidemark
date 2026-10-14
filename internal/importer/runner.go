@@ -15,12 +15,12 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/ZeraOrg/tidemark/internal/cluster"
-	"github.com/ZeraOrg/tidemark/internal/meta"
-	"github.com/ZeraOrg/tidemark/internal/model"
-	"github.com/ZeraOrg/tidemark/internal/normalize"
-	"github.com/ZeraOrg/tidemark/internal/service"
-	"github.com/ZeraOrg/tidemark/internal/store"
+	"github.com/ZeraOrg/opentidemark/internal/cluster"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
+	"github.com/ZeraOrg/opentidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/normalize"
+	"github.com/ZeraOrg/opentidemark/internal/service"
+	"github.com/ZeraOrg/opentidemark/internal/store"
 )
 
 // Runner timing and limits (SPEC §9.9).

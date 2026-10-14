@@ -10,7 +10,7 @@ import (
 
 	ch "github.com/ClickHouse/clickhouse-go/v2"
 
-	"github.com/ZeraOrg/tidemark/internal/store"
+	"github.com/ZeraOrg/opentidemark/internal/store"
 )
 
 func TestRenderForCluster(t *testing.T) {

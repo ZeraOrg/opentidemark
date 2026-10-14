@@ -10,7 +10,7 @@ import (
 	"math"
 	"strconv"
 
-	"github.com/ZeraOrg/tidemark/internal/jsonx"
+	"github.com/ZeraOrg/opentidemark/internal/jsonx"
 )
 
 // maxPlainFloat is the magnitude above which floats are rendered in exponent form.

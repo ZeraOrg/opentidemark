@@ -9,8 +9,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/model"
-	"github.com/ZeraOrg/tidemark/internal/store"
+	"github.com/ZeraOrg/opentidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/store"
 )
 
 // Trace read limits.

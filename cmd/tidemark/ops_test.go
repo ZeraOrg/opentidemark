@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ZeraOrg/tidemark/internal/meta"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
 )
 
 func TestCmdFlagsSplit(t *testing.T) {

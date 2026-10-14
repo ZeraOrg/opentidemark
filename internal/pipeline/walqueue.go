@@ -14,9 +14,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/ZeraOrg/tidemark/internal/ingest"
-	"github.com/ZeraOrg/tidemark/internal/store"
-	"github.com/ZeraOrg/tidemark/internal/wal"
+	"github.com/ZeraOrg/opentidemark/internal/ingest"
+	"github.com/ZeraOrg/opentidemark/internal/store"
+	"github.com/ZeraOrg/opentidemark/internal/wal"
 )
 
 // WAL reading limits per batch.

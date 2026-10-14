@@ -2,7 +2,7 @@
 
 package auth
 
-import "github.com/ZeraOrg/tidemark/internal/meta"
+import "github.com/ZeraOrg/opentidemark/internal/meta"
 
 // Role is a user role (SPEC §11.1).
 type Role string

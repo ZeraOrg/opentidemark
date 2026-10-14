@@ -7,7 +7,7 @@ import (
 	"net/netip"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/service"
+	"github.com/ZeraOrg/opentidemark/internal/service"
 )
 
 // TokensAPI serves /tokens (own tokens of any authenticated user).

@@ -9,7 +9,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 
-	"github.com/ZeraOrg/tidemark/internal/store"
+	"github.com/ZeraOrg/opentidemark/internal/store"
 )
 
 const infoTimeout = 5 * time.Second

@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ZeraOrg/tidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/model"
 )
 
 // Retention limits.

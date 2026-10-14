@@ -7,7 +7,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/ZeraOrg/tidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/model"
 )
 
 // SuggestionKind classifies an autocomplete suggestion (SPEC §10.7).

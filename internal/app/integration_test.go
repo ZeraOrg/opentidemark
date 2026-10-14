@@ -24,9 +24,9 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/ZeraOrg/tidemark/internal/config"
-	ch "github.com/ZeraOrg/tidemark/internal/store/clickhouse"
-	"github.com/ZeraOrg/tidemark/internal/testutil"
+	"github.com/ZeraOrg/opentidemark/internal/config"
+	ch "github.com/ZeraOrg/opentidemark/internal/store/clickhouse"
+	"github.com/ZeraOrg/opentidemark/internal/testutil"
 )
 
 const bootstrapKey = "tmk_integrationintegrationintegration"

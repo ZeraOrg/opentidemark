@@ -5,7 +5,7 @@ This archive contains `tidemark.exe` with the web UI built in, the installer
 `deploy\install.ps1` and the ClickHouse configuration in `deploy\clickhouse\`. OpenTidemark runs as
 the Windows service **Tidemark**; ClickHouse has no Windows build, so it runs in Docker Desktop
 (step 4). The full guide, with every option and troubleshooting, is
-<https://github.com/ZeraOrg/tidemark/blob/main/docs/installation.md>.
+<https://github.com/ZeraOrg/opentidemark/blob/main/docs/installation.md>.
 
 Replace `<version>` below with the version in the archive name. Run every command in
 **PowerShell as Administrator**.
@@ -16,7 +16,7 @@ Compare the hash with the line for the archive in `checksums.txt` from the same 
 
 ```powershell
 Get-FileHash .\tidemark_<version>_windows_amd64.zip -Algorithm SHA256
-gh attestation verify .\tidemark_<version>_windows_amd64.zip --repo ZeraOrg/tidemark   # optional, needs the GitHub CLI
+gh attestation verify .\tidemark_<version>_windows_amd64.zip --repo ZeraOrg/opentidemark   # optional, needs the GitHub CLI
 ```
 
 ## 2. Unblock and unpack
@@ -83,7 +83,7 @@ Get-WinEvent -FilterHashtable @{ LogName = 'Application'; ProviderName = 'Tidema
 
 Open `http://localhost:8080`, sign in as **admin / admin** and **change the password right
 away**. Then create a connection (one API key per application) and point your clients at
-OpenTidemark: <https://github.com/ZeraOrg/tidemark/blob/main/docs/ingestion.md>.
+OpenTidemark: <https://github.com/ZeraOrg/opentidemark/blob/main/docs/ingestion.md>.
 
 ## 6. Upgrade
 

@@ -6,7 +6,7 @@ with the WSL2 backend) or macOS (for trying it out). It needs Docker with Compos
 `docker-compose.yml` uses the published image `ghcr.io/zeraorg/tidemark` of this release; nothing
 is built. ClickHouse stays on an internal network and is never published to the host. The full
 guide, with every option and troubleshooting, is
-<https://github.com/ZeraOrg/tidemark/blob/main/docs/installation.md>.
+<https://github.com/ZeraOrg/opentidemark/blob/main/docs/installation.md>.
 
 Replace `<version>` below with the version in the bundle name.
 
@@ -16,8 +16,8 @@ In the directory with the bundle and `checksums.txt` from the same release:
 
 ```bash
 sha256sum -c checksums.txt --ignore-missing
-gh attestation verify tidemark_<version>_docker.tar.gz --repo ZeraOrg/tidemark          # optional, needs the GitHub CLI
-gh attestation verify oci://ghcr.io/zeraorg/tidemark:<version> --repo ZeraOrg/tidemark  # the image
+gh attestation verify tidemark_<version>_docker.tar.gz --repo ZeraOrg/opentidemark          # optional, needs the GitHub CLI
+gh attestation verify oci://ghcr.io/zeraorg/tidemark:<version> --repo ZeraOrg/opentidemark  # the image
 ```
 
 On Windows, compare `Get-FileHash .\tidemark_<version>_docker.zip -Algorithm SHA256` with
@@ -59,7 +59,7 @@ TM_BIND_ADDR=127.0.0.1
 Check the stack with `docker compose ps` (both services `healthy`), then open
 <http://localhost:8080>, sign in as **admin / admin** and **change the password right away**.
 Create a connection (one API key per application) and point your clients at OpenTidemark:
-<https://github.com/ZeraOrg/tidemark/blob/main/docs/ingestion.md>.
+<https://github.com/ZeraOrg/opentidemark/blob/main/docs/ingestion.md>.
 
 ## 3. Syslog and Fluent forward (optional)
 

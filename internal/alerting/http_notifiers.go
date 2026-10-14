@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/meta"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
 )
 
 // SignatureHeader carries the webhook HMAC-SHA256 signature (SPEC §14.2).

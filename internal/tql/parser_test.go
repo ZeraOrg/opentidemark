@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ZeraOrg/tidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/model"
 )
 
 func TestParseCanonical(t *testing.T) {

@@ -15,7 +15,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/ZeraOrg/tidemark/internal/httpx"
+	"github.com/ZeraOrg/opentidemark/internal/httpx"
 )
 
 // maxResponseBytes bounds one source response (a page of up to 10,000 documents).

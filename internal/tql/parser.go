@@ -8,7 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/ZeraOrg/tidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/model"
 )
 
 // Keyword and function names (SPEC §10.2, §10.3).

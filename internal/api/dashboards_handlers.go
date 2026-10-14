@@ -10,8 +10,8 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/meta"
-	"github.com/ZeraOrg/tidemark/internal/service"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
+	"github.com/ZeraOrg/opentidemark/internal/service"
 )
 
 // DashboardsAPI serves /dashboards (SPEC §11.4, §13).

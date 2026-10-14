@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/model"
-	"github.com/ZeraOrg/tidemark/internal/store"
+	"github.com/ZeraOrg/opentidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/store"
 )
 
 func TestStreamsFlow(t *testing.T) {

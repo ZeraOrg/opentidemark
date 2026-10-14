@@ -9,11 +9,11 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 
-	"github.com/ZeraOrg/tidemark/internal/auth"
-	"github.com/ZeraOrg/tidemark/internal/importer"
-	"github.com/ZeraOrg/tidemark/internal/meta"
-	"github.com/ZeraOrg/tidemark/internal/service"
-	ch "github.com/ZeraOrg/tidemark/internal/store/clickhouse"
+	"github.com/ZeraOrg/opentidemark/internal/auth"
+	"github.com/ZeraOrg/opentidemark/internal/importer"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
+	"github.com/ZeraOrg/opentidemark/internal/service"
+	ch "github.com/ZeraOrg/opentidemark/internal/store/clickhouse"
 )
 
 // importsDir is the upload folder of clef-file imports inside the data directory.

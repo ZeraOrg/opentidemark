@@ -9,9 +9,9 @@ import (
 	"net/netip"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/auth"
-	"github.com/ZeraOrg/tidemark/internal/meta"
-	"github.com/ZeraOrg/tidemark/internal/service"
+	"github.com/ZeraOrg/opentidemark/internal/auth"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
+	"github.com/ZeraOrg/opentidemark/internal/service"
 )
 
 // LoginService authenticates credentials.

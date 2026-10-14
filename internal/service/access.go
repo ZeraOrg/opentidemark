@@ -9,9 +9,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/ZeraOrg/tidemark/internal/auth"
-	"github.com/ZeraOrg/tidemark/internal/meta"
-	"github.com/ZeraOrg/tidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/auth"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
+	"github.com/ZeraOrg/opentidemark/internal/model"
 )
 
 // SettingAccess is the settings key of the access settings (SPEC §15.10).

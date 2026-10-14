@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/ingest"
+	"github.com/ZeraOrg/opentidemark/internal/ingest"
 )
 
 // Defaults for retries (SPEC §9.1).

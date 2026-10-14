@@ -16,7 +16,7 @@ For servers and native installs see the [installation guide](installation.md).
 ## 1. Get the Docker bundle
 
 Download `tidemark_<version>_docker.tar.gz` (or `.zip` on Windows) and `checksums.txt` from the
-latest [release](https://github.com/ZeraOrg/tidemark/releases) (every release after 0.1.0 has one).
+latest [release](https://github.com/ZeraOrg/opentidemark/releases) (every release after 0.1.0 has one).
 The bundle holds the Compose file, pinned to that release's published image, the installers and
 the ClickHouse configuration.
 
@@ -60,7 +60,7 @@ docker compose up -d
 ```
 
 Compose pulls the OpenTidemark and ClickHouse images on the first start. To try unreleased changes,
-build the image from a source checkout instead (`git clone https://github.com/ZeraOrg/tidemark`,
+build the image from a source checkout instead (`git clone https://github.com/ZeraOrg/opentidemark`,
 then `./install.sh docker` in its `deploy/` directory; see the
 [installation guide](installation.md#4-docker-compose-linux-windows-macos)).
 

@@ -43,14 +43,14 @@ runbook, the [automation API](manual/api.md) and a [guide for agents](manual/age
 
 Every release attaches this site as an offline bundle (`tidemark_<version>_docs.zip`, with
 search); agents and language models can read it as
-[`llms.txt`](https://zeraorg.github.io/tidemark/llms.txt) (index) and
-[`llms-full.txt`](https://zeraorg.github.io/tidemark/llms-full.txt) (full text).
+[`llms.txt`](https://zeraorg.github.io/opentidemark/llms.txt) (index) and
+[`llms-full.txt`](https://zeraorg.github.io/opentidemark/llms-full.txt) (full text).
 
 ## Project
 
 - Source code, issues and the full specification:
-  [github.com/ZeraOrg/tidemark](https://github.com/ZeraOrg/tidemark)
-- Downloads: [releases](https://github.com/ZeraOrg/tidemark/releases) and the container image
+  [github.com/ZeraOrg/opentidemark](https://github.com/ZeraOrg/opentidemark)
+- Downloads: [releases](https://github.com/ZeraOrg/opentidemark/releases) and the container image
   `ghcr.io/zeraorg/tidemark`
-- What changed: [changelog](https://github.com/ZeraOrg/tidemark/blob/main/CHANGELOG.md)
-- Security policy: [SECURITY.md](https://github.com/ZeraOrg/tidemark/blob/main/SECURITY.md)
+- What changed: [changelog](https://github.com/ZeraOrg/opentidemark/blob/main/CHANGELOG.md)
+- Security policy: [SECURITY.md](https://github.com/ZeraOrg/opentidemark/blob/main/SECURITY.md)

@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/ingest/seq"
-	"github.com/ZeraOrg/tidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/ingest/seq"
+	"github.com/ZeraOrg/opentidemark/internal/model"
 )
 
 // seqCheckpoint is the resumable position of a Seq import. Seq returns events newest first and

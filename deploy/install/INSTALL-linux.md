@@ -5,7 +5,7 @@ This archive contains the `tidemark` binary with the web UI built in, the instal
 `deploy/install.sh`, the systemd unit `deploy/tidemark.service` and the ClickHouse configuration
 in `deploy/clickhouse/`. OpenTidemark stores telemetry in ClickHouse 25.8, which you install
 separately (step 3). The full guide, with every option and troubleshooting, is
-<https://github.com/ZeraOrg/tidemark/blob/main/docs/installation.md>.
+<https://github.com/ZeraOrg/opentidemark/blob/main/docs/installation.md>.
 
 Replace `<version>` and `<arch>` (`amd64` or `arm64`) below with the values in the archive name.
 
@@ -15,7 +15,7 @@ In the directory with the archive and `checksums.txt` from the same release:
 
 ```bash
 sha256sum -c checksums.txt --ignore-missing
-gh attestation verify tidemark_<version>_linux_<arch>.tar.gz --repo ZeraOrg/tidemark   # optional, needs the GitHub CLI
+gh attestation verify tidemark_<version>_linux_<arch>.tar.gz --repo ZeraOrg/opentidemark   # optional, needs the GitHub CLI
 ```
 
 ## 2. Install the service
@@ -53,7 +53,7 @@ sudo systemctl restart clickhouse-server
 `config.d/tidemark.xml` keeps ClickHouse on its default loopback address and switches off its
 crash reports. Also give ClickHouse's own `default` user a password, as the ClickHouse guide
 describes. ClickHouse in Docker instead of the packages is described in section 5.3 of the
-[installation guide](https://github.com/ZeraOrg/tidemark/blob/main/docs/installation.md#53-clickhouse-in-docker-instead).
+[installation guide](https://github.com/ZeraOrg/opentidemark/blob/main/docs/installation.md#53-clickhouse-in-docker-instead).
 
 ## 4. Start, check and sign in
 
@@ -67,7 +67,7 @@ sudo -u tidemark tidemark doctor --env-file /etc/tidemark/tidemark.env
 
 Open `http://<host>:8080`, sign in as **admin / admin** and **change the password right away**.
 Then create a connection (one API key per application) and point your clients at OpenTidemark:
-<https://github.com/ZeraOrg/tidemark/blob/main/docs/ingestion.md>. Open only the ports your
+<https://github.com/ZeraOrg/opentidemark/blob/main/docs/ingestion.md>. Open only the ports your
 clients use in the firewall, and keep ClickHouse's ports closed to other hosts.
 
 ## 5. Upgrade

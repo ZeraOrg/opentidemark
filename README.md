@@ -13,7 +13,7 @@ number of users is not limited.
 > **Status: early 0.x release.** Ingestion, search, the web UI, dashboards, alerting, stream
 > management, high availability and the importers are implemented and tested. Expect rough edges
 > and breaking changes between minor versions before 1.0 (your data is always kept on upgrade).
-> See the [changelog](CHANGELOG.md) and the [releases](https://github.com/ZeraOrg/tidemark/releases).
+> See the [changelog](CHANGELOG.md) and the [releases](https://github.com/ZeraOrg/opentidemark/releases).
 
 ## Why OpenTidemark
 
@@ -96,7 +96,7 @@ one of these ways to install it:
 ### Docker Compose bundle (Linux, macOS, Windows)
 
 Download `tidemark_<version>_docker.tar.gz` (or `.zip`) from the
-[releases page](https://github.com/ZeraOrg/tidemark/releases). It contains a Compose file that
+[releases page](https://github.com/ZeraOrg/opentidemark/releases). It contains a Compose file that
 runs the published image `ghcr.io/zeraorg/tidemark:<version>` (linux/amd64 and linux/arm64)
 together with ClickHouse, the installers and an `INSTALL.md`; nothing is built. (The bundle is
 part of every release after 0.1.0; for 0.1.0 use the source tree below.)
@@ -112,7 +112,7 @@ On Windows unpack the `.zip` and run `.\install.ps1 -Mode Docker` in PowerShell.
 ### Release archive (native install)
 
 Download the archive for your platform from the
-[releases page](https://github.com/ZeraOrg/tidemark/releases) and check it against
+[releases page](https://github.com/ZeraOrg/opentidemark/releases) and check it against
 `checksums.txt` (`sha256sum -c checksums.txt --ignore-missing`). Each archive contains the
 `tidemark` binary with the web UI built in, an `INSTALL.md` for its platform, the licence files
 and the installer files in `deploy/`. ClickHouse is set up separately with the users from
@@ -131,7 +131,7 @@ service; run ClickHouse with Docker Desktop).
 ### From source
 
 ```bash
-git clone https://github.com/ZeraOrg/tidemark
+git clone https://github.com/ZeraOrg/opentidemark
 cd tidemark/deploy
 ./install.sh docker                 # builds the image from source and starts the stack
 ```
@@ -152,11 +152,11 @@ shipper) and point your clients at OpenTidemark ([Sending data](docs/ingestion.m
 
 ## Documentation
 
-The documentation is published at <https://zeraorg.github.io/tidemark/>; the same pages are in
+The documentation is published at <https://zeraorg.github.io/opentidemark/>; the same pages are in
 [`docs/`](docs/), every release attaches them as an offline copy (`tidemark_<version>_docs.zip`,
 with search), and the site offers them to agents as
-[`llms.txt`](https://zeraorg.github.io/tidemark/llms.txt) and
-[`llms-full.txt`](https://zeraorg.github.io/tidemark/llms-full.txt):
+[`llms.txt`](https://zeraorg.github.io/opentidemark/llms.txt) and
+[`llms-full.txt`](https://zeraorg.github.io/opentidemark/llms-full.txt):
 
 - [Quick start: run OpenTidemark locally](docs/quickstart.md)
 - [Installation guide](docs/installation.md) (Docker Compose, native Linux and Windows, macOS for
@@ -189,14 +189,15 @@ On Windows use `.\build.ps1 build`, `.\build.ps1 check` and `.\build.ps1 dist`.
 ## Releases
 
 Releases follow [Semantic Versioning](https://semver.org); before 1.0, minor versions may contain
-breaking changes. Each [release](https://github.com/ZeraOrg/tidemark/releases) has:
+breaking changes. Each [release](https://github.com/ZeraOrg/opentidemark/releases) has:
 
 - `tidemark_<version>_linux_amd64.tar.gz`, `tidemark_<version>_linux_arm64.tar.gz` and
   `tidemark_<version>_windows_amd64.zip`: the binary, the native installer and an `INSTALL.md`;
 - `tidemark_<version>_docker.tar.gz` and `.zip`: the ready-to-use Docker Compose bundle;
 - `tidemark_<version>_docs.zip`: the documentation for offline use (open `index.html`);
 - `checksums.txt` and build provenance attestations
-  (`gh attestation verify <file> --repo ZeraOrg/tidemark`);
+  (`gh attestation verify <file> --repo ZeraOrg/opentidemark`; for 0.2.0 and earlier, published
+  before the repository was renamed, `--repo ZeraOrg/tidemark`);
 - the matching image `ghcr.io/zeraorg/tidemark:<version>`, scanned for known vulnerabilities
   before the release is published.
 

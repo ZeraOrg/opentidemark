@@ -19,9 +19,9 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/ZeraOrg/tidemark/internal/auth"
-	"github.com/ZeraOrg/tidemark/internal/ingest"
-	"github.com/ZeraOrg/tidemark/internal/jsonx"
+	"github.com/ZeraOrg/opentidemark/internal/auth"
+	"github.com/ZeraOrg/opentidemark/internal/ingest"
+	"github.com/ZeraOrg/opentidemark/internal/jsonx"
 )
 
 // Media types.

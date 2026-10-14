@@ -9,8 +9,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/ZeraOrg/tidemark/internal/meta"
-	"github.com/ZeraOrg/tidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
+	"github.com/ZeraOrg/opentidemark/internal/model"
 )
 
 // Team audit actions and limits (SPEC §11.5, §15.5, §15.10).

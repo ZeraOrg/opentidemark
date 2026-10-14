@@ -8,14 +8,14 @@ import (
 	"net/netip"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/alerting"
-	"github.com/ZeraOrg/tidemark/internal/api"
-	"github.com/ZeraOrg/tidemark/internal/auth"
-	"github.com/ZeraOrg/tidemark/internal/cluster"
-	"github.com/ZeraOrg/tidemark/internal/httpx"
-	"github.com/ZeraOrg/tidemark/internal/meta"
-	"github.com/ZeraOrg/tidemark/internal/service"
-	ch "github.com/ZeraOrg/tidemark/internal/store/clickhouse"
+	"github.com/ZeraOrg/opentidemark/internal/alerting"
+	"github.com/ZeraOrg/opentidemark/internal/api"
+	"github.com/ZeraOrg/opentidemark/internal/auth"
+	"github.com/ZeraOrg/opentidemark/internal/cluster"
+	"github.com/ZeraOrg/opentidemark/internal/httpx"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
+	"github.com/ZeraOrg/opentidemark/internal/service"
+	ch "github.com/ZeraOrg/opentidemark/internal/store/clickhouse"
 )
 
 // opsDeps are the shared collaborators of the stream, dashboard and alerting modules.

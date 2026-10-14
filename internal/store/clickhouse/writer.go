@@ -13,9 +13,9 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/go-faster/city"
 
-	"github.com/ZeraOrg/tidemark/internal/jsonx"
-	"github.com/ZeraOrg/tidemark/internal/model"
-	"github.com/ZeraOrg/tidemark/internal/store"
+	"github.com/ZeraOrg/opentidemark/internal/jsonx"
+	"github.com/ZeraOrg/opentidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/store"
 )
 
 // Insert quorum values (SPEC §17.5).

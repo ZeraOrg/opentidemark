@@ -9,9 +9,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/ZeraOrg/tidemark/internal/model"
-	"github.com/ZeraOrg/tidemark/internal/store"
-	"github.com/ZeraOrg/tidemark/internal/tql"
+	"github.com/ZeraOrg/opentidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/store"
+	"github.com/ZeraOrg/opentidemark/internal/tql"
 )
 
 // FakeQuerier is an in-memory store.Querier for unit tests. It records the compiled queries,

@@ -14,7 +14,7 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/google/uuid"
 
-	"github.com/ZeraOrg/tidemark/internal/tql"
+	"github.com/ZeraOrg/opentidemark/internal/tql"
 )
 
 // maxSafeInteger is the largest integer a JSON (JavaScript) number holds exactly; larger

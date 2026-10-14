@@ -10,8 +10,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/ZeraOrg/tidemark/internal/alerting"
-	"github.com/ZeraOrg/tidemark/internal/meta"
+	"github.com/ZeraOrg/opentidemark/internal/alerting"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
 )
 
 // Channel audit actions and the mask shown instead of secrets (SPEC §15.5).

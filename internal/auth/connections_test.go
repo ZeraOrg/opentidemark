@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/meta"
-	"github.com/ZeraOrg/tidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
+	"github.com/ZeraOrg/opentidemark/internal/model"
 )
 
 // countingStore wraps the repository and counts lookups (cache verification).

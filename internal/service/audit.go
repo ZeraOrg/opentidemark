@@ -8,7 +8,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/meta"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
 )
 
 // Audit actions (SPEC §15.5).

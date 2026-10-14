@@ -7,9 +7,19 @@ All notable changes to OpenTidemark are documented in this file. The format is b
 contain breaking changes; upgrades never lose data (see the upgrade rules in `SPEC.md`).
 
 Release archives, checksums and container images are on the
-[releases page](https://github.com/ZeraOrg/tidemark/releases).
+[releases page](https://github.com/ZeraOrg/opentidemark/releases).
 
 ## [Unreleased]
+
+## [0.2.1] - 2026-10-14
+
+### Changed
+
+- The repository moved to [github.com/ZeraOrg/opentidemark](https://github.com/ZeraOrg/opentidemark)
+  (old links redirect); the Go module path changed accordingly to
+  `github.com/ZeraOrg/opentidemark`; the container image name `ghcr.io/zeraorg/tidemark` is
+  unchanged. The documentation site is now <https://zeraorg.github.io/opentidemark/>. Release
+  attestations of 0.2.0 and earlier verify with `--repo ZeraOrg/tidemark`.
 
 ## [0.2.0] - 2026-10-14
 
@@ -136,6 +146,7 @@ First public release.
   windows/amd64 (systemd unit and Windows service installers), and a multi-arch container image
   with a Docker Compose setup.
 
-[Unreleased]: https://github.com/ZeraOrg/tidemark/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/ZeraOrg/tidemark/releases/tag/v0.2.0
-[0.1.0]: https://github.com/ZeraOrg/tidemark/releases/tag/v0.1.0
+[Unreleased]: https://github.com/ZeraOrg/opentidemark/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/ZeraOrg/opentidemark/releases/tag/v0.2.1
+[0.2.0]: https://github.com/ZeraOrg/opentidemark/releases/tag/v0.2.0
+[0.1.0]: https://github.com/ZeraOrg/opentidemark/releases/tag/v0.1.0

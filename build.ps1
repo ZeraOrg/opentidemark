@@ -18,7 +18,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath $PSScriptRoot
 
-$Module = 'github.com/ZeraOrg/tidemark'
+$Module = 'github.com/ZeraOrg/opentidemark'
 $GoLicensesVersion = 'v2.0.1'
 # Reviewed licences allowed in shipped Go code (SPEC §19.1), same list as the Makefile.
 $GoAllowedLicenses = 'Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,MIT,MPL-2.0'

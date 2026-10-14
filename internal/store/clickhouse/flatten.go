@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"unicode/utf8"
 
-	"github.com/ZeraOrg/tidemark/internal/jsonx"
-	"github.com/ZeraOrg/tidemark/internal/normalize"
+	"github.com/ZeraOrg/opentidemark/internal/jsonx"
+	"github.com/ZeraOrg/opentidemark/internal/normalize"
 )
 
 // Flattening limits (SPEC §8.3).

@@ -13,9 +13,9 @@ import (
 	"io"
 	"os"
 
-	"github.com/ZeraOrg/tidemark/internal/ingest/seq"
-	"github.com/ZeraOrg/tidemark/internal/jsonx"
-	"github.com/ZeraOrg/tidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/ingest/seq"
+	"github.com/ZeraOrg/opentidemark/internal/jsonx"
+	"github.com/ZeraOrg/opentidemark/internal/model"
 )
 
 // CLEF file reading limits.

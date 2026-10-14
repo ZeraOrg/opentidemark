@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/model"
 )
 
 func compileQ(t *testing.T, q string, o Options) *Compiled {

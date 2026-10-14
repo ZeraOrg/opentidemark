@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/service"
+	"github.com/ZeraOrg/opentidemark/internal/service"
 )
 
 // SignalsAPI serves /signals (SPEC §11.4): viewers read, editors create and change their own

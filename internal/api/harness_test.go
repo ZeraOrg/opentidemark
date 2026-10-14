@@ -17,14 +17,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/alerting"
-	"github.com/ZeraOrg/tidemark/internal/auth"
-	"github.com/ZeraOrg/tidemark/internal/importer"
-	"github.com/ZeraOrg/tidemark/internal/meta"
-	"github.com/ZeraOrg/tidemark/internal/retention"
-	"github.com/ZeraOrg/tidemark/internal/service"
-	"github.com/ZeraOrg/tidemark/internal/store"
-	"github.com/ZeraOrg/tidemark/internal/testutil"
+	"github.com/ZeraOrg/opentidemark/internal/alerting"
+	"github.com/ZeraOrg/opentidemark/internal/auth"
+	"github.com/ZeraOrg/opentidemark/internal/importer"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
+	"github.com/ZeraOrg/opentidemark/internal/retention"
+	"github.com/ZeraOrg/opentidemark/internal/service"
+	"github.com/ZeraOrg/opentidemark/internal/store"
+	"github.com/ZeraOrg/opentidemark/internal/testutil"
 )
 
 const testPassword = "Correct-Horse-Battery-9"

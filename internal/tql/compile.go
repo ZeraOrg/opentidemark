@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/model"
 )
 
 // Defaults applied by Compile.

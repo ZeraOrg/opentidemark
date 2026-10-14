@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/model"
-	"github.com/ZeraOrg/tidemark/internal/service"
-	"github.com/ZeraOrg/tidemark/internal/tql"
+	"github.com/ZeraOrg/opentidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/service"
+	"github.com/ZeraOrg/opentidemark/internal/tql"
 )
 
 // defaultRange is the time range used when from/to are omitted (SPEC §11.1).

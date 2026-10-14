@@ -12,9 +12,9 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/ingest/elastic"
-	"github.com/ZeraOrg/tidemark/internal/jsonx"
-	"github.com/ZeraOrg/tidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/ingest/elastic"
+	"github.com/ZeraOrg/opentidemark/internal/jsonx"
+	"github.com/ZeraOrg/opentidemark/internal/model"
 )
 
 // Elasticsearch reading modes and keep-alive (SPEC §9.9).

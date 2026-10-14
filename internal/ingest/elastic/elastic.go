@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/auth"
-	"github.com/ZeraOrg/tidemark/internal/ingest"
+	"github.com/ZeraOrg/opentidemark/internal/auth"
+	"github.com/ZeraOrg/opentidemark/internal/ingest"
 )
 
 // apiVersion is the Elasticsearch API level whose `_bulk` request and response format the

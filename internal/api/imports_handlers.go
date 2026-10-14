@@ -12,8 +12,8 @@ import (
 	"net/netip"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/importer"
-	"github.com/ZeraOrg/tidemark/internal/meta"
+	"github.com/ZeraOrg/opentidemark/internal/importer"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
 )
 
 // maxUploadRequest bounds a multipart import request: every file at its limit plus the job part.

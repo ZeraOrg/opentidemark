@@ -11,8 +11,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/meta"
-	"github.com/ZeraOrg/tidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
+	"github.com/ZeraOrg/opentidemark/internal/model"
 )
 
 // Protocol is an ingestion protocol a connection may use.

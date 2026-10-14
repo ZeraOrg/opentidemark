@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/meta"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
 )
 
 // Delivery settings (SPEC §14.2).

@@ -12,9 +12,9 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 
-	"github.com/ZeraOrg/tidemark/internal/model"
-	"github.com/ZeraOrg/tidemark/internal/retention"
-	"github.com/ZeraOrg/tidemark/internal/store"
+	"github.com/ZeraOrg/opentidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/retention"
+	"github.com/ZeraOrg/opentidemark/internal/store"
 )
 
 // Admin timeouts and limits.

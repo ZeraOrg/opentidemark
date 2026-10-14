@@ -11,13 +11,13 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 
-	"github.com/ZeraOrg/tidemark/internal/auth"
-	"github.com/ZeraOrg/tidemark/internal/cluster"
-	"github.com/ZeraOrg/tidemark/internal/config"
-	"github.com/ZeraOrg/tidemark/internal/meta"
-	"github.com/ZeraOrg/tidemark/internal/pipeline"
-	ch "github.com/ZeraOrg/tidemark/internal/store/clickhouse"
-	"github.com/ZeraOrg/tidemark/internal/wal"
+	"github.com/ZeraOrg/opentidemark/internal/auth"
+	"github.com/ZeraOrg/opentidemark/internal/cluster"
+	"github.com/ZeraOrg/opentidemark/internal/config"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
+	"github.com/ZeraOrg/opentidemark/internal/pipeline"
+	ch "github.com/ZeraOrg/opentidemark/internal/store/clickhouse"
+	"github.com/ZeraOrg/opentidemark/internal/wal"
 )
 
 // Startup coordination of ClickHouse migrations across nodes (SPEC §17.5).

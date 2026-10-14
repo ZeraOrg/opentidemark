@@ -11,9 +11,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/ZeraOrg/tidemark/internal/model"
-	"github.com/ZeraOrg/tidemark/internal/retention"
-	"github.com/ZeraOrg/tidemark/internal/tql"
+	"github.com/ZeraOrg/opentidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/retention"
+	"github.com/ZeraOrg/opentidemark/internal/tql"
 )
 
 // ErrNotFound is returned when an event, trace or job does not exist (or is outside the

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/meta"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
 )
 
 func setupLogin(t *testing.T) (*Login, *meta.Users, *fakeClock, *meta.User) {

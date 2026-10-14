@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ZeraOrg/tidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/model"
 )
 
 func ptr(n int) *int { return &n }

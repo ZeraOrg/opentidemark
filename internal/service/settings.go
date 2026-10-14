@@ -11,10 +11,10 @@ import (
 	"log/slog"
 	"sort"
 
-	"github.com/ZeraOrg/tidemark/internal/meta"
-	"github.com/ZeraOrg/tidemark/internal/model"
-	"github.com/ZeraOrg/tidemark/internal/retention"
-	"github.com/ZeraOrg/tidemark/internal/store"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
+	"github.com/ZeraOrg/opentidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/retention"
+	"github.com/ZeraOrg/opentidemark/internal/store"
 )
 
 // Setting keys exposed through GET/PATCH /settings.

@@ -11,13 +11,13 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
-	"github.com/ZeraOrg/tidemark/internal/api"
-	"github.com/ZeraOrg/tidemark/internal/httpx"
-	"github.com/ZeraOrg/tidemark/internal/ingest/elastic"
-	"github.com/ZeraOrg/tidemark/internal/ingest/native"
-	"github.com/ZeraOrg/tidemark/internal/ingest/otlp"
-	"github.com/ZeraOrg/tidemark/internal/ingest/seq"
-	"github.com/ZeraOrg/tidemark/internal/web"
+	"github.com/ZeraOrg/opentidemark/internal/api"
+	"github.com/ZeraOrg/opentidemark/internal/httpx"
+	"github.com/ZeraOrg/opentidemark/internal/ingest/elastic"
+	"github.com/ZeraOrg/opentidemark/internal/ingest/native"
+	"github.com/ZeraOrg/opentidemark/internal/ingest/otlp"
+	"github.com/ZeraOrg/opentidemark/internal/ingest/seq"
+	"github.com/ZeraOrg/opentidemark/internal/web"
 )
 
 // Listener names.

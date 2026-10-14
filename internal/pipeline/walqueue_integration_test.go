@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/model"
-	ch "github.com/ZeraOrg/tidemark/internal/store/clickhouse"
-	"github.com/ZeraOrg/tidemark/internal/testutil"
-	"github.com/ZeraOrg/tidemark/internal/wal"
+	"github.com/ZeraOrg/opentidemark/internal/model"
+	ch "github.com/ZeraOrg/opentidemark/internal/store/clickhouse"
+	"github.com/ZeraOrg/opentidemark/internal/testutil"
+	"github.com/ZeraOrg/opentidemark/internal/wal"
 )
 
 // crashingWriter stores the batch in ClickHouse and then hangs until the queue is aborted, like

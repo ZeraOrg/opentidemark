@@ -26,12 +26,12 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/ZeraOrg/tidemark/internal/app"
-	"github.com/ZeraOrg/tidemark/internal/auth"
-	"github.com/ZeraOrg/tidemark/internal/config"
-	"github.com/ZeraOrg/tidemark/internal/logging"
-	"github.com/ZeraOrg/tidemark/internal/meta"
-	"github.com/ZeraOrg/tidemark/internal/service"
+	"github.com/ZeraOrg/opentidemark/internal/app"
+	"github.com/ZeraOrg/opentidemark/internal/auth"
+	"github.com/ZeraOrg/opentidemark/internal/config"
+	"github.com/ZeraOrg/opentidemark/internal/logging"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
+	"github.com/ZeraOrg/opentidemark/internal/service"
 )
 
 // version is set at build time with -ldflags "-X main.version=<v>".

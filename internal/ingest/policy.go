@@ -8,9 +8,9 @@ import (
 	"net/http"
 	"net/netip"
 
-	"github.com/ZeraOrg/tidemark/internal/auth"
-	"github.com/ZeraOrg/tidemark/internal/model"
-	"github.com/ZeraOrg/tidemark/internal/normalize"
+	"github.com/ZeraOrg/opentidemark/internal/auth"
+	"github.com/ZeraOrg/opentidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/normalize"
 )
 
 // Applied-property keys that pin the stream instead of becoming properties.

@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/httpx"
-	"github.com/ZeraOrg/tidemark/internal/meta"
+	"github.com/ZeraOrg/opentidemark/internal/httpx"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
 )
 
 type mapResolver map[string]meta.Channel

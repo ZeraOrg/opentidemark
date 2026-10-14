@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ZeraOrg/tidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/model"
 )
 
 // fieldType is the semantic type of a resolved field.

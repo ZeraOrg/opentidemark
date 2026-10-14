@@ -19,7 +19,7 @@ import (
 const (
 	serviceName        = "Tidemark"
 	serviceDisplayName = "OpenTidemark observability"
-	serviceDescription = "Self-hosted logs, traces and metrics (https://github.com/ZeraOrg/tidemark)"
+	serviceDescription = "Self-hosted logs, traces and metrics (https://github.com/ZeraOrg/opentidemark)"
 	serviceAccount     = `NT SERVICE\Tidemark`
 	restartDelay       = 5 * time.Second
 	resetPeriodSeconds = 86400

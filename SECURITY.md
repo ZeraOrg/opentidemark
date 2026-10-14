@@ -4,7 +4,7 @@
 ## Reporting a vulnerability
 
 Please report vulnerabilities privately through GitHub's **Report a vulnerability** form on
-<https://github.com/zeraOrg/tidemark/security/advisories/new> (Security → Advisories in the
+<https://github.com/ZeraOrg/opentidemark/security/advisories/new> (Security → Advisories in the
 public repository). Do not open a public issue or pull request for a vulnerability.
 
 We aim to acknowledge reports within 72 hours. Fixes are released through the public repository;

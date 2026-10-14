@@ -10,7 +10,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 
-	"github.com/ZeraOrg/tidemark/internal/retention"
+	"github.com/ZeraOrg/opentidemark/internal/retention"
 )
 
 // ErrUnknownTable is returned for retention rules on tables outside the allow-list.

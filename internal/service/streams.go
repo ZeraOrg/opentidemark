@@ -9,8 +9,8 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/ZeraOrg/tidemark/internal/meta"
-	"github.com/ZeraOrg/tidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
+	"github.com/ZeraOrg/opentidemark/internal/model"
 )
 
 // StreamStore is the stream persistence used by the registry.

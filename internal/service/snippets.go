@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/ZeraOrg/tidemark/internal/meta"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
 )
 
 // KeyPlaceholder stands in for the connection key, which is never shown again after creation.

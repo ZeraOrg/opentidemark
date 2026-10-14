@@ -16,12 +16,12 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/ZeraOrg/tidemark/internal/config"
-	"github.com/ZeraOrg/tidemark/internal/importer"
-	"github.com/ZeraOrg/tidemark/internal/meta"
-	"github.com/ZeraOrg/tidemark/internal/model"
-	ch "github.com/ZeraOrg/tidemark/internal/store/clickhouse"
-	"github.com/ZeraOrg/tidemark/internal/testutil"
+	"github.com/ZeraOrg/opentidemark/internal/config"
+	"github.com/ZeraOrg/opentidemark/internal/importer"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
+	"github.com/ZeraOrg/opentidemark/internal/model"
+	ch "github.com/ZeraOrg/opentidemark/internal/store/clickhouse"
+	"github.com/ZeraOrg/opentidemark/internal/testutil"
 )
 
 // TestIntegrationOps runs migrate, doctor, backup and restore against a real ClickHouse with a

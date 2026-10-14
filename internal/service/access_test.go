@@ -8,8 +8,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/ZeraOrg/tidemark/internal/auth"
-	"github.com/ZeraOrg/tidemark/internal/meta"
+	"github.com/ZeraOrg/opentidemark/internal/auth"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
 )
 
 // fakeTeamStreams answers StreamsForUser from a map of user id to team grants.

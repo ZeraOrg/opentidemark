@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/model"
 )
 
 // trustedQuoted lists the only quoted fragments the compiler itself emits.

@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/service"
-	"github.com/ZeraOrg/tidemark/internal/store"
+	"github.com/ZeraOrg/opentidemark/internal/service"
+	"github.com/ZeraOrg/opentidemark/internal/store"
 )
 
 // tail streams new events as Server-Sent Events (SPEC §11.3): `event: events` with a JSON

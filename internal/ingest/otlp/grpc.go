@@ -19,8 +19,8 @@ import (
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
-	"github.com/ZeraOrg/tidemark/internal/auth"
-	"github.com/ZeraOrg/tidemark/internal/ingest"
+	"github.com/ZeraOrg/opentidemark/internal/auth"
+	"github.com/ZeraOrg/opentidemark/internal/ingest"
 )
 
 // GRPCService implements the three OTLP collector services.

@@ -29,9 +29,9 @@ confirmation, and where to find machine-readable copies of this documentation.
 The documentation site publishes two plain-text files for agents and language models at its
 root:
 
-- `llms.txt` (<https://zeraorg.github.io/tidemark/llms.txt>): an index of every page with its
+- `llms.txt` (<https://zeraorg.github.io/opentidemark/llms.txt>): an index of every page with its
   title, summary and link;
-- `llms-full.txt` (<https://zeraorg.github.io/tidemark/llms-full.txt>): the full Markdown of the
+- `llms-full.txt` (<https://zeraorg.github.io/opentidemark/llms-full.txt>): the full Markdown of the
   user documentation and this manual in one file, without HTML comments.
 
 Both are generated from the same sources as the site at every build, so they match the published

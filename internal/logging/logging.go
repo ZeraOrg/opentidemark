@@ -8,7 +8,7 @@ import (
 	"io"
 	"log/slog"
 
-	"github.com/ZeraOrg/tidemark/internal/auth"
+	"github.com/ZeraOrg/opentidemark/internal/auth"
 )
 
 // New returns a JSON logger at level writing to w.

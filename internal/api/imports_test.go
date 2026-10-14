@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ZeraOrg/tidemark/internal/auth"
+	"github.com/ZeraOrg/opentidemark/internal/auth"
 )
 
 // importView mirrors the ImportJob response shape of SPEC §11.5.

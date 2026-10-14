@@ -10,16 +10,16 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/api"
-	"github.com/ZeraOrg/tidemark/internal/auth"
-	"github.com/ZeraOrg/tidemark/internal/cluster"
-	"github.com/ZeraOrg/tidemark/internal/httpx"
-	"github.com/ZeraOrg/tidemark/internal/ingest"
-	"github.com/ZeraOrg/tidemark/internal/meta"
-	"github.com/ZeraOrg/tidemark/internal/pipeline"
-	"github.com/ZeraOrg/tidemark/internal/selfmetrics"
-	"github.com/ZeraOrg/tidemark/internal/service"
-	ch "github.com/ZeraOrg/tidemark/internal/store/clickhouse"
+	"github.com/ZeraOrg/opentidemark/internal/api"
+	"github.com/ZeraOrg/opentidemark/internal/auth"
+	"github.com/ZeraOrg/opentidemark/internal/cluster"
+	"github.com/ZeraOrg/opentidemark/internal/httpx"
+	"github.com/ZeraOrg/opentidemark/internal/ingest"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
+	"github.com/ZeraOrg/opentidemark/internal/pipeline"
+	"github.com/ZeraOrg/opentidemark/internal/selfmetrics"
+	"github.com/ZeraOrg/opentidemark/internal/service"
+	ch "github.com/ZeraOrg/opentidemark/internal/store/clickhouse"
 )
 
 // deadLetterDir is the dead-letter folder inside the data directory.

@@ -10,9 +10,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/ZeraOrg/tidemark/internal/httpx"
-	"github.com/ZeraOrg/tidemark/internal/model"
-	"github.com/ZeraOrg/tidemark/internal/service"
+	"github.com/ZeraOrg/opentidemark/internal/httpx"
+	"github.com/ZeraOrg/opentidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/service"
 )
 
 // Validation patterns for values that end up in source URLs or request bodies.

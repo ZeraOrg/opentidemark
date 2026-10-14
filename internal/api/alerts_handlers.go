@@ -10,9 +10,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/alerting"
-	"github.com/ZeraOrg/tidemark/internal/meta"
-	"github.com/ZeraOrg/tidemark/internal/service"
+	"github.com/ZeraOrg/opentidemark/internal/alerting"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
+	"github.com/ZeraOrg/opentidemark/internal/service"
 )
 
 // AlertsAPI serves /alerts and /channels (SPEC §11.4, §14).

@@ -12,9 +12,9 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/ZeraOrg/tidemark/internal/app"
-	"github.com/ZeraOrg/tidemark/internal/config"
-	"github.com/ZeraOrg/tidemark/internal/logging"
+	"github.com/ZeraOrg/opentidemark/internal/app"
+	"github.com/ZeraOrg/opentidemark/internal/config"
+	"github.com/ZeraOrg/opentidemark/internal/logging"
 )
 
 // cmdFlags are the command's own flags: name ⇒ takes a value. Everything else is passed to

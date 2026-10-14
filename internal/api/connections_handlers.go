@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/service"
+	"github.com/ZeraOrg/opentidemark/internal/service"
 )
 
 // ConnectionsAPI serves /connections (admin).

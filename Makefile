@@ -26,7 +26,7 @@ LICENSE_CHECKER_VERSION ?= 25.0.1
 EXE := $(shell $(GO) env GOEXE)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 BIN := bin
-MODULE := github.com/ZeraOrg/tidemark
+MODULE := github.com/ZeraOrg/opentidemark
 CROSS_TARGETS := linux/amd64 linux/arm64 windows/amd64
 # make dist: release archives (SPEC §17.6). The version comes from the VERSION file only, so a
 # local build and the release workflow produce the same archives for a commit. build.ps1 uses

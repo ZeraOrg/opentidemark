@@ -19,12 +19,12 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/ZeraOrg/tidemark/internal/ingest"
-	"github.com/ZeraOrg/tidemark/internal/ingest/native"
-	"github.com/ZeraOrg/tidemark/internal/model"
-	"github.com/ZeraOrg/tidemark/internal/store"
-	"github.com/ZeraOrg/tidemark/internal/testutil"
-	"github.com/ZeraOrg/tidemark/internal/wal"
+	"github.com/ZeraOrg/opentidemark/internal/ingest"
+	"github.com/ZeraOrg/opentidemark/internal/ingest/native"
+	"github.com/ZeraOrg/opentidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/store"
+	"github.com/ZeraOrg/opentidemark/internal/testutil"
+	"github.com/ZeraOrg/opentidemark/internal/wal"
 )
 
 // dedupStore imitates ClickHouse: inserts are idempotent per deduplication token, and the

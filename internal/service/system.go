@@ -6,7 +6,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/store"
+	"github.com/ZeraOrg/opentidemark/internal/store"
 )
 
 // StorageInfo describes the ClickHouse server for /system.

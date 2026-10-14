@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/meta"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
 )
 
 // Cookie names (SPEC §11.1, §15.2).

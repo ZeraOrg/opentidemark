@@ -11,7 +11,7 @@ import (
 	"net/mail"
 	"strings"
 
-	"github.com/ZeraOrg/tidemark/internal/httpx"
+	"github.com/ZeraOrg/opentidemark/internal/httpx"
 )
 
 // Channel kinds (SPEC §14.2).

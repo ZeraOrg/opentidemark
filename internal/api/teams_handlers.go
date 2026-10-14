@@ -7,8 +7,8 @@ import (
 	"net/netip"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/meta"
-	"github.com/ZeraOrg/tidemark/internal/service"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
+	"github.com/ZeraOrg/opentidemark/internal/service"
 )
 
 // TeamsAPI serves /teams (admin, SPEC §11.5, §15.10).

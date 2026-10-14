@@ -6,7 +6,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/ZeraOrg/tidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/model"
 )
 
 // FuzzParse checks that no input panics, that errors are positioned inside the

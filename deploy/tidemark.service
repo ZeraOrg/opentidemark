@@ -2,7 +2,7 @@
 # systemd unit for a native Linux install (SPEC §15.9, §17.3); installed by deploy/install.sh.
 [Unit]
 Description=OpenTidemark observability platform
-Documentation=https://github.com/ZeraOrg/tidemark
+Documentation=https://github.com/ZeraOrg/opentidemark
 After=network-online.target clickhouse-server.service
 Wants=network-online.target
 

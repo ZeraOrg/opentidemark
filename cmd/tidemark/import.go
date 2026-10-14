@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/app"
-	"github.com/ZeraOrg/tidemark/internal/importer"
+	"github.com/ZeraOrg/opentidemark/internal/app"
+	"github.com/ZeraOrg/opentidemark/internal/importer"
 )
 
 // maxCLIFileBytes bounds the CA bundle and query files read by `tidemark import elastic`.

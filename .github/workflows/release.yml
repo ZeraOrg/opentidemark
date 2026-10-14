@@ -29,7 +29,7 @@ defaults:
 env:
   IMAGE: ghcr.io/zeraorg/tidemark
   TRIVY_VERSION: v0.75.0 # same as security.yml (internal/repotest)
-  PUBLIC: ${{ github.repository == 'ZeraOrg/tidemark' }}
+  PUBLIC: ${{ github.repository == 'ZeraOrg/opentidemark' }}
 
 jobs:
   prepare:
@@ -38,7 +38,7 @@ jobs:
     # succeeded for a push to main; manual runs everywhere.
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      (github.repository == 'ZeraOrg/tidemark' &&
+      (github.repository == 'ZeraOrg/opentidemark' &&
        github.event_name == 'push' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -247,8 +247,8 @@ jobs:
             org.opencontainers.image.version=${{ needs.prepare.outputs.version }}
             org.opencontainers.image.revision=${{ needs.prepare.outputs.sha }}
             org.opencontainers.image.created=${{ needs.prepare.outputs.created }}
-            org.opencontainers.image.source=https://github.com/ZeraOrg/tidemark
-            org.opencontainers.image.url=https://github.com/ZeraOrg/tidemark
+            org.opencontainers.image.source=https://github.com/ZeraOrg/opentidemark
+            org.opencontainers.image.url=https://github.com/ZeraOrg/opentidemark
             org.opencontainers.image.licenses=Apache-2.0
       - name: explain a failed image push
         if: failure() && steps.image.outcome == 'failure' && env.PUBLIC == 'true'

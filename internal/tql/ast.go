@@ -5,7 +5,7 @@ package tql
 import (
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/model"
 )
 
 // Query is a parsed TQL query (the AST root). It is immutable after Parse;

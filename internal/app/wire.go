@@ -9,7 +9,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 
-	ch "github.com/ZeraOrg/tidemark/internal/store/clickhouse"
+	ch "github.com/ZeraOrg/opentidemark/internal/store/clickhouse"
 )
 
 const (

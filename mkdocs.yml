@@ -4,19 +4,19 @@
 # site/ and .github/workflows/docs.yml publishes it to GitHub Pages. Local build:
 #   pip install --require-hashes -r docs-site/requirements.txt && mkdocs build --strict
 site_name: OpenTidemark
-site_url: https://zeraorg.github.io/tidemark/
+site_url: https://zeraorg.github.io/opentidemark/
 site_description: >-
   OpenTidemark is an open-source, self-hosted log management, metrics and distributed tracing
   platform: OpenTelemetry (OTLP), Seq/Serilog and Elasticsearch _bulk ingestion, ClickHouse
   storage, one query language, dashboards and alerts. A self-hosted alternative to Seq and
   Elasticsearch/Kibana.
 site_author: The Tidemark Authors
-repo_url: https://github.com/ZeraOrg/tidemark
-repo_name: ZeraOrg/tidemark
+repo_url: https://github.com/ZeraOrg/opentidemark
+repo_name: ZeraOrg/opentidemark
 edit_uri: edit/main/docs/
 copyright: >-
   Copyright 2026 The Tidemark Authors · Apache-2.0 ·
-  <a href="https://github.com/ZeraOrg/tidemark/blob/main/LICENSING.md#trademarks">Trademarks</a>
+  <a href="https://github.com/ZeraOrg/opentidemark/blob/main/LICENSING.md#trademarks">Trademarks</a>
 
 docs_dir: docs
 site_dir: site

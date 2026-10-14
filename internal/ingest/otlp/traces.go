@@ -8,8 +8,8 @@ import (
 	coltracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 
-	"github.com/ZeraOrg/tidemark/internal/model"
-	"github.com/ZeraOrg/tidemark/internal/normalize"
+	"github.com/ZeraOrg/opentidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/normalize"
 )
 
 // TracesToSpans maps an OTLP traces request to spans (SPEC §9.4 Traces).

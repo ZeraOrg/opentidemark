@@ -16,8 +16,8 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 
-	"github.com/ZeraOrg/tidemark/internal/meta"
-	ch "github.com/ZeraOrg/tidemark/internal/store/clickhouse"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
+	ch "github.com/ZeraOrg/opentidemark/internal/store/clickhouse"
 )
 
 // Backup layout (SPEC §8.5 item 8).

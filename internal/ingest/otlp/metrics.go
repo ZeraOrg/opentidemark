@@ -11,7 +11,7 @@ import (
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 
-	"github.com/ZeraOrg/tidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/model"
 )
 
 // noRecordedValue marks data points that carry no value.

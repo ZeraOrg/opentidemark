@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/ZeraOrg/tidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/model"
 )
 
 // MaxFutureSkew is how far in the future a timestamp may be before it is clamped (SPEC §9.1).

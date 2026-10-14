@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/model"
 )
 
 // ResultKind is the shape of a query result (SPEC §10.5).

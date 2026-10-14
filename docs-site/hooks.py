@@ -24,7 +24,7 @@ import re
 import shutil
 from pathlib import Path
 
-REPO_BLOB = "https://github.com/ZeraOrg/tidemark/blob/main/"
+REPO_BLOB = "https://github.com/ZeraOrg/opentidemark/blob/main/"
 SITE_SUBDIRS = ("images/", "manual/")  # subdirectories of docs/ that belong to the site
 LOGO_SOURCE = Path("web/public/favicon.svg")
 LOGO_TARGET = Path("assets/logo.svg")  # theme.logo and theme.favicon in mkdocs.yml

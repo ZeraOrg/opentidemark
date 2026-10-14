@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-module github.com/ZeraOrg/tidemark
+module github.com/ZeraOrg/opentidemark
 
 go 1.26.0
 

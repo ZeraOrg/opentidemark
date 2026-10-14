@@ -5,8 +5,8 @@ package clickhouse
 import (
 	"strings"
 
-	"github.com/ZeraOrg/tidemark/internal/model"
-	"github.com/ZeraOrg/tidemark/internal/store"
+	"github.com/ZeraOrg/opentidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/store"
 )
 
 // streamCond returns the condition limiting the `stream` column to scope (SPEC §15.10) and

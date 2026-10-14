@@ -8,7 +8,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/model"
 )
 
 // Signal names (used in metrics and dead-letter file names).

@@ -13,7 +13,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/model"
 )
 
 // Job kinds (import_jobs.kind).

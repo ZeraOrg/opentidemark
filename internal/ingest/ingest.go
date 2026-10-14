@@ -15,8 +15,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/auth"
-	"github.com/ZeraOrg/tidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/auth"
+	"github.com/ZeraOrg/opentidemark/internal/model"
 )
 
 // EventSink accepts normalized events; it returns ErrBackpressure when full.

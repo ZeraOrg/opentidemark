@@ -13,9 +13,9 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/google/uuid"
 
-	"github.com/ZeraOrg/tidemark/internal/model"
-	"github.com/ZeraOrg/tidemark/internal/retention"
-	"github.com/ZeraOrg/tidemark/internal/testutil"
+	"github.com/ZeraOrg/opentidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/retention"
+	"github.com/ZeraOrg/opentidemark/internal/testutil"
 )
 
 func setup(t *testing.T) (driver.Conn, testutil.ClickHouseEnv) {

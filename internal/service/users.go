@@ -10,8 +10,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/ZeraOrg/tidemark/internal/auth"
-	"github.com/ZeraOrg/tidemark/internal/meta"
+	"github.com/ZeraOrg/opentidemark/internal/auth"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
 )
 
 // UserStore is the user persistence used by Users.

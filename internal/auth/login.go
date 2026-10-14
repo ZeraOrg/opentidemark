@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ZeraOrg/tidemark/internal/meta"
+	"github.com/ZeraOrg/opentidemark/internal/meta"
 )
 
 // Lockout policy (SPEC §15.2).

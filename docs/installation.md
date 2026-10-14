@@ -91,7 +91,7 @@ own data volume and retention. These limits are fixed or configured:
 ## 3. Getting OpenTidemark
 
 There are four ways to get OpenTidemark. Each
-[release](https://github.com/ZeraOrg/tidemark/releases) provides all of them for the same version
+[release](https://github.com/ZeraOrg/opentidemark/releases) provides all of them for the same version
 (the Docker bundle from the release after 0.1.0 on).
 
 ### Release archives
@@ -115,12 +115,15 @@ Verify the download before you unpack it:
 
 ```bash
 sha256sum -c checksums.txt --ignore-missing
-gh attestation verify tidemark_<version>_linux_amd64.tar.gz --repo ZeraOrg/tidemark   # optional, needs the GitHub CLI
+gh attestation verify tidemark_<version>_linux_amd64.tar.gz --repo ZeraOrg/opentidemark   # optional, needs the GitHub CLI
 ```
 
 ```powershell
 Get-FileHash .\tidemark_<version>_windows_amd64.zip -Algorithm SHA256   # compare with checksums.txt
 ```
+
+Releases 0.2.0 and earlier were published before the repository was renamed from
+`ZeraOrg/tidemark`; verify their attestations with `--repo ZeraOrg/tidemark`.
 
 `tidemark version` prints the version of an unpacked binary.
 
@@ -146,12 +149,12 @@ installers use the directory they are in.
 `ghcr.io/zeraorg/tidemark:<version>` is built for `linux/amd64` and `linux/arm64`. Releases without
 a pre-release suffix are also tagged `<major>.<minor>` and `latest`. The image is distroless and
 runs as the non-root user 65532, with its data in the `/data` volume. You can verify its
-provenance with `gh attestation verify oci://ghcr.io/zeraorg/tidemark:<version> --repo ZeraOrg/tidemark`.
+provenance with `gh attestation verify oci://ghcr.io/zeraorg/tidemark:<version> --repo ZeraOrg/opentidemark`.
 
 ### Source
 
 ```bash
-git clone --depth 1 --branch v<version> https://github.com/ZeraOrg/tidemark
+git clone --depth 1 --branch v<version> https://github.com/ZeraOrg/opentidemark
 ```
 
 Leave out `--depth 1 --branch v<version>` to get the latest development state. To build binaries

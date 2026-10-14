@@ -7,8 +7,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/ZeraOrg/tidemark/internal/model"
-	"github.com/ZeraOrg/tidemark/internal/tql"
+	"github.com/ZeraOrg/opentidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/tql"
 )
 
 // errNotAFilter is returned for filters that only parse as a free-text fallback or that use

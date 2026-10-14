@@ -2,8 +2,8 @@
 #
 # Documentation site (SPEC §17.4): builds the user docs in docs/ with MkDocs + Material for MkDocs
 # (mkdocs.yml, pinned and hashed dependencies in docs-site/requirements.txt) in strict mode, and
-# publishes them to GitHub Pages (https://zeraorg.github.io/tidemark/) from main. Jobs run
-# automatically only in the main public repository ZeraOrg/tidemark; anywhere else the build runs
+# publishes them to GitHub Pages (https://zeraorg.github.io/opentidemark/) from main. Jobs run
+# automatically only in the main public repository ZeraOrg/opentidemark; anywhere else the build runs
 # only when started by hand and nothing is deployed.
 name: docs
 
@@ -38,7 +38,7 @@ env:
 
 jobs:
   build:
-    if: github.repository == 'ZeraOrg/tidemark' || github.event_name == 'workflow_dispatch'
+    if: github.repository == 'ZeraOrg/opentidemark' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -59,7 +59,7 @@ jobs:
   deploy:
     needs: build
     if: >-
-      github.repository == 'ZeraOrg/tidemark' && github.ref == 'refs/heads/main' &&
+      github.repository == 'ZeraOrg/opentidemark' && github.ref == 'refs/heads/main' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     timeout-minutes: 10

@@ -10,8 +10,8 @@ import (
 	colmetricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	coltracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 
-	"github.com/ZeraOrg/tidemark/internal/ingest"
-	"github.com/ZeraOrg/tidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/ingest"
+	"github.com/ZeraOrg/opentidemark/internal/model"
 )
 
 // Exporter turns decoded OTLP requests into enqueued telemetry; it is shared by the gRPC

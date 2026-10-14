@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ZeraOrg/tidemark/internal/importer"
+	"github.com/ZeraOrg/opentidemark/internal/importer"
 )
 
 func TestParseImport(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ZeraOrg/tidemark/internal/model"
+	"github.com/ZeraOrg/opentidemark/internal/model"
 )
 
 // TestWALBytes: the size of each signal's write-ahead log is read at scrape time.
