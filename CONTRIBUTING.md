@@ -48,6 +48,12 @@ one commit named `Sync from private <sha>`. Accepted pull requests are applied t
 your authorship and sign-off, and reach `main` with the next sync; the pull request is then
 closed with a link to that commit.
 
+## Reporting bugs
+
+Open an issue with the **Bug report** form. It asks for the version, the installation type, steps
+to reproduce and the output of `tidemark doctor --json`; remove passwords, keys and tokens from
+anything you paste.
+
 ## Reporting security issues
 
 Do **not** open public issues for vulnerabilities. See [SECURITY.md](SECURITY.md).

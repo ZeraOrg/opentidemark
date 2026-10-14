@@ -245,7 +245,7 @@ function Mappings({ stream, canAdmin }: { stream: Stream; canAdmin: boolean }) {
                 <td className={l.subtle}>
                   {new Date(f.firstSeen).toLocaleDateString(undefined, { month: 'short', day: '2-digit' })}
                 </td>
-                <td className={l.subtle}>{formatAge(Date.parse(f.lastSeen), Date.now())}</td>
+                <td className={l.subtle}>{formatAge(Date.parse(f.lastSeen), fields.dataUpdatedAt)}</td>
                 <td>
                   {f.indexed ? (
                     <StatusChip variant="ok">indexed</StatusChip>

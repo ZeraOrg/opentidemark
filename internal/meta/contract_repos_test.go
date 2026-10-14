@@ -11,6 +11,54 @@ import (
 	"time"
 )
 
+// contractUserDeleteTransfer: deleting a user hands their signals and dashboards to the heir in
+// the same transaction; other users' objects are untouched (SPEC §8.4, §11.2).
+func contractUserDeleteTransfer(t *testing.T, open opener) {
+	ctx := context.Background()
+	db := open(t)
+	users, sig, dash := NewUsers(db), NewSignals(db), NewDashboards(db)
+	gone := &User{Username: "leaver", PasswordHash: "h", Role: RoleEditor}
+	heir := &User{Username: "boss", PasswordHash: "h", Role: RoleAdmin}
+	for _, u := range []*User{gone, heir} {
+		if err := users.Create(ctx, u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mine := &Signal{Name: "mine", TQL: "*", OwnerID: gone.ID, Source: "logs"}
+	other := &Signal{Name: "other", TQL: "*", OwnerID: "someone", Source: "logs"}
+	for _, s := range []*Signal{mine, other} {
+		if err := sig.Create(ctx, s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	private := &Dashboard{Name: "private", OwnerID: gone.ID, Doc: json.RawMessage(`{"version":1}`)}
+	shared := &Dashboard{Name: "shared", OwnerID: gone.ID, Shared: true, Doc: json.RawMessage(`{"version":1}`)}
+	for _, d := range []*Dashboard{private, shared} {
+		if err := dash.Create(ctx, d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	moved, err := users.Delete(ctx, gone.ID, heir.ID)
+	if err != nil || moved != (Transferred{Dashboards: 2, Signals: 1}) {
+		t.Fatalf("delete: %+v %v", moved, err)
+	}
+	if got, _ := sig.Get(ctx, mine.ID); got.OwnerID != heir.ID {
+		t.Errorf("signal owner %q", got.OwnerID)
+	}
+	if got, _ := sig.Get(ctx, other.ID); got.OwnerID != "someone" {
+		t.Errorf("other user's signal moved to %q", got.OwnerID)
+	}
+	for _, d := range []*Dashboard{private, shared} {
+		got, _ := dash.Get(ctx, d.ID)
+		if got.OwnerID != heir.ID || got.Shared != d.Shared {
+			t.Errorf("dashboard %s: owner %q shared %v", d.Name, got.OwnerID, got.Shared)
+		}
+	}
+	if _, err := users.Delete(ctx, "missing", heir.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("missing user: %v", err)
+	}
+}
+
 func contractUsers(t *testing.T, open opener) {
 	ctx := context.Background()
 	r := NewUsers(open(t))
@@ -65,13 +113,13 @@ func contractUsers(t *testing.T, open opener) {
 	if err != nil || len(list) != 1 {
 		t.Errorf("list %v %v", list, err)
 	}
-	if err := r.Delete(ctx, u.ID); err != nil {
+	if _, err := r.Delete(ctx, u.ID, "heir"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := r.Get(ctx, u.ID); !errors.Is(err, ErrNotFound) {
 		t.Errorf("deleted: %v", err)
 	}
-	if err := r.Delete(ctx, u.ID); !errors.Is(err, ErrNotFound) {
+	if _, err := r.Delete(ctx, u.ID, "heir"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("delete missing: %v", err)
 	}
 	if err := r.Update(ctx, &User{ID: "nope", Role: RoleViewer}); !errors.Is(err, ErrNotFound) {

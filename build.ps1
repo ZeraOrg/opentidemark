@@ -20,6 +20,8 @@ Set-Location -LiteralPath $PSScriptRoot
 
 $Module = 'github.com/ZeraOrg/opentidemark'
 $GoLicensesVersion = 'v2.0.1'
+# OSV-Scanner (known vulnerabilities and malicious packages, SPEC §15.9), same version as the Makefile.
+$OsvScannerVersion = 'v2.6.0'
 # Reviewed licences allowed in shipped Go code (SPEC §19.1), same list as the Makefile.
 $GoAllowedLicenses = 'Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,MIT,MPL-2.0'
 $LicenseCheckerVersion = '25.0.1'
@@ -232,7 +234,12 @@ function Target-Lint {
     WithEnv @{ GOOS = 'linux' } { Invoke golangci-lint @('run', './...') }
 }
 
-function Target-Vuln { Invoke govulncheck @('./...') }
+function Target-Vuln {
+    Invoke govulncheck @('./...')
+    $lockfiles = @('-L', 'go.mod')
+    if ($HasWeb) { $lockfiles += @('-L', 'web/package-lock.json') }
+    Invoke go (@('run', "github.com/google/osv-scanner/v2/cmd/osv-scanner@$OsvScannerVersion", 'scan', 'source') + $lockfiles)
+}
 
 function Target-WebCheck {
     if (-not $HasWeb) { Write-Host 'web-check: web/package.json not found, skipping'; return }

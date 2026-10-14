@@ -1,37 +1,27 @@
 # SPDX-License-Identifier: Apache-2.0
-# Dependency update PRs (SPEC §15.9, §17.4): monthly, one grouped PR per ecosystem, to keep
-# Actions usage low. Security updates are still raised immediately by Dependabot alerts.
+# Dependency update PRs (SPEC §15.9, §17.4): once a week (Monday), all ecosystems together in ONE
+# pull request (multi-ecosystem group), so a week costs a single CI run. Security updates are
+# still raised immediately by Dependabot alerts.
 version: 2
+multi-ecosystem-groups:
+  dependencies:
+    schedule:
+      interval: weekly
+      day: monday
 updates:
   - package-ecosystem: gomod
     directory: /
-    schedule:
-      interval: monthly
-    open-pull-requests-limit: 1
-    groups:
-      gomod:
-        patterns: ["*"]
+    patterns: ["*"]
+    multi-ecosystem-group: dependencies
   - package-ecosystem: npm
     directory: /web
-    schedule:
-      interval: monthly
-    open-pull-requests-limit: 1
-    groups:
-      npm:
-        patterns: ["*"]
+    patterns: ["*"]
+    multi-ecosystem-group: dependencies
   - package-ecosystem: github-actions
     directory: /
-    schedule:
-      interval: monthly
-    open-pull-requests-limit: 1
-    groups:
-      github-actions:
-        patterns: ["*"]
+    patterns: ["*"]
+    multi-ecosystem-group: dependencies
   - package-ecosystem: docker
     directory: /
-    schedule:
-      interval: monthly
-    open-pull-requests-limit: 1
-    groups:
-      docker:
-        patterns: ["*"]
+    patterns: ["*"]
+    multi-ecosystem-group: dependencies

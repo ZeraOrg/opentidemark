@@ -24,7 +24,7 @@ type UserStore interface {
 	CountAdmins(ctx context.Context) (int, error)
 	Update(ctx context.Context, u *meta.User) error
 	SetPassword(ctx context.Context, id, hash string, mustChange bool) error
-	Delete(ctx context.Context, id string) error
+	Delete(ctx context.Context, id, heirID string) (meta.Transferred, error)
 }
 
 // SessionRevoker revokes sessions.
@@ -175,7 +175,9 @@ func (s *Users) Update(ctx context.Context, actor Actor, id string, p UserPatch)
 		}
 	}
 	if roleChanged || disabling || p.Password != nil {
-		if err := s.revokeAll(ctx, u.ID, disabling); err != nil {
+		// Tokens are capped at the owner's current role, so a role change keeps them; disabling
+		// or an admin-set password (account recovery) revokes them too.
+		if err := s.revokeAll(ctx, u.ID, disabling || p.Password != nil); err != nil {
 			return meta.User{}, err
 		}
 	}
@@ -234,7 +236,8 @@ func (s *Users) guardAdmins(ctx context.Context, u meta.User, removesPrivilege b
 	return nil
 }
 
-// Delete removes a user; the last admin and the caller's own account cannot be deleted.
+// Delete removes a user; the last admin and the caller's own account cannot be deleted. The
+// user's dashboards and signals pass to the caller, so private ones stay reachable.
 func (s *Users) Delete(ctx context.Context, actor Actor, callerID, id string) error {
 	if callerID == id {
 		return invalid("id", "you cannot delete your own account")
@@ -259,9 +262,13 @@ func (s *Users) Delete(ctx context.Context, actor Actor, callerID, id string) er
 		}
 		details["teams"] = names
 	}
-	if err := s.store.Delete(ctx, id); err != nil {
+	moved, err := s.store.Delete(ctx, id, callerID)
+	if err != nil {
 		return err
 	}
+	details["transferredTo"] = callerID
+	details["dashboards"] = moved.Dashboards
+	details["signals"] = moved.Signals
 	s.audit.Record(ctx, actor, ActionUserDelete, id, details)
 	return nil
 }
@@ -306,7 +313,7 @@ func (s *Users) ResetPassword(ctx context.Context, username, password string) er
 	if err := s.setPassword(ctx, u, password, true); err != nil {
 		return err
 	}
-	if err := s.revokeAll(ctx, u.ID, false); err != nil {
+	if err := s.revokeAll(ctx, u.ID, true); err != nil {
 		return err
 	}
 	s.audit.Record(ctx, SystemActor, ActionPasswordReset, u.ID, nil)

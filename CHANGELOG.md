@@ -11,6 +11,43 @@ Release archives, checksums and container images are on the
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-14
+
+### Added
+
+- Log explorer: a fresh instance without data shows "No data yet" and points admins at
+  connection keys, Settings → Connections and the ingestion docs (other users are told to ask an
+  administrator).
+
+### Changed
+
+- Built with Go 1.27.2; Go dependencies updated (among them the SQLite driver, which no longer
+  compiles SQLite at run time).
+- Web UI dependencies updated (React 19, React Router 7, Vite 8 and others); this also fixes two
+  React Router advisories (open redirect, constructor injection).
+
+### Fixed
+
+- When ClickHouse runs out of disk space, ingested data now waits in the write-ahead log and is
+  inserted once space is freed, instead of being moved to the dead-letter files.
+- Users who open OpenTidemark by its network address or host name (for example
+  `http://192.168.1.20:8080`) can now save changes; before, every save failed with a CSRF error
+  unless `TIDEMARK_PUBLIC_URL` was set to that address.
+- Deleting a user no longer leaves their private dashboards and signals unreachable: they now
+  belong to the admin who deleted the user.
+- Install docs: the README's "From source" steps enter the right folder (`opentidemark/deploy`),
+  the native-install example uses the current archive names and the Windows steps unblock the
+  download first; the quick start's first test event uses the current time, so it shows up in the
+  default time range.
+
+### Security
+
+- Every release is now checked for known vulnerabilities and malicious packages in its Go and npm
+  dependencies (OSV-Scanner with the OpenSSF malicious-packages feed); a finding stops the release.
+- Resetting a user's password (by an admin or with `tidemark admin reset-password`) now also
+  revokes that user's API tokens, so a recovered account cannot still be used through an old
+  token.
+
 ## [0.2.1] - 2026-10-14
 
 ### Changed
@@ -146,7 +183,8 @@ First public release.
   windows/amd64 (systemd unit and Windows service installers), and a multi-arch container image
   with a Docker Compose setup.
 
-[Unreleased]: https://github.com/ZeraOrg/opentidemark/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/ZeraOrg/opentidemark/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/ZeraOrg/opentidemark/releases/tag/v0.3.0
 [0.2.1]: https://github.com/ZeraOrg/opentidemark/releases/tag/v0.2.1
 [0.2.0]: https://github.com/ZeraOrg/opentidemark/releases/tag/v0.2.0
 [0.1.0]: https://github.com/ZeraOrg/opentidemark/releases/tag/v0.1.0

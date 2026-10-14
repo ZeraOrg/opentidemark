@@ -12,7 +12,7 @@ interface ShellState {
   setStatus(s: string | null): void;
   setRefreshLabel(s: string | null): void;
   /** The current page's primary query input (focused by `/`). */
-  focusTarget: { current: (() => void) | null };
+  focusTargetRef: { current: (() => void) | null };
 }
 
 const ShellContext = createContext<ShellState | null>(null);
@@ -20,9 +20,9 @@ const ShellContext = createContext<ShellState | null>(null);
 export function ShellProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<string | null>(null);
   const [refreshLabel, setRefreshLabel] = useState<string | null>(null);
-  const focusTarget = useRef<(() => void) | null>(null);
+  const focusTargetRef = useRef<(() => void) | null>(null);
   const value = useMemo(
-    () => ({ status, refreshLabel, setStatus, setRefreshLabel, focusTarget }),
+    () => ({ status, refreshLabel, setStatus, setRefreshLabel, focusTargetRef }),
     [status, refreshLabel],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
@@ -54,11 +54,11 @@ export function useRefreshLabel(text: string | null): void {
 
 /** Registers the function that focuses this page's query bar (keyboard `/`). */
 export function useFocusTarget(fn: (() => void) | null): void {
-  const { focusTarget } = useShell();
+  const { focusTargetRef } = useShell();
   useEffect(() => {
-    focusTarget.current = fn;
+    focusTargetRef.current = fn;
     return () => {
-      if (focusTarget.current === fn) focusTarget.current = null;
+      if (focusTargetRef.current === fn) focusTargetRef.current = null;
     };
-  }, [fn, focusTarget]);
+  }, [fn, focusTargetRef]);
 }

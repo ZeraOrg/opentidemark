@@ -27,6 +27,14 @@ export default tseslint.config(
     plugins: { 'react-hooks': reactHooks },
     rules: {
       ...reactHooks.configs.recommended.rules,
+      // eslint-plugin-react-hooks 7 ships the React Compiler diagnostics in `recommended`. This app
+      // does not use the compiler; three of them only flag deliberate patterns and stay off:
+      // the "latest value" ref written during render and read from editor/keyboard callbacks,
+      // drafts that follow the URL or the server from an effect, and the @tanstack/react-virtual
+      // "incompatible library" notice.
+      'react-hooks/refs': 'off',
+      'react-hooks/set-state-in-effect': 'off',
+      'react-hooks/incompatible-library': 'off',
       'no-restricted-syntax': [
         'error',
         {

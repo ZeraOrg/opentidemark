@@ -190,6 +190,36 @@ func TestReleaseDocsBundle(t *testing.T) {
 	}
 }
 
+var osvScannerVersions = map[string]*regexp.Regexp{
+	"Makefile":                       regexp.MustCompile(`(?m)^OSV_SCANNER_VERSION \?= (v\S+)$`),
+	"build.ps1":                      regexp.MustCompile(`(?m)^\$OsvScannerVersion = '(v[^']+)'$`),
+	".github/workflows/security.yml": regexp.MustCompile(`(?m)^  OSV_SCANNER_VERSION: (v\S+)`),
+	".github/workflows/release.yml":  regexp.MustCompile(`(?m)^  OSV_SCANNER_VERSION: (v\S+)`),
+}
+
+// TestSupplyChainScanPinned keeps the OSV-Scanner that gates every release on one pinned version
+// in the local gate, the weekly security run and the release workflow (SPEC §15.9, §17.6).
+func TestSupplyChainScanPinned(t *testing.T) {
+	want := ""
+	for file, re := range osvScannerVersions {
+		m := re.FindStringSubmatch(readRepoFile(t, file))
+		if m == nil {
+			t.Errorf("%s: OSV-Scanner version not pinned", file)
+			continue
+		}
+		if want == "" {
+			want = m[1]
+		}
+		if m[1] != want {
+			t.Errorf("%s pins OSV-Scanner %s, another file %s; they must be equal", file, m[1], want)
+		}
+	}
+	rel := readRepoFile(t, ".github/workflows/release.yml")
+	if !strings.Contains(rel, "needs: [prepare, supply-chain]") {
+		t.Error("release.yml: the archives job must need the supply-chain job, so a finding blocks the release")
+	}
+}
+
 var trivyVersion = regexp.MustCompile(`(?m)^  TRIVY_VERSION: (v\S+)`)
 
 // TestReleaseScanUsesSecurityTrivy keeps the image scan that gates a release on the same pinned

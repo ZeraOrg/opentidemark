@@ -21,9 +21,8 @@ import (
 
 	// Register the pgx database/sql driver ("pgx") for PostgreSQL.
 	_ "github.com/jackc/pgx/v5/stdlib"
-	// Register the pure-Go "sqlite3" database/sql driver and its embedded SQLite build.
+	// Register the pure-Go "sqlite3" database/sql driver (SQLite built in, CGO-free).
 	_ "github.com/ncruces/go-sqlite3/driver"
-	_ "github.com/ncruces/go-sqlite3/embed"
 )
 
 // Sentinel errors returned by repositories.

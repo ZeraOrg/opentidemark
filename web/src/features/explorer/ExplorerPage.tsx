@@ -31,7 +31,7 @@ import { useApi, useServices } from '../../app/services';
 import { useFocusTarget, useTopbarStatus } from '../../app/shellContext';
 import { listParam, patchParams, useTimeRange } from '../../app/url';
 import { Button, Kbd, Segmented, SignalChip, StatusChip } from '../../components/controls';
-import { EmptyState, Notice } from '../../components/layout';
+import { Notice } from '../../components/layout';
 import { MenuItem, MenuSeparator, Modal, Popover, useToast } from '../../components/overlay';
 import { QueryEditor } from '../../components/QueryEditor';
 import { copyText, downloadUrl } from '../../lib/download';
@@ -45,6 +45,7 @@ import { errorFromApi, useQueryCheck } from '../query/useQueryCheck';
 import { EventDetail } from './EventDetail';
 import { EventList, type Density } from './EventList';
 import { BUILTIN_COLUMN_FIELDS, COLUMN_FILTER_THRESHOLD, columnChoices } from './columns';
+import { EmptyResults } from './EmptyResults';
 import { FacetRail } from './FacetRail';
 import { Histogram, histogramTotal } from './Histogram';
 import { chartTitle, ResultsView } from './ResultsView';
@@ -635,15 +636,7 @@ export default function ExplorerPage() {
                 )}
               </div>
               {results.isPending ? null : events.length === 0 ? (
-                <EmptyState
-                  title="No events match"
-                  hint="Widen the time range or remove a filter."
-                  action={
-                    <Button size="sm" onClick={() => setRange({ from: 'now-24h', to: 'now' })}>
-                      Last 24 hours
-                    </Button>
-                  }
-                />
+                <EmptyResults onLast24h={() => setRange({ from: 'now-24h', to: 'now' })} />
               ) : (
                 <EventList
                   events={events}

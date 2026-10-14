@@ -159,7 +159,7 @@ func contractTeamsCascades(t *testing.T, e *teamsEnv) {
 	_, _ = e.teams.SetMembers(ctx, ops.ID, []string{e.bob.ID})
 	_, _ = e.teams.SetStreams(ctx, pay.ID, []string{"payments", "shared"})
 	_, _ = e.teams.SetStreams(ctx, ops.ID, []string{"shared"})
-	if err := NewUsers(e.db).Delete(ctx, e.bob.ID); err != nil {
+	if _, err := NewUsers(e.db).Delete(ctx, e.bob.ID, "heir"); err != nil {
 		t.Fatal(err)
 	}
 	if m, _ := e.teams.Members(ctx, ops.ID); len(m) != 0 {

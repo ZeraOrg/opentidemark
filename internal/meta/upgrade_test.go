@@ -57,21 +57,34 @@ func checkUpgrade(t *testing.T, fixture string) {
 		t.Fatal(err)
 	}
 	backups := t.TempDir()
-	db, err := meta.Open(ctx, path, meta.WithBinaryVersion("0.7.0"), meta.WithBackupDir(backups))
+	db, err := meta.Open(ctx, path, meta.WithBinaryVersion(releaseVersion(t)), meta.WithBackupDir(backups))
 	if err != nil {
 		t.Fatalf("migrate fixture: %v", err)
 	}
 	defer db.Close()
-	rep := db.Migrations()
-	if len(rep.Applied) == 0 || rep.BackupPath == "" {
-		t.Errorf("expected pending migrations and a backup: %+v", rep)
+	// The fixture of the newest release may already be at head; any pending migration must be
+	// preceded by a backup.
+	if rep := db.Migrations(); len(rep.Applied) > 0 && rep.BackupPath == "" {
+		t.Errorf("migrations applied without a backup: %+v", rep)
 	}
 	assertCounts(ctx, t, db, m.RowCounts)
 	assertLogin(ctx, t, db, m)
 	assertKeys(ctx, t, db, m)
 	assertContent(ctx, t, db)
-	assertNoTeams(ctx, t, db)
+	if m.RowCounts["team_members"] == 0 {
+		assertNoTeams(ctx, t, db)
+	}
 	assertCounts(ctx, t, db, m.RowCounts)
+}
+
+// releaseVersion is the current release (VERSION), the binary version that opens every fixture.
+func releaseVersion(t *testing.T) string {
+	t.Helper()
+	v, err := os.ReadFile(filepath.Join("..", "..", "VERSION"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(string(v))
 }
 
 // assertNoTeams checks that upgraded users belong to no team, so they keep seeing every

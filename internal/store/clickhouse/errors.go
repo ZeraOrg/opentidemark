@@ -13,7 +13,7 @@ import (
 var ErrRowRejected = errors.New("row rejected")
 
 // transientCodes are ClickHouse exception codes that may succeed on retry: overload, timeouts,
-// replication/Keeper trouble, missing schema during migrations and permission fixes.
+// a full disk, replication/Keeper trouble, missing schema during migrations and permission fixes.
 var transientCodes = map[int32]bool{
 	16:  true, // NO_SUCH_COLUMN_IN_TABLE (migration pending on this replica)
 	47:  true, // UNKNOWN_IDENTIFIER
@@ -28,6 +28,7 @@ var transientCodes = map[int32]bool{
 	236: true, // ABORTED
 	241: true, // MEMORY_LIMIT_EXCEEDED
 	242: true, // TABLE_IS_READ_ONLY
+	243: true, // NOT_ENOUGH_SPACE (the operator frees space; the WAL keeps the data)
 	252: true, // TOO_MANY_PARTS
 	285: true, // TOO_FEW_LIVE_REPLICAS
 	286: true, // UNSATISFIED_QUORUM_FOR_PREVIOUS_WRITE

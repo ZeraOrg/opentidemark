@@ -88,19 +88,29 @@ func TestCSRF(t *testing.T) {
 		cookie string
 		header string
 		origin string
+		host   string // request Host; empty keeps httptest's example.com
 		want   bool
 	}{
-		{"match", "tok", "tok", "", true},
-		{"match with origin", "tok", "tok", "https://tm.example.com", true},
-		{"mismatch", "tok", "other", "", false},
-		{"no header", "tok", "", "", false},
-		{"no cookie", "", "tok", "", false},
-		{"bad origin", "tok", "tok", "https://evil.example.com", false},
-		{"bad scheme", "tok", "tok", "http://tm.example.com", false},
-		{"garbage origin", "tok", "tok", "%zz", false},
+		{"match", "tok", "tok", "", "", true},
+		{"match with origin", "tok", "tok", "https://tm.example.com", "", true},
+		{"mismatch", "tok", "other", "", "", false},
+		{"no header", "tok", "", "", "", false},
+		{"no cookie", "", "tok", "", "", false},
+		{"bad origin", "tok", "tok", "https://evil.example.com", "", false},
+		{"bad scheme", "tok", "tok", "http://tm.example.com", "", false},
+		{"garbage origin", "tok", "tok", "%zz", "", false},
+		{"origin is the requested host", "tok", "tok", "http://192.168.1.20:8080", "192.168.1.20:8080", true},
+		{"requested host case-insensitive", "tok", "tok", "http://TideMark.lan:8080", "tidemark.lan:8080", true},
+		{"other port of the requested host", "tok", "tok", "http://192.168.1.20:9000", "192.168.1.20:8080", false},
+		{"foreign origin on a LAN address", "tok", "tok", "http://evil.example.com", "192.168.1.20:8080", false},
+		{"public url behind a host-rewriting proxy", "tok", "tok", "https://tm.example.com", "backend:8080", true},
+		{"origin host only matches with token", "tok", "other", "http://192.168.1.20:8080", "192.168.1.20:8080", false},
 	}
 	for _, tt := range tests {
 		r := httptest.NewRequest("POST", "/api/v1/x", nil)
+		if tt.host != "" {
+			r.Host = tt.host
+		}
 		if tt.cookie != "" {
 			r.AddCookie(&http.Cookie{Name: CSRFCookie, Value: tt.cookie})
 		}

@@ -441,7 +441,7 @@ function ShellFrame({ children }: { children: ReactNode }) {
   const loc = useLocation();
   const navigate = useNavigate();
   const me = useMe();
-  const { status, focusTarget } = useShell();
+  const { status, focusTargetRef } = useShell();
   const { store } = useServices();
   const [collapsed, setCollapsed] = useState(() => store.get(STORAGE_KEYS.nav) === '1');
   const [help, setHelp] = useState<'keys' | 'tql' | null>(null);
@@ -457,7 +457,7 @@ function ShellFrame({ children }: { children: ReactNode }) {
   useGlobalHotkeys({
     navigate,
     focusQuery: () => {
-      const f = focusTarget.current;
+      const f = focusTargetRef.current;
       if (f === null) return false;
       f();
       return true;

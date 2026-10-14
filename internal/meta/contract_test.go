@@ -28,6 +28,7 @@ var contractCases = []struct {
 	fn   func(t *testing.T, open opener)
 }{
 	{"users", contractUsers},
+	{"user_delete_transfer", contractUserDeleteTransfer},
 	{"sessions", contractSessions},
 	{"connections", contractConnections},
 	{"api_tokens", contractAPITokens},

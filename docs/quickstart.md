@@ -53,6 +53,9 @@ on your own computer only by adding this line to `.env`:
 TM_BIND_ADDR=127.0.0.1
 ```
 
+If colleagues will use it, set `TIDEMARK_PUBLIC_URL` in `.env` to the address they open in the
+browser, for example `http://192.168.1.20:8080`; alert links and connection snippets use it.
+
 ## 3. Start the stack
 
 ```bash
@@ -86,7 +89,7 @@ the `TIDEMARK_BOOTSTRAP_INGEST_KEY` line in `.env`.
 KEY=$(grep '^TIDEMARK_BOOTSTRAP_INGEST_KEY=' .env | cut -d= -f2)
 curl -X POST 'http://localhost:5341/api/events/raw?clef' \
   -H "X-Seq-ApiKey: $KEY" -H 'Content-Type: application/vnd.serilog.clef' \
-  --data-binary '{"@t":"2026-01-01T12:00:00Z","@l":"Warning","@mt":"Hello from {Name}","Name":"quickstart"}'
+  --data-binary '{"@t":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","@l":"Warning","@mt":"Hello from {Name}","Name":"quickstart"}'
 ```
 
 ```powershell

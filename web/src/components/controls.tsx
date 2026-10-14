@@ -13,6 +13,7 @@ import {
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from 'react';
+import { Link, type LinkProps } from 'react-router-dom';
 import type { LevelName } from '../api/types';
 import { cx } from '../lib/cx';
 import s from './controls.module.css';
@@ -56,6 +57,16 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
     </button>
   );
 });
+
+/** A router link that looks like a button (for a primary action that navigates). */
+export function ButtonLink({
+  variant = 'default',
+  size = 'md',
+  className,
+  ...rest
+}: LinkProps & { variant?: ButtonVariant; size?: 'md' | 'sm' }) {
+  return <Link className={cx(s.button, s[variant], size === 'sm' && s.sm, className)} {...rest} />;
+}
 
 export function Kbd({ children }: { children: ReactNode }) {
   return <kbd className={s.kbd}>{children}</kbd>;

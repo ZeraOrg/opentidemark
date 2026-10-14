@@ -113,16 +113,16 @@ func migrationRollback(t *testing.T, store storeFactory) {
 func migrationDowngrade(t *testing.T, store storeFactory) {
 	ctx := context.Background()
 	open := store(t)
-	db := mustOpen(t, open, WithBinaryVersion("0.7.0"))
+	db := mustOpen(t, open, WithBinaryVersion("0.2.1"))
 	info, err := db.SchemaInfo(ctx)
-	if err != nil || info.LastMigratedBy != "0.7.0" {
+	if err != nil || info.LastMigratedBy != "0.2.1" {
 		t.Fatalf("schema info: %+v %v", info, err)
 	}
 	if _, err := db.sql.ExecContext(ctx, `UPDATE schema_info SET min_compatible_binary = ?`, "9.0.0"); err != nil {
 		t.Fatal(err)
 	}
 	_ = db.Close()
-	if _, err := open(WithBinaryVersion("0.7.0")); !errors.Is(err, ErrIncompatibleBinary) {
+	if _, err := open(WithBinaryVersion("0.2.1")); !errors.Is(err, ErrIncompatibleBinary) {
 		t.Fatalf("older binary: %v", err)
 	}
 	for _, v := range []string{"9.0.0", "v9.1.0-rc1", "dev", ""} {

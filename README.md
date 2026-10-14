@@ -33,7 +33,8 @@ OpenTidemark is meant to run on your own hardware, and to be something you can t
 - **Open, with nothing held back.** Apache-2.0, every feature included, no editions, licence keys
   or user limits, and you can read every line of code.
 - **Verifiable releases.** Each release has `checksums.txt` and GitHub build provenance
-  attestations for the archives and the container image.
+  attestations for the archives and the container image. A release is only published when its Go
+  and npm dependencies pass a supply-chain scan for known vulnerabilities and malicious packages.
 - **Your machine, your choice.** It runs on your own Linux or Windows machine, or in Docker.
 
 ## About
@@ -107,7 +108,8 @@ cd tidemark_<version>_docker
 ./install.sh docker      # creates .env with random passwords and an ingest key, then starts the stack
 ```
 
-On Windows unpack the `.zip` and run `.\install.ps1 -Mode Docker` in PowerShell.
+On Windows run `Unblock-File` on the downloaded `.zip` (so PowerShell lets the installer run), unpack
+it and run `.\install.ps1 -Mode Docker` in PowerShell.
 
 ### Release archive (native install)
 
@@ -119,12 +121,12 @@ and the installer files in `deploy/`. ClickHouse is set up separately with the u
 `deploy/clickhouse/users.d`.
 
 ```bash
-tar -xzf tidemark_0.1.0_linux_amd64.tar.gz
-cd tidemark_0.1.0_linux_amd64
+tar -xzf tidemark_<version>_linux_amd64.tar.gz     # or linux_arm64
+cd tidemark_<version>_linux_amd64
 sudo ./deploy/install.sh native ./tidemark --start   # systemd service, config in /etc/tidemark
 ```
 
-On Windows unpack `tidemark_0.1.0_windows_amd64.zip` and run
+On Windows run `Unblock-File` on `tidemark_<version>_windows_amd64.zip`, unpack it and run
 `.\deploy\install.ps1 -Mode Native -Binary .\tidemark.exe -Start` as Administrator (a Windows
 service; run ClickHouse with Docker Desktop).
 
@@ -132,7 +134,7 @@ service; run ClickHouse with Docker Desktop).
 
 ```bash
 git clone https://github.com/ZeraOrg/opentidemark
-cd tidemark/deploy
+cd opentidemark/deploy
 ./install.sh docker                 # builds the image from source and starts the stack
 ```
 
@@ -144,7 +146,9 @@ for the binaries.
 ### First steps
 
 The Compose stack publishes its ports on every network interface; set `TM_BIND_ADDR=127.0.0.1`
-in `.env` (next to `docker-compose.yml`) to keep them on the local computer.
+in `.env` (next to `docker-compose.yml`) to keep them on the local computer. When others use it,
+set `TIDEMARK_PUBLIC_URL` to the address they open in the browser (used in alert links and
+connection snippets).
 
 Open <http://localhost:8080> and sign in with **admin / admin**. **Change the password right
 away** (see [SECURITY.md](SECURITY.md)), then create a connection (one API key per application or

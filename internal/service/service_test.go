@@ -274,6 +274,95 @@ func TestTokensLimit(t *testing.T) {
 	}
 }
 
+// TestPasswordResetRevokesTokens: a password set by an admin or the CLI recovery revokes the
+// user's API tokens as well as the sessions (SPEC §15.2); a role change keeps them.
+func TestPasswordResetRevokesTokens(t *testing.T) {
+	ctx := context.Background()
+	db := openDB(t)
+	u := meta.User{Username: "dana", PasswordHash: "x", Role: meta.RoleEditor}
+	if err := meta.NewUsers(db).Create(ctx, &u); err != nil {
+		t.Fatal(err)
+	}
+	svc := newUsersSvc(db)
+	tokens := meta.NewAPITokens(db)
+	ts := NewTokens(tokens, NewAuditor(meta.NewAuditLog(db), quiet(), time.Now), time.Now)
+	p := auth.Principal{UserID: u.ID, Role: auth.RoleEditor}
+	newToken := func(name string) string {
+		tok, _, err := ts.Create(ctx, SystemActor, p, NewToken{Name: name, Scope: "read"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return tok.ID
+	}
+	revoked := func(id string) bool {
+		tok, err := tokens.Get(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return tok.RevokedAt != nil
+	}
+	viewer := string(auth.RoleViewer)
+	kept := newToken("kept")
+	if _, err := svc.Update(ctx, SystemActor, u.ID, UserPatch{Role: &viewer}); err != nil {
+		t.Fatal(err)
+	}
+	if revoked(kept) {
+		t.Error("role change revoked the token")
+	}
+	pw := "Admin-Set-Password-26"
+	if _, err := svc.Update(ctx, SystemActor, u.ID, UserPatch{Password: &pw}); err != nil {
+		t.Fatal(err)
+	}
+	if !revoked(kept) {
+		t.Error("admin password reset kept the token")
+	}
+	cli := newToken("cli")
+	if err := svc.ResetPassword(ctx, "dana", "Recovered-Pass-2026"); err != nil {
+		t.Fatal(err)
+	}
+	if !revoked(cli) {
+		t.Error("CLI password reset kept the token")
+	}
+}
+
+// TestUserDeleteTransfersObjects: the deleting admin inherits the user's private dashboards and
+// signals and can open them (SPEC §11.2).
+func TestUserDeleteTransfersObjects(t *testing.T) {
+	ctx := context.Background()
+	db := openDB(t)
+	store := meta.NewUsers(db)
+	admin := meta.User{Username: "boss", PasswordHash: "x", Role: meta.RoleAdmin}
+	leaver := meta.User{Username: "leaver", PasswordHash: "x", Role: meta.RoleEditor}
+	for _, u := range []*meta.User{&admin, &leaver} {
+		if err := store.Create(ctx, u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d := meta.Dashboard{Name: "private", OwnerID: leaver.ID, Doc: json.RawMessage(`{"version":1}`)}
+	if err := meta.NewDashboards(db).Create(ctx, &d); err != nil {
+		t.Fatal(err)
+	}
+	s := meta.Signal{Name: "mine", TQL: "*", OwnerID: leaver.ID, Source: "logs"}
+	if err := meta.NewSignals(db).Create(ctx, &s); err != nil {
+		t.Fatal(err)
+	}
+	if err := newUsersSvc(db).Delete(ctx, SystemActor, admin.ID, leaver.ID); err != nil {
+		t.Fatal(err)
+	}
+	audit := NewAuditor(meta.NewAuditLog(db), quiet(), time.Now)
+	dashboards, err := NewDashboards(meta.NewDashboards(db), audit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := auth.Principal{UserID: admin.ID, Role: auth.RoleAdmin}
+	if got, err := dashboards.Get(ctx, p, d.ID); err != nil || got.OwnerID != admin.ID {
+		t.Errorf("transferred dashboard: %+v %v", got, err)
+	}
+	if got, _ := meta.NewSignals(db).Get(ctx, s.ID); got.OwnerID != admin.ID {
+		t.Errorf("transferred signal owner %q", got.OwnerID)
+	}
+}
+
 func TestValidationError(t *testing.T) {
 	err := invalid("field", "msg")
 	var ve *ValidationError

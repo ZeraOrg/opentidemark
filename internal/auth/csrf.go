@@ -10,13 +10,12 @@ import (
 )
 
 // CSRFValid implements the double-submit check: the X-Tidemark-CSRF header must equal the
-// tm_csrf cookie (constant-time). When publicURL is set and the request carries an Origin
-// header, the origin must match it as well.
+// tm_csrf cookie (constant-time). When the request carries an Origin header, it must be the
+// public URL or the host the request was sent to (same-origin, e.g. a LAN address that differs
+// from the public URL).
 func CSRFValid(r *http.Request, publicURL *url.URL) bool {
-	if publicURL != nil {
-		if origin := r.Header.Get("Origin"); origin != "" && !sameOrigin(origin, publicURL) {
-			return false
-		}
+	if origin := r.Header.Get("Origin"); origin != "" && !allowedOrigin(origin, r.Host, publicURL) {
+		return false
 	}
 	c, err := r.Cookie(CSRFCookie)
 	if err != nil || c.Value == "" {
@@ -26,12 +25,15 @@ func CSRFValid(r *http.Request, publicURL *url.URL) bool {
 	return h != "" && subtle.ConstantTimeCompare([]byte(h), []byte(c.Value)) == 1
 }
 
-func sameOrigin(origin string, public *url.URL) bool {
+func allowedOrigin(origin, requestHost string, public *url.URL) bool {
 	o, err := url.Parse(origin)
-	if err != nil {
+	if err != nil || o.Host == "" {
 		return false
 	}
-	return strings.EqualFold(o.Scheme, public.Scheme) && strings.EqualFold(o.Host, public.Host)
+	if public != nil && strings.EqualFold(o.Scheme, public.Scheme) && strings.EqualFold(o.Host, public.Host) {
+		return true
+	}
+	return strings.EqualFold(o.Host, requestHost)
 }
 
 // SafeMethod reports whether a method is exempt from CSRF checks.

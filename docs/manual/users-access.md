@@ -73,8 +73,10 @@ User objects of the `/users` routes carry `teams: [{id, name}]`.
 - Passwords follow the policy: 12–256 characters, not the user name, not a common password.
 - Disabling a user revokes all their sessions and stops their API tokens from authenticating.
 - A password change revokes the user's other sessions.
+- A password reset by an admin revokes all the user's sessions and API tokens.
 - Prefer **disable** over delete for leavers: the audit trail keeps resolving the user id.
   Deleting a user removes their team memberships (audited as `user.delete` with the teams).
+  Their dashboards and signals, private ones included, pass to the admin who deletes the user.
 
 Changing your own password:
 
@@ -265,7 +267,7 @@ valid (`^[a-z0-9][a-z0-9._-]{0,63}$`) but need not exist yet, so grants can prec
   ignores the tables: every user sees every stream again.
 - Audit actions: `team.create` `{name}`, `team.update` `{name, previousName?}`, `team.delete`
   `{name, members, streams}`, `team.members` and `team.streams` `{added, removed}`, `user.teams`
-  `{added, removed}`, `user.delete` with the user's `teams`, `settings.update` with
+  `{added, removed}`, `user.delete` with the user's `teams`, `transferredTo`, `dashboards` and `signals` (counts), `settings.update` with
   `access.denyByDefault`, `alert.create|update` with `streams`, `connection.create|update` with
   `allowedStreams`.
 

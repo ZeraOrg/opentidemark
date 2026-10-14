@@ -3,7 +3,8 @@
 # Releases (SPEC §17.6). In the main public repository ci calls this workflow (workflow_call) as
 # its last job after its other jobs succeeded for a push to main. A release is made when VERSION
 # names a version without a tag v<VERSION> yet:
-# `make dist` builds the archives and `make docs-offline` the offline documentation bundle
+# OSV-Scanner checks go.mod and web/package-lock.json for known vulnerabilities and malicious
+# packages (a finding stops the release), `make dist` builds the archives and `make docs-offline` the offline documentation bundle
 # (tidemark_<VERSION>_docs.zip), all listed in checksums.txt; their build provenance is attested, the image
 # is scanned with Trivy (HIGH/CRITICAL with a fix fail the release), the
 # multi-arch image is pushed to ghcr.io/zeraorg/tidemark, and finally the tag v<VERSION> and the
@@ -29,6 +30,7 @@ defaults:
 env:
   IMAGE: ghcr.io/zeraorg/tidemark
   TRIVY_VERSION: v0.75.0 # same as security.yml (internal/repotest)
+  OSV_SCANNER_VERSION: v2.6.0 # same as security.yml, Makefile and build.ps1 (internal/repotest)
   PUBLIC: ${{ github.repository == 'ZeraOrg/opentidemark' }}
 
 jobs:
@@ -140,9 +142,32 @@ jobs:
           delimiter="EOF_NOTES_$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
           { echo "notes<<$delimiter"; echo "$notes"; echo "$delimiter"; } >> "$GITHUB_OUTPUT"
 
+  supply-chain:
+    name: supply chain
+    # Every publishing job depends on this one: a known vulnerability or a package from the
+    # OpenSSF malicious-packages feed in go.mod or web/package-lock.json of the release commit
+    # blocks the archives, the image, the tag and the release (SPEC §15.9, §17.6).
+    needs: prepare
+    if: needs.prepare.outputs.proceed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: OSV-Scanner (vulnerabilities and malicious packages)
+        run: |
+          scripts/ci-annotate.sh osv-scanner -- go run "github.com/google/osv-scanner/v2/cmd/osv-scanner@${OSV_SCANNER_VERSION}"             scan source -L go.mod -L web/package-lock.json
+
   build:
     name: archives
-    needs: prepare
+    needs: [prepare, supply-chain]
     if: needs.prepare.outputs.proceed == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -160,7 +185,7 @@ jobs:
           go-version-file: go.mod
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           cache-dependency-path: web/package-lock.json
       - name: make dist

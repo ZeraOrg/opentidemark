@@ -27,7 +27,7 @@ secrets). Setting both forms is an error.
 | `TIDEMARK_OTLP_GRPC_ADDR` | `:4317` | OTLP/gRPC listener (`""` disables it). |
 | `TIDEMARK_TLS_CERT_FILE` | — | TLS certificate (PEM). When both certificate and key are set, **all** listeners use TLS 1.2+. |
 | `TIDEMARK_TLS_KEY_FILE` | — | TLS private key (PEM). |
-| `TIDEMARK_PUBLIC_URL` | `http://localhost:8080` | External URL, used in alert links and snippets; `https` makes cookies `Secure` and enables HSTS. |
+| `TIDEMARK_PUBLIC_URL` | `http://localhost:8080` | The address users open in the browser, used in alert links and connection snippets; `https` makes cookies `Secure` and enables HSTS. |
 | `TIDEMARK_DATA_DIR` | Linux `/var/lib/tidemark`, Windows `%ProgramData%\Tidemark`, container `/data` | Metadata database (SQLite), secret key and other local state. |
 | `TIDEMARK_CLICKHOUSE_ADDR` | `localhost:9000` | ClickHouse native-protocol address(es), comma separated. |
 | `TIDEMARK_CLICKHOUSE_DATABASE` | `tidemark` | ClickHouse database. |

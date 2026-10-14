@@ -11,6 +11,11 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 GO ?= go
 GOLANGCI_LINT ?= golangci-lint
 GOVULNCHECK ?= govulncheck
+# OSV-Scanner checks go.mod and the npm lockfile against OSV, including the OpenSSF
+# malicious-packages feed (SPEC §15.9); the same pinned version gates every release.
+OSV_SCANNER_VERSION ?= v2.6.0
+OSV_SCANNER := $(GO) run github.com/google/osv-scanner/v2/cmd/osv-scanner@$(OSV_SCANNER_VERSION)
+OSV_LOCKFILES := -L go.mod $(if $(wildcard web/package-lock.json),-L web/package-lock.json)
 GO_LICENSES_VERSION ?= v2.0.1
 GO_LICENSES := $(GO) run github.com/google/go-licenses/v2@$(GO_LICENSES_VERSION)
 # Reviewed licences allowed in shipped Go code (SPEC §19.1). go-licenses decides which packages
@@ -144,8 +149,9 @@ lint: ## gofmt, go vet and golangci-lint (Linux, Windows and the integration tag
 	$(GOLANGCI_LINT) run --build-tags integration ./...
 	GOOS=windows $(GOLANGCI_LINT) run ./...
 
-vuln: ## govulncheck
+vuln: ## govulncheck and OSV-Scanner (known vulnerabilities and malicious packages)
 	$(GOVULNCHECK) ./...
+	$(OSV_SCANNER) scan source $(OSV_LOCKFILES)
 
 web-check: ## web lint, format, typecheck, tests with coverage, build, CSP check and npm audit
 ifneq ($(HAS_WEB),)

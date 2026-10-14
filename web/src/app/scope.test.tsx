@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { act, screen } from '@testing-library/react';
+import { useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import { ADMIN_ME, renderSignedIn, restrictedMe } from '../test/session';
@@ -68,7 +69,9 @@ function Probe() {
   const scope = useDataScope();
   const me = useMe();
   const [params] = useSearchParams();
-  latest = scope;
+  useEffect(() => {
+    latest = scope;
+  });
   return (
     <div>
       <span data-testid="url">{params.toString()}</span>

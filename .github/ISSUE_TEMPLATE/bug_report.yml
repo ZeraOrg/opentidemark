@@ -1,0 +1,64 @@
+# SPDX-License-Identifier: Apache-2.0
+name: Bug report
+description: Something in OpenTidemark does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing OpenTidemark. Please do **not** report vulnerabilities here; use
+        [private vulnerability reporting](https://github.com/ZeraOrg/opentidemark/security/advisories/new) instead.
+        Remove passwords, connection keys, API tokens and other secrets from everything you paste.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `tidemark version`, or the image tag you run.
+      placeholder: "0.2.1"
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: Installation
+      options:
+        - Docker Compose bundle
+        - Native Linux (systemd)
+        - Native Windows (service)
+        - Built from source
+        - High availability (several nodes)
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Operating system and ClickHouse version
+      placeholder: "Ubuntu 24.04, ClickHouse 25.8"
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Send this event / open this page / run this query …
+        2. …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: tidemark doctor
+      description: Output of `tidemark doctor --json` (Compose `docker compose exec tidemark tidemark doctor --json`).
+      render: json
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant OpenTidemark log lines around the problem (include the request id if there is one).
+      render: text

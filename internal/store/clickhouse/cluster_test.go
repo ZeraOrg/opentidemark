@@ -116,6 +116,7 @@ func TestIsPermanent(t *testing.T) {
 		{context.DeadlineExceeded, false},
 		{&ch.Exception{Code: 252, Message: "too many parts"}, false},
 		{&ch.Exception{Code: 999, Message: "keeper"}, false},
+		{&ch.Exception{Code: 243, Message: "not enough space"}, false},
 		{&ch.Exception{Code: 53, Message: "type mismatch"}, true},
 		{&ch.Exception{Code: 27, Message: "cannot parse"}, true},
 		{ErrRowRejected, true},

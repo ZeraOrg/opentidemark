@@ -1,0 +1,25 @@
+{
+  "comment": "Fixture for SPEC §8.5 item 6: metadata DB of the 0.2.1 release (migrations up to 0008: teams and connection streams), made by migrating meta-0.1.0.db to the 0.2.1 schema and adding team Ops (member viewer, stream default) and allowedStreams [default] on the connection. Test credentials only.",
+  "adminUsername": "admin",
+  "adminPassword": "Upgrade-Fixture-Pass-2026",
+  "adminHashParams": "m=19456,t=2,p=1",
+  "connectionKey": "tmk_FixtureKey0123456789abcdefghijABCDEFGHIJ",
+  "apiToken": "tmt_FixtureToken0123456789abcdefghijABCDEFGH",
+  "rowCounts": {
+    "users": 2,
+    "connections": 1,
+    "api_tokens": 1,
+    "signals": 1,
+    "dashboards": 1,
+    "alert_rules": 1,
+    "alert_history": 1,
+    "channels": 1,
+    "streams": 1,
+    "settings": 1,
+    "audit_log": 1,
+    "sessions": 1,
+    "teams": 1,
+    "team_members": 1,
+    "team_streams": 1
+  }
+}

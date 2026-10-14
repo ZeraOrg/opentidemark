@@ -191,7 +191,8 @@ function PieBody({ resp, height }: { resp: QueryResponse; height: number }) {
     .filter((c) => c.value > 0)
     .slice(0, 8);
   const total = cats.reduce((a, c) => a + c.value, 0) || 1;
-  let acc = 0;
+  // Each slice starts where the previous ones end (percent of the circumference).
+  const starts = cats.map((_, i) => cats.slice(0, i).reduce((a, c) => a + (c.value / total) * 100, 0));
   const r = 15.915;
   return (
     <div className={s.pie}>
@@ -201,9 +202,9 @@ function PieBody({ resp, height }: { resp: QueryResponse; height: number }) {
         role="img"
         aria-label={`Pie of ${cats.length} categories`}
       >
-        {cats.map((c) => {
+        {cats.map((c, i) => {
           const frac = (c.value / total) * 100;
-          const el = (
+          return (
             <circle
               key={c.label}
               cx="21"
@@ -213,12 +214,10 @@ function PieBody({ resp, height }: { resp: QueryResponse; height: number }) {
               style={{
                 stroke: `var(--tm-chart-${palette.index(c.label)})`,
                 strokeDasharray: `${frac} ${100 - frac}`,
-                strokeDashoffset: `${25 - acc}`,
+                strokeDashoffset: `${25 - (starts[i] ?? 0)}`,
               }}
             />
           );
-          acc += frac;
-          return el;
         })}
       </svg>
       <Legend

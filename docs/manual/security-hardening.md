@@ -70,8 +70,9 @@ TIDEMARK_PUBLIC_URL=https://tidemark.example.com     # Secure cookies + HSTS, li
 ```
 
 When `TIDEMARK_PUBLIC_URL` is `https`, session cookies are `Secure` and every response carries
-`Strict-Transport-Security: max-age=31536000`. The value is also used for the `Origin` check of
-cookie-authenticated requests, so it must be the exact origin users type into the browser.
+`Strict-Transport-Security: max-age=31536000`. Cookie-authenticated requests are accepted from
+this origin or from the host the request was sent to, so set it to the exact origin users type
+into the browser (a reverse proxy that rewrites the `Host` header relies on it).
 
 ### Reverse proxy requirements
 
@@ -289,8 +290,9 @@ API tokens (`tmt_` + 40 characters) authenticate automation against `/api/v1` wi
 
 The effective role is the **lower** of the scope and the owner's current role, so demoting a user
 also limits their tokens. Tokens are shown once, can expire (`expiresAt`), are limited to 100 per
-user, and are deleted with `DELETE /api/v1/tokens/{id}`. Disabling a user stops their tokens.
-Tokens are not affected by password resets.
+user, and are deleted with `DELETE /api/v1/tokens/{id}`. Disabling a user revokes their tokens,
+and so does a password reset by an admin or with `tidemark admin reset-password`. A user changing
+their own password keeps their tokens.
 
 Hygiene: one token per automation, the smallest scope that works, an expiry, stored in a secret
 store. Bearer requests need no CSRF header. Details and examples in [Users and access](users-access.md#api-tokens).
@@ -438,8 +440,8 @@ Hardening:
   absolute `TIDEMARK_SESSION_ABSOLUTE_TIMEOUT` (168 h). A password change or disabling a user
   revokes all sessions.
 - Cookie-authenticated non-GET requests need header `X-Tidemark-CSRF` equal to the `tm_csrf`
-  cookie, plus an `Origin` that matches `TIDEMARK_PUBLIC_URL` when present. Bearer tokens are
-  exempt.
+  cookie, plus an `Origin` (when sent) that matches `TIDEMARK_PUBLIC_URL` or the requested host.
+  Bearer tokens are exempt.
 
 ## Hardening checklist
 

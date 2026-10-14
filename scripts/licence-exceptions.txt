@@ -7,3 +7,4 @@
 #
 # <module path> <SPDX identifier> <SHA-256 of the module's LICENSE file>
 github.com/segmentio/asm MIT-0 cca993712df289a5958bdef69031a5dac0f951ac15afeb313f9eeea55ed59443
+github.com/ncruces/go-sqlite3-wasm/v6 MIT-0 13219037ddf63dbbcf174bf59525d602df7a2e30083f63be566715c858fcb19e

@@ -318,5 +318,5 @@ sudo -u tidemark tidemark admin reset-password --username admin --env-file /etc/
 
 It prints a random 24-character password that must be changed at the next sign-in
 (`mustChangePassword: true`). `--password-stdin` sets a given password instead (reads one line).
-The reset is audited (`auth.password_reset`). API tokens of the user stay valid.
+The reset is audited (`auth.password_reset`) and revokes the user's sessions and API tokens.
 

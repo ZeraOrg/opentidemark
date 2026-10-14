@@ -56,6 +56,9 @@ add this line to `.env` before starting (or run `docker compose up -d` again aft
 TM_BIND_ADDR=127.0.0.1
 ```
 
+If other people will use it, set `TIDEMARK_PUBLIC_URL` in `.env` to the address they open in the
+browser, for example `http://192.168.1.20:8080`; alert links and connection snippets use it.
+
 Check the stack with `docker compose ps` (both services `healthy`), then open
 <http://localhost:8080>, sign in as **admin / admin** and **change the password right away**.
 Create a connection (one API key per application) and point your clients at OpenTidemark:

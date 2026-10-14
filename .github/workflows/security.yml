@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# Supply-chain checks (SPEC §15.9, §17.4): govulncheck, npm audit and a Trivy scan of the
-# container image. Runs weekly for new advisories, by hand, and on pushes to main that change
+# Supply-chain checks (SPEC §15.9, §17.4): govulncheck, OSV-Scanner (known vulnerabilities and
+# the OpenSSF malicious-packages feed for go.mod and web/package-lock.json), npm audit and a Trivy
+# scan of the container image. Runs weekly for new advisories, by hand, and on pushes to main that change
 # dependencies or the image. (The licence allow-list runs in ci's notices job.) Jobs run
 # automatically only in the main public repository ZeraOrg/opentidemark; anywhere else they run only
 # when started by hand. Failing steps publish their output through scripts/ci-annotate.sh.
@@ -30,6 +31,7 @@ concurrency:
 
 env:
   GOVULNCHECK_VERSION: v1.9.0
+  OSV_SCANNER_VERSION: v2.6.0 # same as release.yml, Makefile and build.ps1 (internal/repotest)
   TRIVY_VERSION: v0.75.0
 
 jobs:
@@ -47,6 +49,19 @@ jobs:
           go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
           scripts/ci-annotate.sh govulncheck -- govulncheck ./...
 
+  osv-scanner:
+    if: github.repository == 'ZeraOrg/opentidemark' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: OSV-Scanner (vulnerabilities and malicious packages)
+        run: |
+          scripts/ci-annotate.sh osv-scanner -- go run "github.com/google/osv-scanner/v2/cmd/osv-scanner@${OSV_SCANNER_VERSION}"             scan source -L go.mod -L web/package-lock.json
+
   npm-audit:
     if: github.repository == 'ZeraOrg/opentidemark' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
@@ -55,7 +70,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           cache-dependency-path: web/package-lock.json
       - name: npm audit

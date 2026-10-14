@@ -8,7 +8,7 @@
 > well. Any change to behaviour, APIs, schema, configuration, layout, UI or tooling **must**
 > update this spec in the same commit. Version history is in §21.
 
-**Spec version:** 0.29.0 · **Last updated:** 2026-10-14
+**Spec version:** 0.31.0 · **Last updated:** 2026-10-14
 
 ---
 
@@ -159,11 +159,11 @@ Versions are minimums; lockfiles (`go.sum`, `web/package-lock.json`) pin exact v
 ### Backend
 | Concern | Choice | License |
 |---|---|---|
-| Language | Go **1.26** (`go 1.26.0`, `toolchain go1.26.9`: the newest patch release, required by the current `golang.org/x/*` and gRPC modules and free of the stdlib advisories reported by govulncheck/Trivy) | BSD |
+| Language | Go **1.27** toolchain (`go 1.26.0` as the minimum language version, required by `ncruces/go-sqlite3`; `toolchain go1.27.2`: the newest patch release, free of the stdlib advisories reported by govulncheck/Trivy) | BSD |
 | HTTP | `net/http` (Go 1.22+ pattern routing), no framework | — |
 | Logging | `log/slog` (JSON handler) | — |
 | ClickHouse client | `github.com/ClickHouse/clickhouse-go/v2` (native protocol) | Apache-2.0 |
-| Metadata DB (single node) | `github.com/ncruces/go-sqlite3` (SQLite compiled to WASM, run by wazero — pure Go, no CGO → Windows friendly) | MIT |
+| Metadata DB (single node) | `github.com/ncruces/go-sqlite3` (SQLite compiled to WASM and translated to Go by `github.com/ncruces/go-sqlite3-wasm` — pure Go, no CGO → Windows friendly) | MIT (go-sqlite3-wasm: MIT-0, §19.1) |
 | Metadata DB (HA) | PostgreSQL 15+ via `github.com/jackc/pgx/v5` | MIT |
 | OTLP | `go.opentelemetry.io/proto/otlp`, `google.golang.org/grpc`, `google.golang.org/protobuf` | Apache-2.0 |
 | Password hashing | `golang.org/x/crypto/argon2` (argon2id) | BSD |
@@ -182,9 +182,9 @@ Versions are minimums; lockfiles (`go.sum`, `web/package-lock.json`) pin exact v
 ### Frontend (`web/`)
 | Concern | Choice |
 |---|---|
-| Language | TypeScript 5 (`strict: true`, `noUncheckedIndexedAccess: true`) |
-| Framework | React 18, React Router 6 |
-| Build | Vite 7 (`--mode mock`: MSW-backed demo build for e2e and screenshots only; it reports the release in `VERSION`) |
+| Language | TypeScript 6 (`strict: true`, `noUncheckedIndexedAccess: true`) |
+| Framework | React 19, React Router 7 |
+| Build | Vite 8 (`--mode mock`: MSW-backed demo build for e2e and screenshots only; it reports the release in `VERSION`) |
 | Data fetching | TanStack Query 5 |
 | Charts | uPlot (time series/histogram) |
 | Query editor | CodeMirror 6 with a TQL language mode + autocomplete |
@@ -286,7 +286,7 @@ Node **22 LTS** for builds. The built SPA is embedded in the Go binary via `go:e
 │   ├── migrate-from-seq.md    #   moving from Seq with `tidemark import` (§9.9)
 │   ├── migrate-from-elastic.md #  moving from Elasticsearch/Kibana with `tidemark import` (§9.9)
 │   └── manual/                #   operations manual (§17.4), one chapter per file: index (overview, architecture, glossary), deploy, security-hardening, users-access, ingestion, integrations, metrics, streams-retention, querying, dashboards, alerting, operations, api, agents
-└── .github/                   # workflows/ci.yml (Go on Linux + Windows, integration, notices, web incl. e2e; calls release.yml), security.yml (§17.4), docs.yml (documentation site, §17.4), release.yml (§17.6); dependabot.yml
+└── .github/                   # workflows/ci.yml (Go on Linux + Windows, integration, notices, web incl. e2e; calls release.yml), security.yml (§17.4), docs.yml (documentation site, §17.4), release.yml (§17.6); dependabot.yml; ISSUE_TEMPLATE/ (bug_report.yml form: version, installation, platform, steps, expected/actual, `tidemark doctor --json`, logs; config.yml links private vulnerability reporting and the docs)
 ```
 
 Maintainer-only development tooling (publishing automation, offline dependency snapshots, design
@@ -373,7 +373,7 @@ kebab-case of the suffix). Invalid configuration aborts startup with a clear mes
 | `TIDEMARK_OTLP_HTTP_ADDR` | `:4318` | OTLP/HTTP (`""` disables) |
 | `TIDEMARK_OTLP_GRPC_ADDR` | `:4317` | OTLP/gRPC (`""` disables) |
 | `TIDEMARK_TLS_CERT_FILE` / `TIDEMARK_TLS_KEY_FILE` | — | If both set, **all** listeners use TLS (min TLS 1.2) |
-| `TIDEMARK_PUBLIC_URL` | `http://localhost:8080` | Used in alert links and cookie `Secure` decision (https ⇒ Secure) |
+| `TIDEMARK_PUBLIC_URL` | `http://localhost:8080` | The address users open in the browser; used in alert links, connection snippets and the cookie `Secure` decision (https ⇒ Secure) |
 | `TIDEMARK_DATA_DIR` | Linux `/var/lib/tidemark`; Windows `%ProgramData%\Tidemark`; container `/data` | SQLite DB + secrets |
 | `TIDEMARK_CLICKHOUSE_ADDR` | `localhost:9000` | Native protocol address(es), comma separated |
 | `TIDEMARK_CLICKHOUSE_DATABASE` | `tidemark` | |
@@ -414,7 +414,7 @@ kebab-case of the suffix). Invalid configuration aborts startup with a clear mes
 
 Secrets may also be supplied as `<VAR>_FILE` pointing to a file (Docker/K8s secrets).
 Unknown `TIDEMARK_*` variables are ignored with a startup warning (e.g. `TIDEMARK_LICENSE` left
-over from 0.9 installs, whose editions were removed in 0.10.0, §19).
+over from pre-release builds that had editions, §19).
 
 ---
 
@@ -725,11 +725,15 @@ Dialect details (normative):
    per release) are migrated in CI; the test asserts the admin can log in, connection keys
    authenticate, dashboards/signals/alerts load and no row counts decrease. Each fixture has a
    `meta-<version>.json` manifest (test-only admin password, connection key, API token, expected
-   row counts). `meta-0.4.0.db` was created by the 0.4.0 schema (migration 0001) with an admin
-   whose hash uses outdated argon2 parameters (m=19456,t=2,p=1), so the test also proves the
-   transparent re-hash. `meta-0.1.0.db` is the same data migrated by release 0.1.0 (migrations
-   0001, 0002, 0006, i.e. before teams); after the upgrade no user belongs to a team, so
-   existing users keep seeing every stream (§15.10).
+   row counts). `meta-0.4.0.db` predates the public releases (the file name is a pre-release
+   build number): migration 0001 only, with an admin whose hash uses outdated argon2 parameters
+   (m=19456,t=2,p=1), so the test also proves the transparent re-hash. `meta-0.1.0.db` is the
+   same data migrated by release 0.1.0 (migrations 0001, 0002, 0006, i.e. before teams); after
+   the upgrade no user belongs to a team, so existing users keep seeing every stream (§15.10).
+   `meta-0.2.1.db` is `meta-0.1.0.db` migrated to the 0.2.1 schema (up to 0008) plus a team with
+   a member and a granted stream and a connection with `allowedStreams`; the newest fixture may
+   already be at head. Fixtures are opened by a binary of the version in `VERSION`, and every
+   applied migration must be preceded by a backup.
 7. **Idempotent telemetry writes.** Every insert batch carries `insert_deduplication_token`
    (= batch UUID; with the WAL, the token derived from the batch UUIDs of its records, §9.8); tables set `non_replicated_deduplication_window = 10000` (replicated tables use
    the built-in replicated deduplication), so retries and WAL replays never duplicate rows.
@@ -989,7 +993,8 @@ If no message is found, message = compact JSON of the original object (max 2 KiB
   indefinitely with capped backoff while the WAL holds the data. Permanent = a row the client
   cannot encode (`clickhouse.ErrRowRejected`) or a server exception whose code is not transient;
   transient codes are 16, 47, 60, 81 (schema not yet migrated on this replica), 159, 164, 202,
-  203, 209, 210, 236, 241, 242, 252, 285, 286, 319, 394, 425, 497, 516 and 999 (Keeper); network
+  203, 209, 210, 236, 241, 242, 243 (not enough disk space: the data waits in the WAL until the
+  operator frees space), 252, 285, 286, 319, 394, 425, 497, 516 and 999 (Keeper); network
   errors and timeouts are always transient (`clickhouse.IsPermanent`).
 - With the WAL disabled the in-memory queue of §9.1 is used (acknowledged rows may be lost on crash).
 
@@ -1406,7 +1411,7 @@ comparison operator); the API then adds the field's top values (kind `value`). B
 | `POST /auth/logout` | any | Deletes session server-side. |
 | `GET /auth/me` | any | `{id,username,displayName,role,mustChangePassword,defaultCredentials,allStreams,streams,teams,streamAccess}`: the caller's stream access (§15.10) — `allStreams` (sees every stream), `streams` (the visible stream names when not all, else `[]`), `teams` (`[{id,name}]` by name) and `streamAccess` (`admin`, `teams`, `default-all` or `default-none`). |
 | `POST /auth/password` `{currentPassword,newPassword}` | any | Policy §15.2; revokes other sessions. |
-| `GET/POST /users`, `GET/PATCH/DELETE /users/{id}` | admin | Cannot delete/demote the last admin. The number of accounts is not limited. User objects of these routes include `teams:[{id,name}]` (by name). |
+| `GET/POST /users`, `GET/PATCH/DELETE /users/{id}` | admin | Cannot delete/demote the last admin or the caller's own account. Deleting a user makes the deleting admin the owner of the user's dashboards and signals (private ones stay private) in the same transaction as the delete. The number of accounts is not limited. User objects of these routes include `teams:[{id,name}]` (by name). |
 | `PUT /users/{id}/teams` `{teamIds}` | admin | Replaces the user's teams (unknown team ⇒ 400 `details.field = teamIds`, ≤ 500); returns the user with its teams. Audited `user.teams` `{added, removed}`. |
 | `GET/POST /tokens`, `DELETE /tokens/{id}` | any (own) | Token value returned **once** on create. |
 
@@ -1993,10 +1998,15 @@ deviation must be recorded in this section.
   (dummy hash) to prevent user enumeration.
 - Sessions: 256-bit random token in `tm_session` cookie (`HttpOnly`, `SameSite=Strict`, `Path=/`,
   `Secure` per §15.1); stored as SHA-256 hash; idle and absolute timeouts (§7); rotated on login and
-  privilege change; all sessions revoked on password change/disable.
+  privilege change; all sessions revoked on password change/disable. Disabling a user and a
+  password set by an admin (`PATCH /users/{id}` with `password`) or by `tidemark admin
+  reset-password` also revoke the user's API tokens (account recovery); a role change keeps them
+  (§15.3 caps them at the current role) and so does the user's own password change.
 - CSRF: double-submit token cookie `tm_csrf` (not HttpOnly) + header `X-Tidemark-CSRF`, compared
   in constant time, required for all cookie-authenticated non-GET requests; plus SameSite=Strict
-  and `Origin` check against `PUBLIC_URL` when present.
+  and, when the request carries an `Origin` header, an origin check: it must equal `PUBLIC_URL`
+  (scheme and host) or have the host the request was sent to (same-origin), so an install opened
+  by a LAN address or host name works without setting `PUBLIC_URL`.
 
 ### 15.3 Connection keys (ingestion) & API tokens
 - **One key per connection**; ingestion without a valid key is impossible (no anonymous mode).
@@ -2026,7 +2036,7 @@ deviation must be recorded in this section.
 - Audit log for: login success/failure, logout, password change, user/connection/token/stream/
   channel/settings changes, purge, export; teams and access: `team.create|update|delete`,
   `team.members`, `team.streams`, `user.teams` (§11.5, §11.2), `user.delete` with the user's
-  `teams`, `stream.delete` with `revokedFromTeams`, `settings.update` with
+  `teams`, `transferredTo` and the numbers of transferred `dashboards` and `signals`, `stream.delete` with `revokedFromTeams`, `settings.update` with
   `access.denyByDefault`, `alert.create|update` with `streams`, `connection.create|update`
   with `allowedStreams`.
 
@@ -2059,10 +2069,22 @@ user is `readonly=2` without DDL/INSERT grants; the writer user is used only by 
 migrations and admin services.
 
 ### 15.9 Supply chain & runtime
+- **Supply-chain gate:** OSV-Scanner (`github.com/google/osv-scanner/v2`, Apache-2.0, build
+  tooling only, pinned `v2.6.0`) checks `go.mod` and `web/package-lock.json` against OSV, which
+  includes the OpenSSF malicious-packages feed (`MAL-` advisories) besides known vulnerabilities
+  (Go findings are filtered by call analysis). Any finding fails it. It runs in the local gate
+  (`vuln`), weekly and on dependency changes (`security.yml`), and as job `supply-chain` of
+  `release.yml`, which every publishing job depends on, so no release is published with a known
+  vulnerable or malicious dependency (`TestSupplyChainScanPinned` keeps the four pins equal).
 - CI runs `govulncheck`, `gosec` (via golangci-lint), `npm audit --audit-level=high`,
   Trivy image scan and the Go licence allow-list (§19.1); dependencies pinned via lockfiles;
   Dependabot enabled. Vulnerabilities are fixed by upgrading (modules, Go toolchain, base images),
   never by ignore lists.
+- **7-day rule:** dependency updates (Go modules and toolchain, npm packages incl. transitive ones,
+  e.g. `npm install --before=<date>`, GitHub Actions, base images, pinned tools) take the newest
+  stable release that has been public for at least 7 days, so a freshly published compromised
+  version is usually detected and withdrawn before it is used. A version already pinned newer
+  (e.g. for a security fix) is never downgraded.
 - Container: distroless `nonroot` (UID 65532), read-only root FS, `no-new-privileges`, all
   capabilities dropped; data only in `/data` volume.
 - Linux service runs as dedicated `tidemark` user with systemd hardening (`ProtectSystem=strict`,
@@ -2248,6 +2270,12 @@ Breakpoints and keyboard behaviour are in §16.5 and §16.6.
   before/after); raw JSON toggle; permalink.
 - When query kind is `table`/`timeseries`, the stream area shows a table/chart with "Add to
   dashboard".
+- An empty result shows *No events match* with a *Last 24 hours* action. When the streams list
+  (`GET /streams`, cached) shows no log rows in any stream the caller can see, it shows **No data
+  yet** instead: admins get a hint about connection keys and the installers' `bootstrap`
+  connection (`TIDEMARK_BOOTSTRAP_INGEST_KEY`), a link to `/settings/connections` and an external
+  link to the ingestion documentation (new tab, `noopener noreferrer`, nothing is loaded from it);
+  other roles get *Ask an administrator to connect a log source.*
 
 ### 16.4 Other screens
 Trace waterfall (spans by service colour, critical path, errored spans highlighted, span detail
@@ -2395,8 +2423,8 @@ Normative details:
   `--no-start` / `-NoStart`).
 - `deploy/docker-compose.dev.yml` (used only by `make dev`) publishes ClickHouse on
   `127.0.0.1:${TIDEMARK_DEV_CLICKHOUSE_PORT:-19000}`.
-- Dockerfile: `node:22-bookworm-slim` builds `web/` (skipped without `package.json`),
-  `golang:1.26.9-bookworm` (same Go release as the `toolchain` directive, §5) builds with `CGO_ENABLED=0` and copies `LICENSE`, `NOTICE`,
+- Dockerfile: `node:24-bookworm-slim` builds `web/` (skipped without `package.json`),
+  `golang:1.27.2-bookworm` (same Go release as the `toolchain` directive, §5) builds with `CGO_ENABLED=0` and copies `LICENSE`, `NOTICE`,
   `THIRD_PARTY_NOTICES.md` to `/licenses/`, runtime `gcr.io/distroless/static-debian12:nonroot`
   (UID 65532, `/data` volume, `TIDEMARK_DATA_DIR=/data`, entrypoint `tidemark`, cmd `serve`).
   Both build stages run on the build platform (`FROM --platform=$BUILDPLATFORM`) and the Go
@@ -2418,7 +2446,8 @@ Normative details:
   `.env.example` with generated secrets and `TIDEMARK_CLICKHOUSE_ADDR=localhost:9000`, only when
   absent), installs the binary to `/usr/local/bin/tidemark` and `deploy/tidemark.service`
   (hardened: `ProtectSystem=strict`, `NoNewPrivileges`, `PrivateTmp`, `SystemCallFilter=@system-service`,
-  no capabilities; `MemoryDenyWriteExecute` is **not** set because wazero compiles the SQLite WASM).
+  no capabilities; `MemoryDenyWriteExecute` is **not** set: it was incompatible with the earlier
+  run-time-compiled SQLite build and has not yet been verified with the translated one).
 - **Windows:** `install.ps1 -Mode Native -Binary <tidemark.exe> [-OpenFirewall] [-Start]` (as
   Administrator) copies `tidemark.exe` to `%ProgramFiles%\Tidemark`, writes config to
   `%ProgramData%\Tidemark\tidemark.env` (same rules as Linux), runs `tidemark.exe service install`
@@ -2451,7 +2480,7 @@ Normative details:
   Linux/macOS; plain on Windows, where the race detector needs CGO), `test-integration` (Makefile:
   through `scripts/with-clickhouse.sh`, §18; build.ps1 needs `TIDEMARK_TEST_CLICKHOUSE_ADDR`),
   `lint` (gofmt, `go vet` with and without the `integration` tag, golangci-lint for both tags and
-  for the other OS), `vuln`, `web-check`, `check` (= lint + test + vuln + web-check), `licences`
+  for the other OS), `vuln` (govulncheck and OSV-Scanner, §15.9), `web-check`, `check` (= lint + test + vuln + web-check), `licences`
   (Go licence allow-list, §19.1), `notices` (runs `licences` first), `dev`, `clean` (also removes
   `dist/`), `help`. Every
   web step is skipped while `web/package.json` does not exist. `web-check` = `npm ci`, `lint`,
@@ -2485,11 +2514,12 @@ Normative details:
     repository) calls `release.yml` (§17.6).
 - `security.yml` (weekly schedule, `workflow_dispatch`, and pushes to main touching `go.mod`,
   `go.sum`, `web/package.json`, `web/package-lock.json`, `Dockerfile` or the workflow; not on
-  pull requests; concurrency `security-<ref>`): govulncheck, `npm audit --audit-level=high`, and a
+  pull requests; concurrency `security-<ref>`): govulncheck, OSV-Scanner (§15.9), `npm audit --audit-level=high`, and a
   Trivy scan (HIGH/CRITICAL, fixed only) of the image built from the Dockerfile.
-  `.github/dependabot.yml`: gomod, npm (`/web`), GitHub Actions, Docker, **monthly**, one grouped
-  PR per ecosystem (`groups: <ecosystem>: ["*"]`, `open-pull-requests-limit: 1`), so dependency
-  PRs do not multiply CI runs.
+  `.github/dependabot.yml`: gomod, npm (`/web`), GitHub Actions, Docker, **weekly on Monday**,
+  all four in **one** pull request (multi-ecosystem group `dependencies`, `patterns: ["*"]`), so
+  a week of dependency updates costs a single CI run. Updates follow the 7-day rule of §15.9
+  when they are applied.
 - **Documentation site** (`mkdocs.yml`, `docs-site/`, `.github/workflows/docs.yml`): MkDocs
   `1.6.1` (BSD-2-Clause) with Material for MkDocs `9.7.7` (MIT), every transitive dependency
   pinned with hashes in `docs-site/requirements.txt` (generated from `docs-site/requirements.in`
@@ -2556,7 +2586,7 @@ Normative details:
   `docker/setup-qemu-action@v4`, `docker/setup-buildx-action@v4`, `docker/login-action@v4`,
   `docker/build-push-action@v7`, and for the documentation site `actions/setup-python@v7`,
   `actions/upload-pages-artifact@v5`, `actions/deploy-pages@v5`; golangci-lint `v2.14.0`,
-  govulncheck `v1.9.0`, go-licenses `v2.0.1` (Makefile/build.ps1), Trivy `0.75.0`
+  govulncheck `v1.9.0`, OSV-Scanner `v2.6.0`, go-licenses `v2.0.1` (Makefile/build.ps1), Trivy `0.75.0`
   (`aquasec/trivy` image). Linux jobs run on `ubuntu-24.04` rather than `ubuntu-latest`, so the
   runner image changes (e.g. the announced move of `ubuntu-latest` to Ubuntu 26) only through a
   reviewed commit.
@@ -2748,8 +2778,11 @@ the workflow env `PUBLIC`):
   (`ghcr.io/zeraorg/tidemark:<version>`, plus `:<major>.<minor>` and `:latest` unless
   pre-release) and `notes` (checkout, then `scripts/release-notes.sh`; a missing section fails
   the run with an error annotation).
-- Job `build` ("archives", `contents: read`, `id-token: write`, `attestations: write`): checkout
-  of the source commit, setup-go (`go-version-file`), setup-node 22 (npm cache), `make dist`
+- Job `supply-chain` ("supply chain", `contents: read`; needs `prepare`): checks out the source
+  commit and runs OSV-Scanner on `go.mod` and `web/package-lock.json` (§15.9); a finding fails
+  it and with it every later job, so nothing is built, tagged or pushed.
+- Job `build` ("archives", needs `prepare` and `supply-chain`, `contents: read`, `id-token: write`, `attestations: write`): checkout
+  of the source commit, setup-go (`go-version-file`), setup-node 24 (npm cache), `make dist`
   through `scripts/ci-annotate.sh`, then setup-python 3.13 (pip cache keyed on
   `docs-site/requirements.txt`), `pip install --require-hashes` and `make docs-offline` (the
   documentation bundle above, which rewrites `checksums.txt`); in the main public repository a
@@ -2802,7 +2835,7 @@ were attested under the former repository name (§1) and verify with `--repo Zer
 | Integration | Build tag `integration`; needs `TIDEMARK_TEST_CLICKHOUSE_ADDR` (+ `TIDEMARK_TEST_CLICKHOUSE_{DATABASE,WRITER_USER,WRITER_PASSWORD,READER_USER,READER_PASSWORD}`). `scripts/with-clickhouse.sh <cmd>` starts a throw-away local server (binary from `$CLICKHOUSE_BIN`, `/opt/clickhouse/clickhouse` or `PATH`; temp dir; free loopback port; users from `deploy/clickhouse/users.d` with random passwords; a `backups` disk in the temp dir), exports those variables, runs the command and stops the server; with the variable already set it just runs the command. Packages run with `-p 1` because they share the `tidemark` database. Covers migrations, the reader against real data (`internal/store/clickhouse`), and end to end (`internal/app`): connection keys created via the API, rejection without a key / with a wrong-protocol key, Seq, ES `_bulk`, OTLP HTTP (JSON + protobuf) and native fixtures, then `POST /query` (events + cursor paging, table, timeseries), histogram, facets, fields, event by id + context, trace + trace search, metric names, export and live tail; stream access (`TestIntegrationStreamAccess`: logs, spans and metrics in two streams; a team member of one stream sees none of the other on every §15.10 path — queries incl. `stats count() by stream`, histogram, facets, fields, completion, event by id and context, CSV and NDJSON export, tail, trace search, a cross-stream trace, metric names and queries, streams list and fields; the selection never widens the scope; environments filter logs only; alert rules must name streams within the editor's scope, are hidden outside it and keep their streams after the author leaves the team; a team-less user sees every stream until deny-by-default is on and then sees nothing, without errors; an event naming a stream outside its connection's allowed streams lands in the default stream); retention TTL DDL. CI uses a ClickHouse service container (Linux job). Also covers insert deduplication of a replayed WAL batch and of a replayed import job (`tidemark import clef` of 12,345 lines, then the whole job re-run from an empty checkpoint: the row count is unchanged), address failover, operator commands (backup/restore/doctor) and the importers against fake sources. The replicated-schema test additionally needs `TIDEMARK_TEST_CLICKHOUSE_CLUSTER` and `TIDEMARK_TEST_CLICKHOUSE_CLUSTER_ADDRS` (a 1-shard, 3-replica cluster with Keeper, e.g. `deploy/ha/clickhouse/`); `scripts/with-clickhouse-cluster.sh <cmd>` starts such a cluster on loopback (three servers, each embedding Keeper with IPv6 disabled, free ports, users from `deploy/ha/clickhouse/users.d`, cluster `tidemark_cluster`), exports `TIDEMARK_TEST_CLICKHOUSE_{ADDR,CLUSTER,CLUSTER_ADDRS,WRITER_PASSWORD,READER_PASSWORD}` and removes it afterwards; PostgreSQL contract, bus and restore tests need `TIDEMARK_TEST_POSTGRES_DSN`. |
 | Security | Tests for auth on every route (table of routes × roles), CSRF, rate limits, key restrictions (protocol, CIDR, expiry, revoke), SSRF dialer, headers, SQL-injection attempts through TQL (fuzz corpus). |
 | Web | `tsc --noEmit`, ESLint (0 warnings), Prettier, Vitest with coverage ≥ 80 % statements/lines/functions and ≥ 70 % branches for `src/tql/**`, `src/lib/**` and `src/api/client.ts` (TQL highlighter, template renderer, builder↔TQL round-trip, client CSRF/errors/offsets, components; the scope helpers and `useDataScope` URL ↔ state round trip, the scope picker with one, many and no streams and its keyboard flow, the Teams pages and the endpoint parameters of the selection and team routes), production build + static CSP check, `npm audit --audit-level=high`, Playwright smoke against the mock build served with the production CSP (login + default-credentials banner, query, autocomplete, detail, analytics + add to dashboard, signal save, traces, metrics, dashboard create/edit, alerts drawer with the streams field, streams purge dry run, connection create with allowed streams, settings pages, the scope picker, an admin creating a team and granting a stream to a viewer who then sees only that stream with a static chip and an orphaned span, deny by default leading to the empty state without queries, light theme, keyboard, 390 px with the scope sheet); every e2e test fails on a CSP violation or page error and writes design-review screenshots. |
-| Static | `gofmt`, `go vet`, `golangci-lint` (errcheck, govet, staticcheck, gosec, revive, gocritic, bodyclose, contextcheck, nilerr), `govulncheck`. |
+| Static | `gofmt`, `go vet`, `golangci-lint` (errcheck, govet, staticcheck, gosec, revive, gocritic, bodyclose, contextcheck, nilerr), `govulncheck`, OSV-Scanner (known vulnerabilities and malicious packages, §15.9). |
 | Docs | `docs/query-language.md`, `docs/ingestion.md` and `docs/configuration.md` are derived from §10, §9 and §7 and updated with them in the same commit. `docs/configuration.md` lists exactly the variables of `internal/config` with their defaults (`TestConfigurationDocMatchesVariables`) and only §7 variables of this file (`internal/repotest`, `TestConfigurationDocMatchesSpec`); the §10.1 examples as above. Every chapter of `docs/manual/` is in the site navigation (`TestManualPagesInNav`, §17.4); `mkdocs build --strict` (both configurations) passes without warnings before a docs change is committed. |
 | Release | `internal/repotest`: `TestVersionAndChangelog` (`VERSION` format, `CHANGELOG.md` shape and a non-empty section for `VERSION`), `TestDistFileListsMatch` (Makefile and build.ps1 archive file lists, Docker bundle list included, equal and existing), `TestDistDockerCompose` (the bundle rewrite of `deploy/docker-compose.yml` leaves no `build:` key, pins the release image and removes only the build block; Makefile and build.ps1 use the same image), `TestInstallDocs` (every `INSTALL-*.md` exists and links only to absolute `https://` URLs), `TestReleaseDocsBundle` (the offline documentation bundle stays in the workflow, the task runners, `mkdocs.offline.yml`, the hook and the release notes) and `TestReleaseScanUsesSecurityTrivy` (§17.6). `make dist` is run and its archives inspected (contents, `tidemark version`) before changing the release tooling. |
 | Regression | Every bug fix adds a failing test first. No test may be deleted or weakened to make CI pass without a spec-recorded reason. |
@@ -2819,8 +2852,9 @@ Definition of done for any change: spec updated · tests added/updated · `make 
   <https://www.apache.org/licenses/LICENSE-2.0.txt>; `internal/repotest` checks its SHA-256
   `cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30`). OpenTidemark is open source
   for every use, commercial included; there are **no editions, licence keys or user limits**
-  (removed in 0.10.0: `TIDEMARK_LICENSE` is now an unknown variable that only produces the startup
-  warning of §7, and a `license.key` row left in `settings` by 0.9 is ignored).
+  (removed before the first public release: `TIDEMARK_LICENSE` is now an unknown variable that only
+  produces the startup warning of §7, and a `license.key` row left in `settings` by a pre-release
+  build is ignored).
 - `NOTICE` — Apache-style: `OpenTidemark`, `Copyright 2026 The Tidemark Authors (zeraOrg, …)`, a
   line that the product is licensed under Apache-2.0, and a pointer to `THIRD_PARTY_NOTICES.md`. It
   must ship with every distribution (repository, release archives, container image at `/licenses/`,
@@ -2870,10 +2904,11 @@ Definition of done for any change: spec updated · tests added/updated · `make 
   `github.com/segmentio/asm` (from v1.2.1, required by `ClickHouse/ch-go`) is under **MIT-0**
   (MIT No Attribution): the MIT text without the condition to keep the notice, so it is more
   permissive than MIT; the classifier of go-licenses v2.0.1 has no MIT-0 template and reports "did
-  not find license". Reviewed embedded code that the licence file of its module
-  does not name: `github.com/ncruces/go-sqlite3/embed` (module licence MIT) ships SQLite compiled
-  to WASM (`sqlite3.wasm`); SQLite is in the public domain and the WASI libc linked into it is
-  under permissive licences, so no conditions beyond the module's MIT notice apply. Adding a
+  not find license". `github.com/ncruces/go-sqlite3-wasm/v6` (from v6.3.35304, required by
+  `ncruces/go-sqlite3` from v0.35) is under **MIT-0** for the same reason and holds the SQLite
+  build of the metadata driver: SQLite compiled to WASM and translated to Go; SQLite is in the
+  public domain and the WASI libc linked into it is under permissive licences, so no conditions
+  beyond the module's notice apply. Adding a
   licence to the list or an exception requires a spec change with its justification.
 - Every source file starts with: `// SPDX-License-Identifier: Apache-2.0`
   (`#` / `--` / `/* */` / `<!-- -->` / `{{/* */}}` comment styles as appropriate) within its first
@@ -2965,6 +3000,18 @@ items of M0–M3b:
 
 | Version | Date | Change |
 |---|---|---|
+| 0.31.0 | 2026-10-14 | Supply-chain gate (§15.9, §17.4, §17.6, §18): OSV-Scanner v2.6.0 checks `go.mod` and `web/package-lock.json` against OSV incl. the OpenSSF malicious-packages feed in the local `vuln` target, in `security.yml` and as `release.yml` job `supply-chain`, which every publishing job needs; `TestSupplyChainScanPinned` keeps the version equal in Makefile, build.ps1 and both workflows and checks the dependency. |
+| 0.30.3 | 2026-10-14 | Web dependencies refreshed under the 7-day rule (§5, §15.9): React 19, React Router 7 (fixes GHSA-wrjc-x8rr-h8h6 and GHSA-337j-9hxr-rhxg), TypeScript 6, Vite 8, Vitest 5, ESLint 10, react-grid-layout 2 (v2 API with `useContainerWidth`), lucide-react 1, TanStack Query 5.104, jsdom 30; held back: TypeScript 7 (typescript-eslint supports < 6.1) and msw 3 (Vitest's mocker needs msw 2). eslint-plugin-react-hooks 7 keeps its React Compiler rules except `refs`, `set-state-in-effect` and `incompatible-library`, which only flag deliberate patterns (the app does not use the compiler). |
+| 0.30.2 | 2026-10-14 | Dependabot weekly in one pull request (§17.4): `multi-ecosystem-groups: dependencies` (Monday) covers gomod, npm, GitHub Actions and Docker instead of one monthly PR per ecosystem; §15.9 states the 7-day rule for applying dependency updates. |
+| 0.30.1 | 2026-10-14 | Node 24 (current LTS) for the web build in CI, release, security and the Dockerfile (`node:24-bookworm-slim`, §17.2, §17.4, §17.6); `engines` stays `>=22`. GitHub Actions already reference their newest majors; Trivy stays v0.75.0 (v0.76.0 is newer than the 7-day rule). |
+| 0.30.0 | 2026-10-14 | Go dependencies refreshed (§5, §17.2, §19.1): toolchain go1.27.2 (Dockerfile `golang:1.27.2-bookworm`), `go 1.26.0` stays the minimum; `ncruces/go-sqlite3` v0.35.6 (no `embed` import; SQLite now translated to Go in `ncruces/go-sqlite3-wasm/v6`, wazero dropped) with the hash-pinned MIT-0 licence exception for go-sqlite3-wasm; `shopspring/decimal` 1.5.0, `pierrec/lz4` 4.1.33, `jackc/puddle` 2.2.3, OpenTelemetry 1.47.0, `go-faster/errors` 0.8.0. Rule for updates: the newest release that has been public for at least 7 days; versions already pinned newer for security fixes stay. |
+| 0.29.7 | 2026-10-14 | "No data yet" in the log explorer (§16.3): when no visible stream holds log rows, the empty result points admins at connection keys, the `bootstrap` connection, Settings → Connections and the ingestion docs, and tells other roles to ask an administrator; `ButtonLink` renders a router link styled as a button (`EmptyResults.test.tsx`). |
+| 0.29.6 | 2026-10-14 | Upgrade fixture for the 0.2.x schema (§8.5 item 6): `meta-0.2.1.db` (teams, team members and streams, connection `allowedStreams`) joins `TestUpgradeFixtures`; fixtures are opened with the release in `VERSION` and the newest may already be at head; tests use 0.2.1 instead of pre-release binary versions, and §7, §8.5 and §19.1 no longer name pre-release builds as if they were releases. |
+| 0.29.5 | 2026-10-14 | Issue templates (§6.1): `.github/ISSUE_TEMPLATE/bug_report.yml` asks testers for version, installation, platform, steps, expected/actual behaviour, `tidemark doctor --json` and logs (secrets removed); `config.yml` links private vulnerability reporting and the documentation; CONTRIBUTING.md gains "Reporting bugs". |
+| 0.29.4 | 2026-10-14 | Deleting a user transfers their objects (§11.2, §15.5): `DELETE /users/{id}` makes the deleting admin the owner of the user's dashboards and signals in the same transaction (`meta.Users.Delete(id, heirID)` returns the counts), so private ones no longer become unreachable; `user.delete` audits `transferredTo`, `dashboards` and `signals` (`contractUserDeleteTransfer`, `TestUserDeleteTransfersObjects`). |
+| 0.29.3 | 2026-10-14 | Password resets revoke API tokens (§15.2): a password set by an admin (`PATCH /users/{id}` with `password`) or by `tidemark admin reset-password` now revokes the user's API tokens as well as the sessions, as the reset's code comment already promised; a role change and the user's own password change keep them (`TestPasswordResetRevokesTokens`). |
+| 0.29.2 | 2026-10-14 | CSRF origin check accepts the requested host (§7, §15.2): an `Origin` header must equal `PUBLIC_URL` or have the host the request was sent to, so users who open an install by its LAN address or host name can save changes without `TIDEMARK_PUBLIC_URL` (before, every cookie-authenticated write from such an address failed while `PUBLIC_URL` kept its `localhost` default); the double-submit token and `SameSite=Strict` are unchanged (`TestCSRF`). `TIDEMARK_PUBLIC_URL` is described as the browser address; quickstart, `INSTALL-docker.md` and README recommend setting it for shared installs. |
+| 0.29.1 | 2026-10-14 | A full ClickHouse disk is transient (§9.8): exception 243 (NOT_ENOUGH_SPACE) joins the transient codes, so inserts retry from the WAL until space is freed instead of dead-lettering the batch (`TestIsPermanent`). |
 | 0.29.0 | 2026-10-14 | Repository renamed (§1, §6.1, §17.4, §17.6, §19.3): the public repository is `ZeraOrg/opentidemark` (old URLs redirect) and the Go module path is `github.com/ZeraOrg/opentidemark` (go.mod, imports, goimports `local-prefixes`, `MODULE` / `$Module`); every workflow guard compares `github.repository` with `ZeraOrg/opentidemark`; the image's OCI `source`/`url` labels, `mkdocs.yml` (`site_url` <https://zeraorg.github.io/opentidemark/>, `repo_url`, `repo_name`), `docs-site/hooks.py`, the release notes, the install guides, README, docs and `NOTICE` use the new URLs; releases 0.2.0 and earlier verify with `--repo ZeraOrg/tidemark`. Unchanged: the image `ghcr.io/zeraorg/tidemark`, the binary, archive names and every other technical identifier of §1. |
 | 0.28.0 | 2026-10-14 | Operations manual and offline documentation (§6.1, §17.4, §17.6, §18, §19.1, §19.3): `docs/manual/` (fourteen chapters for operators and agents, written from this specification and verified against a test installation, including teams and stream access, `allowedStreams`, `tidemark_ingest_rerouted_total`, `tidemark_wal_bytes`, `connection_id`) joins the site as the navigation section "Operations manual" (`TestManualPagesInNav`); `mkdocs.yml` adds `pymdownx.tabbed`, `pymdownx.tasklist` and `content.tabs.link`; `docs-site/hooks.py` includes `docs/manual/`, resolves relative links against the page before rewriting those that leave `docs/` to GitHub, and writes `llms.txt` and `llms-full.txt`; `mkdocs.offline.yml` (Material's offline plugin, vendored iframe-worker shim instead of a CDN, SPDX-exempt) builds the offline bundle `tidemark_<version>_docs.zip` with `make docs-offline` / `.\build.ps1 docs-offline` (new targets `docs`, `docs-offline`, `checksums`), which the release workflow attaches, attests and lists in `checksums.txt` and the release notes (`TestReleaseDocsBundle`); `site/` and `__pycache__/` are build output skipped by the SPDX check; README and docs home link the manual, the bundle and the llms files; `LICENSING.md` names the bundle's third-party code. |
 | 0.27.2 | 2026-10-14 | README screenshots refreshed from the mock build after the stream-access work; two new ones, `scope-picker.png` and `teams.png`, join the About table (§6.1). |

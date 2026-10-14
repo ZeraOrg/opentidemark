@@ -16,8 +16,8 @@ import {
   Trash2,
   Download,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
-import RGL, { WidthProvider, type Layout } from 'react-grid-layout';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import ReactGridLayout, { useContainerWidth, type Layout, type LayoutItem } from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
@@ -41,13 +41,20 @@ import { VariablesBar, VariablesEditor } from './Variables';
 import { refreshMs, variableValues } from './vars';
 import s from './dashboards.module.css';
 
-const Grid = WidthProvider(RGL);
 const COLUMNS = 12;
 const TV_CYCLE_MS = 60_000;
 const DEFAULT_DASH_RANGE = { from: 'now-6h', to: 'now' };
+const GRID_CONFIG = {
+  cols: COLUMNS,
+  rowHeight: ROW_HEIGHT,
+  margin: [GRID_GAP, GRID_GAP],
+  containerPadding: [0, 0],
+} as const;
+/** Buttons, links and inputs inside a panel never start a drag. */
+const DRAG_CANCEL = 'button, a, input, select, .cm-editor';
 
 /** Applies a react-grid-layout layout to the panels of `doc`. */
-export function applyLayout(doc: DashboardDoc, layout: readonly Layout[]): DashboardDoc {
+export function applyLayout(doc: DashboardDoc, layout: Layout): DashboardDoc {
   const byId = new Map(layout.map((x) => [x.i, x]));
   return {
     ...doc,
@@ -70,6 +77,41 @@ export function explorerLink(
     to: range.to,
   });
   return `/events?${p.toString()}`;
+}
+
+/**
+ * The 12-column grid sized to its container. Owns the width measurement so that it starts when the
+ * grid mounts (the page shows a spinner first) and renders nothing until the first measurement.
+ */
+function PanelGrid({
+  layout,
+  edit,
+  onLayoutChange,
+  children,
+}: {
+  layout: Layout;
+  edit: boolean;
+  onLayoutChange: (next: Layout) => void;
+  children: ReactNode;
+}) {
+  const { width, mounted, containerRef } = useContainerWidth({ measureBeforeMount: true });
+  return (
+    <div ref={containerRef}>
+      {mounted ? (
+        <ReactGridLayout
+          className={s.grid}
+          width={width}
+          layout={layout}
+          gridConfig={GRID_CONFIG}
+          dragConfig={{ enabled: edit, cancel: DRAG_CANCEL }}
+          resizeConfig={{ enabled: edit }}
+          onLayoutChange={onLayoutChange}
+        >
+          {children}
+        </ReactGridLayout>
+      ) : null}
+    </div>
+  );
 }
 
 function TvCycle({ id }: { id: string }) {
@@ -200,7 +242,7 @@ export default function DashboardPage({ edit = false }: { edit?: boolean }) {
     }
   }
 
-  const layout: Layout[] = current.panels.map((p) => ({
+  const layout: LayoutItem[] = current.panels.map((p) => ({
     i: p.id,
     x: p.grid.x,
     y: p.grid.y,
@@ -377,16 +419,9 @@ export default function DashboardPage({ edit = false }: { edit?: boolean }) {
             ))}
         </div>
       ) : (
-        <Grid
-          className={s.grid}
+        <PanelGrid
           layout={layout}
-          cols={COLUMNS}
-          rowHeight={ROW_HEIGHT}
-          margin={[GRID_GAP, GRID_GAP]}
-          containerPadding={[0, 0]}
-          isDraggable={edit}
-          isResizable={edit}
-          draggableCancel="button, a, input, select, .cm-editor"
+          edit={edit}
           onLayoutChange={(next) => {
             if (edit) {
               const applied = applyLayout(current, next);
@@ -401,7 +436,7 @@ export default function DashboardPage({ edit = false }: { edit?: boolean }) {
           {current.panels.map((p) => (
             <div key={p.id}>{renderPanel(p)}</div>
           ))}
-        </Grid>
+        </PanelGrid>
       )}
       {varsOpen ? (
         <Modal title="Variables" onClose={() => setVarsOpen(false)} wide>

@@ -128,7 +128,7 @@ Ask a human before running any of these, show what will change, and prefer the s
 | `DELETE /indexed-fields/{id}` | Drops column and index | Usually harmless, but queries get slower |
 | `POST /connections/{id}/revoke`, `DELETE /connections/{id}`, `rotate` with `graceMinutes:0` | Clients stop ingesting immediately | Rotate with a grace period; check `lastUsedAt` |
 | `PATCH /connections/{id}` narrowing `allowedStreams` | Data naming other streams silently lands in the default stream | Watch `tidemark_ingest_rerouted_total` afterwards |
-| `DELETE /users/{id}`, `PATCH … {"disabled":true}`, role changes | Access loss, tokens stop working | Prefer disable over delete |
+| `DELETE /users/{id}`, `PATCH … {"disabled":true}` or `{"password":…}`, role changes | Access loss, tokens stop working (role changes only narrow them) | Prefer disable over delete |
 | `DELETE /tokens/{id}` | Automation using it fails | Check `lastUsedAt` |
 | `DELETE /dashboards/{id}`, `DELETE /alerts/{id}`, `DELETE /channels/{id}`, `DELETE /signals/{id}` | Configuration loss | `GET …/export` or `GET` the object first and keep it |
 | `POST /alerts/{id}/mute` | Silences paging | Always set an `until`; never mute indefinitely |

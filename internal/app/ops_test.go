@@ -36,7 +36,7 @@ func testOps(t *testing.T, env config.MapEnv) (*Ops, *bytes.Buffer) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	return NewOps(cfg, "0.7.0", &out, slog.New(slog.NewTextHandler(io.Discard, nil))), &out
+	return NewOps(cfg, "0.2.1", &out, slog.New(slog.NewTextHandler(io.Discard, nil))), &out
 }
 
 func seedUser(t *testing.T, db *meta.DB, name string) {

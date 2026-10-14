@@ -254,15 +254,7 @@ export interface Signal {
 }
 
 export type PanelType =
-  | 'timeseries'
-  | 'bar'
-  | 'stat'
-  | 'gauge'
-  | 'table'
-  | 'pie'
-  | 'logs'
-  | 'traces'
-  | 'markdown';
+  'timeseries' | 'bar' | 'stat' | 'gauge' | 'table' | 'pie' | 'logs' | 'traces' | 'markdown';
 export type ThresholdColor =
   | 'accent'
   | 'success'

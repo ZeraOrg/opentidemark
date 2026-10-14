@@ -154,7 +154,38 @@ func (r *Users) RecordLoginSuccess(ctx context.Context, id string, at time.Time)
 		last_login_at = ?, updated_at = ? WHERE id = ?`, encodeTime(at), encodeTime(r.db.now()), id))
 }
 
-// Delete removes a user (sessions and tokens cascade).
-func (r *Users) Delete(ctx context.Context, id string) error {
-	return expectOne(r.db.sql.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, id))
+// Transferred counts the objects a deleted user's heir received.
+type Transferred struct {
+	Dashboards int
+	Signals    int
+}
+
+// Delete removes a user (sessions, tokens and team memberships cascade) and, in the same
+// transaction, makes heirID the owner of the user's dashboards and signals so none is orphaned.
+func (r *Users) Delete(ctx context.Context, id, heirID string) (Transferred, error) {
+	var moved Transferred
+	err := r.db.inTx(ctx, func(tx *Tx) error {
+		if err := expectOne(tx.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, id)); err != nil {
+			return err
+		}
+		var err error
+		if moved.Dashboards, err = reassign(ctx, tx, `UPDATE dashboards SET owner_id = ? WHERE owner_id = ?`, heirID, id); err != nil {
+			return err
+		}
+		moved.Signals, err = reassign(ctx, tx, `UPDATE signals SET owner_id = ? WHERE owner_id = ?`, heirID, id)
+		return err
+	})
+	return moved, err
+}
+
+func reassign(ctx context.Context, tx *Tx, query, heirID, ownerID string) (int, error) {
+	res, err := tx.ExecContext(ctx, query, heirID, ownerID)
+	if err != nil {
+		return 0, mapErr(err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("transfer owned objects: %w", err)
+	}
+	return int(n), nil
 }
