@@ -17,6 +17,11 @@ updates:
     directory: /web
     patterns: ["*"]
     multi-ecosystem-group: dependencies
+    ignore:
+      # typescript-eslint 8.71 supports TypeScript < 6.1; remove once a typescript-eslint release
+      # supports TypeScript 7 (otherwise every weekly npm update fails on the peer dependency).
+      - dependency-name: typescript
+        versions: [">=6.1.0"]
   - package-ecosystem: github-actions
     directory: /
     patterns: ["*"]

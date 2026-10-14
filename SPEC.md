@@ -8,7 +8,7 @@
 > well. Any change to behaviour, APIs, schema, configuration, layout, UI or tooling **must**
 > update this spec in the same commit. Version history is in §21.
 
-**Spec version:** 0.31.1 · **Last updated:** 2026-10-14
+**Spec version:** 0.31.2 · **Last updated:** 2026-10-14
 
 ---
 
@@ -2519,7 +2519,9 @@ Normative details:
   `.github/dependabot.yml`: gomod, npm (`/web`), GitHub Actions, Docker, **weekly on Monday**,
   all four in **one** pull request (multi-ecosystem group `dependencies`, `patterns: ["*"]`), so
   a week of dependency updates costs a single CI run. Updates follow the 7-day rule of §15.9
-  when they are applied.
+  when they are applied. The npm entry ignores `typescript >= 6.1.0` while typescript-eslint
+  supports only TypeScript < 6.1 (the update would fail on the peer dependency every week);
+  remove the rule when typescript-eslint supports TypeScript 7.
 - **Documentation site** (`mkdocs.yml`, `docs-site/`, `.github/workflows/docs.yml`): MkDocs
   `1.6.1` (BSD-2-Clause) with Material for MkDocs `9.7.7` (MIT), every transitive dependency
   pinned with hashes in `docs-site/requirements.txt` (generated from `docs-site/requirements.in`
@@ -3002,6 +3004,7 @@ items of M0–M3b:
 
 | Version | Date | Change |
 |---|---|---|
+| 0.31.2 | 2026-10-14 | Dependabot ignores `typescript >= 6.1.0` (§17.4) until typescript-eslint supports TypeScript 7, so the weekly npm update no longer fails on the peer dependency. |
 | 0.31.1 | 2026-10-14 | Notices are host-independent (§19.1): build.ps1 builds go-licenses for the host and runs its analysis with `GOOS=linux` like the Makefile and CI, so Linux-only dependencies (`prometheus/procfs`) are no longer dropped when the file is regenerated on Windows. |
 | 0.31.0 | 2026-10-14 | Supply-chain gate (§15.9, §17.4, §17.6, §18): OSV-Scanner v2.6.0 checks `go.mod` and `web/package-lock.json` against OSV incl. the OpenSSF malicious-packages feed in the local `vuln` target, in `security.yml` and as `release.yml` job `supply-chain`, which every publishing job needs; `TestSupplyChainScanPinned` keeps the version equal in Makefile, build.ps1 and both workflows and checks the dependency. |
 | 0.30.3 | 2026-10-14 | Web dependencies refreshed under the 7-day rule (§5, §15.9): React 19, React Router 7 (fixes GHSA-wrjc-x8rr-h8h6 and GHSA-337j-9hxr-rhxg), TypeScript 6, Vite 8, Vitest 5, ESLint 10, react-grid-layout 2 (v2 API with `useContainerWidth`), lucide-react 1, TanStack Query 5.104, jsdom 30; held back: TypeScript 7 (typescript-eslint supports < 6.1) and msw 3 (Vitest's mocker needs msw 2). eslint-plugin-react-hooks 7 keeps its React Compiler rules except `refs`, `set-state-in-effect` and `incompatible-library`, which only flag deliberate patterns (the app does not use the compiler). |
