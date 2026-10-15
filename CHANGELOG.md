@@ -11,6 +11,12 @@ Release archives, checksums and container images are on the
 
 ## [Unreleased]
 
+### Changed
+
+- Documentation site: the home page is now a landing page with an overview of OpenTidemark
+  (capabilities with screenshots, why self-host it, getting started); the former home page with
+  every guide is the new "Documentation overview" page.
+
 ## [0.3.0] - 2026-10-14
 
 ### Added

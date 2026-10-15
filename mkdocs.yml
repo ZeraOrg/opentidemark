@@ -25,6 +25,7 @@ site_dir: site
 
 nav:
   - Home: index.md
+  - Documentation overview: overview.md
   - Quick start: quickstart.md
   - Installation: installation.md
   - Sending data: ingestion.md

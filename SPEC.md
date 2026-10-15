@@ -8,7 +8,7 @@
 > well. Any change to behaviour, APIs, schema, configuration, layout, UI or tooling **must**
 > update this spec in the same commit. Version history is in §21.
 
-**Spec version:** 0.31.3 · **Last updated:** 2026-10-15
+**Spec version:** 0.31.4 · **Last updated:** 2026-10-15
 
 ---
 
@@ -206,7 +206,7 @@ Node **22 LTS** for builds. The built SPA is embedded in the Go binary via `go:e
 ├── SPEC.md                    # this file (source of truth)
 ├── mkdocs.yml                 # documentation site (§17.4): MkDocs + Material, nav over docs/ and docs/manual/
 ├── mkdocs.offline.yml         # offline documentation bundle (§17.6): inherits mkdocs.yml, Material's offline plugin, local worker shim
-├── docs-site/                 # documentation site support (§17.4): requirements.in + requirements.txt (pinned, hashed), hooks.py (top-level pages, docs/manual and docs/images only; meta descriptions; links outside docs/; logo and shim copy; llms.txt + llms-full.txt), overrides/main.html (Open Graph tags, colours), offline/iframe-worker.js (vendored MIT shim of the offline bundle, §17.6)
+├── docs-site/                 # documentation site support (§17.4): requirements.in + requirements.txt (pinned, hashed), hooks.py (top-level pages, docs/manual and docs/images only; front matter after the SPDX comment; meta descriptions; links outside docs/; logo and shim copy; llms.txt + llms-full.txt), overrides/main.html (Open Graph tags, colours), overrides/home.html (landing page styles), offline/iframe-worker.js (vendored MIT shim of the offline bundle, §17.6)
 ├── README.md                  # open-source README: status, why OpenTidemark, about (screenshots from docs/images), features, quick start (release archive, GHCR image, source), docs, building, releases, contributing, licence
 ├── VERSION                    # version of the current/next release, e.g. 0.1.0 (§17.6)
 ├── CHANGELOG.md               # user-facing changes, Keep a Changelog format; release notes source (§17.6)
@@ -276,7 +276,8 @@ Node **22 LTS** for builds. The built SPA is embedded in the Go binary via `go:e
 ├── scripts/                   # with-clickhouse.sh, with-clickhouse-cluster.sh (integration tests, §18), notices.tpl + licence-exceptions.{sh,txt} (§19.1), ci-annotate.sh, release-notes.sh (§17.6)
 ├── examples/                  # (not in the tree yet, §20) client configs: serilog, nlog, python, node, go, java, filebeat, fluent-bit, vector, logstash, otel-collector
 ├── docs/                      # user docs, derived from this spec (§18), published as the documentation site (§17.4):
-│   ├── index.md               #   home page of the documentation site: what OpenTidemark is, guides, project links
+│   ├── index.md               #   landing page of the documentation site (template home.html): what OpenTidemark is, capabilities with screenshots, trust points, getting started, links into the docs
+│   ├── overview.md            #   documentation overview: guides, operations manual, project links
 │   ├── images/                #   README screenshots (§19.3): explorer, event-detail-columns, trace-waterfall, dashboard, metrics, alerts, scope-picker, teams (.png); social-preview.png (1280×640 social preview of the repository and og:image of the documentation site, §17.4)
 │   ├── quickstart.md          #   running locally with Docker Compose: install, first event, everyday commands (§17.2)
 │   ├── installation.md        #   full installation guide per platform: Compose, native Linux/Windows + ClickHouse, macOS dev, hardening, HA pointer, operations, troubleshooting (§17)
@@ -2531,7 +2532,7 @@ Normative details:
   with pip-tools; all under licences of the §19.1 allow-list; build tooling only, never shipped),
   builds `docs/` into `site/` (untracked) for <https://zeraorg.github.io/opentidemark/>. Site name
   OpenTidemark, keyword-rich `site_description`, repository and edit links, navigation: home
-  (`docs/index.md`), quick start, installation, sending data, query language, configuration,
+  (`docs/index.md`, the landing page), documentation overview (`docs/overview.md`), quick start, installation, sending data, query language, configuration,
   migration from Seq and from Elasticsearch/Kibana, and the section **Operations manual** with
   the fourteen chapters of `docs/manual/` in this order: Overview (`index.md`), Deployment,
   Security hardening, Users and access, Ingestion, Integrations, Metrics, Streams and retention,
@@ -2565,7 +2566,18 @@ Normative details:
   absolute, each page preceded by a `Source:` line); the manual's agent guide names them.
   `docs-site/overrides/main.html` adds Open Graph and Twitter card tags (title,
   description, canonical URL, and as image `docs/images/social-preview.png` with a large-image
-  card) and the colours. The social preview (1280×640 PNG, under 1 MB) shows the logo mark, the
+  card) and the colours. `docs-site/overrides/home.html` (extends `main.html`) is the template of
+  the landing page `docs/index.md` (front matter `template: home.html`, navigation and table of
+  contents hidden): inline styles only, on the token colours in both palettes, no scripts, and
+  without the edit and source buttons. The landing page's text, links and screenshots stay
+  ordinary Markdown (classes through attribute lists), so its summary paragraph is the meta
+  description and it appears in `llms.txt` and `llms-full.txt` like any page: a hero with the
+  summary, calls to action (documentation overview, quick start, source) and the 0.x status, the
+  explorer screenshot, then supported clients, capabilities with screenshots, the trust points of
+  the README, the three Docker Compose steps of the quick start, and links into the
+  documentation. Because the SPDX comment is a page's first line, `hooks.py` reads front matter
+  that follows it (MkDocs reads front matter only at the start of a file) into the page's
+  metadata and removes it from the page, `llms.txt` and `llms-full.txt`. The social preview (1280×640 PNG, under 1 MB) shows the logo mark, the
   name, the tagline "Self-hosted logs, metrics & traces", a compatibility line and a cropped
   explorer screenshot of the mock build on the dark token colours with the bundled IBM Plex Sans,
   key content inside the central safe area; it was rendered from an HTML page with Playwright
@@ -3007,6 +3019,7 @@ items of M0–M3b:
 
 | Version | Date | Change |
 |---|---|---|
+| 0.31.4 | 2026-10-15 | Documentation site (§17.4): the home page `docs/index.md` becomes a landing page (template `docs-site/overrides/home.html`: hero, supported clients, capabilities with screenshots, trust points, getting started, documentation links); the former home page moves to `docs/overview.md` ("Documentation overview", second in the navigation); `hooks.py` reads front matter that follows the SPDX comment. |
 | 0.31.3 | 2026-10-15 | Dependabot ignores `msw >= 3.0.0` and major updates of `@types/node` and the `node` image (§17.4), so the weekly update no longer fails on held-back majors; Playwright 1.64.0. |
 | 0.31.2 | 2026-10-14 | Dependabot ignores `typescript >= 6.1.0` (§17.4) until typescript-eslint supports TypeScript 7, so the weekly npm update no longer fails on the peer dependency. |
 | 0.31.1 | 2026-10-14 | Notices are host-independent (§19.1): build.ps1 builds go-licenses for the host and runs its analysis with `GOOS=linux` like the Makefile and CI, so Linux-only dependencies (`prometheus/procfs`) are no longer dropped when the file is regenerated on Windows. |

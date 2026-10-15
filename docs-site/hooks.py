@@ -4,6 +4,8 @@
 - Only the pages at the top of ``docs/``, the operations manual in ``docs/manual/`` and the
   files in ``docs/images/`` are part of the site; other subdirectories of ``docs/`` are left
   out. (``exclude_docs`` cannot express this: its patterns also apply to the theme's own files.)
+- Front matter may follow the SPDX comment on the first line (MkDocs itself only reads it at the
+  very start of the file): it is parsed into ``page.meta`` and removed from the page.
 - Each page's meta description is its summary paragraph: the first paragraph after the H1
   (SPEC §19.3), with Markdown markup removed, unless the page sets ``description`` itself.
 - Relative links are resolved against the page. A link that stays inside ``docs/``
@@ -24,6 +26,8 @@ import re
 import shutil
 from pathlib import Path
 
+from mkdocs.utils.meta import get_data
+
 REPO_BLOB = "https://github.com/ZeraOrg/opentidemark/blob/main/"
 SITE_SUBDIRS = ("images/", "manual/")  # subdirectories of docs/ that belong to the site
 LOGO_SOURCE = Path("web/public/favicon.svg")
@@ -39,6 +43,7 @@ _COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 _LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
 _MARKUP = re.compile(r"`|\*\*|__")  # code spans and strong emphasis
 _H1 = re.compile(r"(?m)^# (.+)$")
+_FRONT_MATTER = re.compile(r"\A(<!--.*?-->[ \t]*\n)(---[ \t]*\n.*?\n---[ \t]*\n)", re.DOTALL)
 
 _nav_pages = {}  # config file path ⇒ the site's pages in navigation order (set by on_nav)
 
@@ -57,6 +62,15 @@ def summary(markdown: str) -> str:
             break
     text = _MARKUP.sub("", _LINK.sub(r"\1", " ".join(paragraph)))
     return re.sub(r"\s+", " ", text).strip()
+
+
+def _split_front_matter(markdown: str) -> tuple[str, dict]:
+    """Return the Markdown without front matter that follows the SPDX comment, and the data."""
+    match = _FRONT_MATTER.match(markdown)
+    if not match:
+        return markdown, {}
+    _, data = get_data(match.group(2))
+    return match.group(1) + markdown[match.end() :], data
 
 
 def _resolve(page_src: str, target: str) -> str:
@@ -104,6 +118,8 @@ def _section_title(page) -> str:
 
 
 def on_page_markdown(markdown, page, config, files):
+    markdown, meta = _split_front_matter(markdown)
+    page.meta.update(meta)
     if not page.meta.get("description"):
         page.meta["description"] = summary(markdown) or config.get("site_description")
     return _rewrite_outside_links(markdown, page.file.src_uri)
@@ -135,7 +151,8 @@ def _page_url(page, config) -> str:
 
 
 def _page_markdown(page) -> str:
-    return _COMMENT.sub("", Path(page.file.abs_src_path).read_text(encoding="utf-8")).strip()
+    markdown, _ = _split_front_matter(Path(page.file.abs_src_path).read_text(encoding="utf-8"))
+    return _COMMENT.sub("", markdown).strip()
 
 
 def _llms_index(pages, config) -> str:

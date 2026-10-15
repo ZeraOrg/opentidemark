@@ -1,0 +1,236 @@
+{#- SPDX-License-Identifier: Apache-2.0 -#}
+{#- Landing page template (docs/index.md sets `template: home.html`). The page's text, links and
+    screenshots are ordinary Markdown in docs/index.md, so the hooks' meta description, llms.txt
+    and llms-full.txt see the real content; this template only adds the landing-page styles and
+    drops the article chrome (edit button, source link) that a documentation page gets. The
+    classes come from attr_list in the Markdown (`{ .tm-cta }`) and from the section anchors.
+    Everything is inline: no fonts, scripts or images from third parties (SPEC §17.4). -#}
+{% extends "main.html" %}
+
+{% block extrahead %}
+  {{ super() }}
+  <style>
+    /* ---- Tokens: the product colours of web/src/styles/tokens.css, per Material palette ---- */
+    [data-md-color-scheme="slate"] {
+      --tm-accent: #b8f06a;
+      --tm-accent-fg: #0b0f14;
+      --tm-accent-hover: #c9f58a;
+      --tm-accent-soft: #1d2a17;
+      --tm-accent-border: #4f7030;
+      --tm-surface: #11161d;
+      --tm-raised: #171e27;
+      --tm-border: #27333f;
+      --tm-border-strong: #3a4859;
+      --tm-fg: #e6ebf0;
+      --tm-fg-muted: #a3afbc;
+      --tm-glow: #b8f06a2e;
+      --tm-shadow: 0 12px 32px #00000099, 0 0 0 1px #27333f;
+    }
+    [data-md-color-scheme="default"] {
+      --tm-accent: #3f6b12;
+      --tm-accent-fg: #ffffff;
+      --tm-accent-hover: #345a0e;
+      --tm-accent-soft: #eaf6d9;
+      --tm-accent-border: #a9d27a;
+      --tm-surface: #f3f5f8;
+      --tm-raised: #ffffff;
+      --tm-border: #d2d9e1;
+      --tm-border-strong: #aab5c2;
+      --tm-fg: #121922;
+      --tm-fg-muted: #4a5666;
+      --tm-glow: #5c941826;
+      --tm-shadow: 0 12px 32px #0b0f1429, 0 0 0 1px #d2d9e1;
+    }
+
+    /* ---- Page frame: no sidebars, a wider column, generous rhythm ---- */
+    .tm-home .md-main__inner { margin-top: 0; }
+    .md-main__inner.md-grid { max-width: 66rem; }
+    .tm-home .md-content__inner { margin: 0 .8rem 2rem; }
+    .tm-home .md-typeset { font-size: .8rem; }
+    .tm-home .md-typeset h1,
+    .tm-home .md-typeset h2 { color: var(--tm-fg); letter-spacing: -.02em; }
+    .tm-home .md-typeset h2 {
+      font-size: 1.7em; font-weight: 700; line-height: 1.2; margin: 0 0 .5em;
+      scroll-margin-top: 3.5rem;
+    }
+    .tm-home .md-typeset h2 .headerlink { display: none; }
+    .tm-home .md-typeset code { font-size: .85em; }
+    .tm-home .md-typeset > p.tm-lede {
+      color: var(--tm-fg-muted); font-size: 1.05em; line-height: 1.6; max-width: 38em; margin: 0 0 1.6em;
+    }
+
+    /* Section spacing: every h2 opens a section */
+    .tm-home .md-typeset > h2 { margin-top: 3.2rem; }
+    @media screen and (min-width: 60em) {
+      .tm-home .md-typeset > h2 { margin-top: 4.4rem; }
+    }
+
+    /* ---- Hero: a soft phosphor glow behind the title, clipped to the page ---- */
+    .md-main:has(.tm-home) { position: relative; overflow: clip; }
+    .md-main:has(.tm-home)::before {
+      content: ""; position: absolute; left: 0; right: 0; top: 0; height: 36rem; z-index: 0; pointer-events: none;
+      background: radial-gradient(50rem 22rem at 50% 0%, var(--tm-glow), transparent 70%);
+    }
+    .md-main:has(.tm-home) > * { position: relative; }
+    .tm-home .md-content__inner { padding-top: 2.4rem; }
+    .tm-home .md-typeset > h1,
+    .tm-home .md-typeset > h1 + p,
+    .tm-home .md-typeset > p.tm-cta,
+    .tm-home .md-typeset > p.tm-status { margin-left: auto !important; margin-right: auto !important; text-align: center; }
+    .tm-home .md-typeset > h1 ~ p.tm-cta { justify-content: center; }
+    .tm-home .md-typeset > h2 ~ p.tm-cta { justify-content: flex-start; text-align: left; margin-left: 0 !important; }
+    .tm-home .md-typeset h1 {
+      font-size: 2.3em; font-weight: 800; line-height: 1.08; letter-spacing: -.03em;
+      margin: 0 0 .6em; max-width: 16em;
+    }
+    .tm-home .md-typeset h1 .headerlink { display: none; }
+    .tm-home .md-typeset h1 + p {
+      font-size: 1.05em; line-height: 1.6; color: var(--tm-fg-muted); max-width: 40em; margin: 0 0 1.4em;
+    }
+    .tm-home .md-typeset h1 + p code { color: var(--tm-fg); }
+    @media screen and (min-width: 60em) {
+      .tm-home .md-content__inner { padding-top: 3.6rem; }
+      .tm-home .md-typeset h1 { font-size: 3.1em; }
+      .tm-home .md-typeset h1 + p { font-size: 1.15em; }
+    }
+
+    /* Calls to action */
+    .tm-home .md-typeset p.tm-cta { display: flex; flex-wrap: wrap; gap: .5rem .6rem; margin: 0 0 1.2em; }
+    .tm-home .md-typeset a.tm-btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: .4em;
+      min-height: 2.3rem; padding: .45rem 1.15rem; border-radius: .35rem;
+      border: 1px solid var(--tm-border-strong); background: var(--tm-raised);
+      color: var(--tm-fg); font-weight: 600; font-size: .95em; line-height: 1.2; text-decoration: none;
+      transition: background-color 125ms, border-color 125ms, color 125ms, transform 125ms;
+    }
+    .tm-home .md-typeset a.tm-btn:hover,
+    .tm-home .md-typeset a.tm-btn:focus-visible { border-color: var(--tm-accent); color: var(--tm-fg); }
+    .tm-home .md-typeset a.tm-btn:focus-visible { outline: 2px solid var(--tm-accent); outline-offset: 2px; }
+    .tm-home .md-typeset a.tm-btn--primary {
+      background: var(--tm-accent); border-color: var(--tm-accent); color: var(--tm-accent-fg);
+    }
+    .tm-home .md-typeset a.tm-btn--primary:hover,
+    .tm-home .md-typeset a.tm-btn--primary:focus-visible {
+      background: var(--tm-accent-hover); border-color: var(--tm-accent-hover); color: var(--tm-accent-fg);
+    }
+    .tm-home .md-typeset a.tm-btn--primary::after { content: "\2192"; font-weight: 400; }
+    .tm-home .md-typeset a.tm-btn--ghost { background: transparent; border-color: transparent; color: var(--tm-fg-muted); }
+    .tm-home .md-typeset a.tm-btn--ghost:hover,
+    .tm-home .md-typeset a.tm-btn--ghost:focus-visible { background: var(--tm-raised); border-color: var(--tm-border); }
+    @media (max-width: 29.99em) {
+      .tm-home .md-typeset a.tm-btn:not(.tm-btn--ghost) { flex: 1 1 100%; }
+    }
+
+    /* Status note */
+    .tm-home .md-typeset p.tm-status {
+      font-size: .78em; line-height: 1.5; color: var(--tm-fg-muted); max-width: 46em; margin: 0 0 2.2em;
+    }
+    .tm-home .md-typeset p.tm-status strong::before {
+      content: ""; display: inline-block; width: .5em; height: .5em; margin-right: .6em; border-radius: 50%;
+      vertical-align: .1em; background: var(--tm-accent); box-shadow: 0 0 0 .25em var(--tm-accent-soft);
+    }
+    .tm-home .md-typeset p.tm-status strong { color: var(--tm-fg); }
+
+    /* Framed screenshots */
+    .tm-home .md-typeset img.tm-hero-shot,
+    .tm-home .md-typeset #capabilities + p + ul img {
+      display: block; width: 100%; height: auto; border-radius: .45rem;
+      box-shadow: var(--tm-shadow); background: #0b0f14;
+    }
+    .tm-home .md-typeset p:has(> img.tm-hero-shot) { margin: 0; }
+    .tm-home .md-typeset img.tm-hero-shot { border-radius: .6rem; }
+
+    /* ---- Clients: a row of pills ---- */
+    .tm-home .md-typeset #clients + p + ul,
+    .tm-home .md-typeset #capabilities + p + ul,
+    .tm-home .md-typeset #trust + p + ul,
+    .tm-home .md-typeset #docs + ul { list-style: none; margin: 0; padding: 0; display: grid; gap: .7rem; }
+    .tm-home .md-typeset #clients + p + ul > li,
+    .tm-home .md-typeset #capabilities + p + ul > li,
+    .tm-home .md-typeset #trust + p + ul > li,
+    .tm-home .md-typeset #docs + ul > li {
+      margin: 0; padding: .9rem 1rem; border-radius: .45rem;
+      background: var(--tm-raised); border: 1px solid var(--tm-border);
+    }
+    .tm-home .md-typeset #clients + p + ul { grid-template-columns: repeat(auto-fit, minmax(11.5rem, 1fr)); }
+    .tm-home .md-typeset #clients + p + ul > li { font-size: .9em; line-height: 1.5; color: var(--tm-fg-muted); }
+    .tm-home .md-typeset #clients + p + ul > li strong { display: block; color: var(--tm-fg); margin-bottom: .15em; }
+    .tm-home .md-typeset #clients + p + ul > li::before {
+      content: ""; display: block; width: 1.6rem; height: .15rem; border-radius: 1rem;
+      background: var(--tm-accent); margin-bottom: .6rem;
+    }
+
+    /* ---- Capabilities: screenshot cards ---- */
+    .tm-home .md-typeset #capabilities + p + ul { grid-template-columns: 1fr; gap: 1rem; }
+    @media screen and (min-width: 45em) {
+      .tm-home .md-typeset #capabilities + p + ul { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media screen and (min-width: 70em) {
+      .tm-home .md-typeset #capabilities + p + ul { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
+    .tm-home .md-typeset #capabilities + p + ul > li { padding: .55rem .55rem 1rem; line-height: 1.5; color: var(--tm-fg-muted); font-size: .9em; }
+    .tm-home .md-typeset #capabilities + p + ul img { margin: 0 0 .8rem; border-radius: .3rem; box-shadow: 0 0 0 1px var(--tm-border); }
+    .tm-home .md-typeset #capabilities + p + ul > li strong { display: block; color: var(--tm-fg); font-size: 1.05em; margin: 0 .45rem .2em; }
+    .tm-home .md-typeset #capabilities + p + ul > li { padding-inline: .55rem; }
+    .tm-home .md-typeset #capabilities + p + ul > li { padding: .55rem 1rem 1.1rem; }
+    .tm-home .md-typeset #capabilities + p + ul img { margin: 0 -.45rem .8rem; width: calc(100% + .9rem); max-width: none; }
+    .tm-home .md-typeset #capabilities + p + ul > li strong { margin-inline: 0; }
+
+    /* ---- Trust: text cards with an accent rule ---- */
+    .tm-home .md-typeset #trust + p + ul { grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); }
+    .tm-home .md-typeset #trust + p + ul > li { font-size: .9em; line-height: 1.55; color: var(--tm-fg-muted); padding: 1rem 1.1rem 1.1rem; }
+    .tm-home .md-typeset #trust + p + ul > li strong { display: block; color: var(--tm-fg); font-size: 1.05em; margin-bottom: .3em; }
+    .tm-home .md-typeset #trust + p + ul > li::before {
+      content: ""; display: block; width: 1.6rem; height: .15rem; border-radius: 1rem;
+      background: var(--tm-accent); margin-bottom: .7rem;
+    }
+
+    /* ---- Get started: numbered steps ---- */
+    .tm-home .md-typeset #get-started + p + ol {
+      list-style: none; margin: 0 0 1.4rem; padding: 0; counter-reset: tm-step;
+      display: grid; gap: .8rem;
+    }
+    @media screen and (min-width: 60em) {
+      .tm-home .md-typeset #get-started + p + ol { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; }
+    }
+    .tm-home .md-typeset #get-started + p + ol > li {
+      position: relative; margin: 0; padding: 1rem 1.1rem 1rem 3rem; border-radius: .45rem;
+      background: var(--tm-raised); border: 1px solid var(--tm-border);
+      font-size: .9em; line-height: 1.55; color: var(--tm-fg-muted);
+    }
+    .tm-home .md-typeset #get-started + p + ol > li::before {
+      counter-increment: tm-step; content: counter(tm-step);
+      position: absolute; left: 1rem; top: 1rem; width: 1.4rem; height: 1.4rem; border-radius: 50%;
+      display: grid; place-items: center; font-weight: 700; font-size: .8rem;
+      background: var(--tm-accent); color: var(--tm-accent-fg);
+    }
+    .tm-home .md-typeset #get-started + p + ol > li strong { color: var(--tm-fg); }
+    .tm-home .md-typeset #get-started + p + ol > li a { color: var(--md-typeset-a-color); }
+    .tm-home .md-typeset #get-started + p + ol > li .highlight { margin: .6rem 0 0 -2rem; }
+    .tm-home .md-typeset #get-started + p + ol > li .highlight pre { margin: 0; }
+    .tm-home .md-typeset #get-started + p + ol > li .highlight pre > code { font-size: .82em; }
+
+    /* ---- Docs: link cards ---- */
+    .tm-home .md-typeset #docs + ul { grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); }
+    .tm-home .md-typeset #docs + ul > li { font-size: .9em; line-height: 1.5; color: var(--tm-fg-muted); }
+    .tm-home .md-typeset #docs + ul > li > a:first-child { font-weight: 600; }
+
+    /* ---- Motion and overflow ---- */
+    .tm-home .md-typeset > * { min-width: 0; }
+    @media (prefers-reduced-motion: reduce) {
+      .tm-home .md-typeset a.tm-btn { transition: none; }
+    }
+  </style>
+{% endblock %}
+
+{% block content %}
+  {{ page.content }}
+{% endblock %}
+
+{% block container %}
+  <div class="md-content tm-home" data-md-component="content">
+    <article class="md-content__inner md-typeset">
+      {{ self.content() }}
+    </article>
+  </div>
+{% endblock %}
