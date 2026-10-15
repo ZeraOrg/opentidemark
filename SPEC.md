@@ -8,7 +8,7 @@
 > well. Any change to behaviour, APIs, schema, configuration, layout, UI or tooling **must**
 > update this spec in the same commit. Version history is in §21.
 
-**Spec version:** 0.31.2 · **Last updated:** 2026-10-14
+**Spec version:** 0.31.3 · **Last updated:** 2026-10-15
 
 ---
 
@@ -2521,7 +2521,10 @@ Normative details:
   a week of dependency updates costs a single CI run. Updates follow the 7-day rule of §15.9
   when they are applied. The npm entry ignores `typescript >= 6.1.0` while typescript-eslint
   supports only TypeScript < 6.1 (the update would fail on the peer dependency every week);
-  remove the rule when typescript-eslint supports TypeScript 7.
+  remove the rule when typescript-eslint supports TypeScript 7. It also ignores `msw >= 3.0.0`
+  (Vitest's mocker needs msw 2; remove the rule when Vitest supports msw 3) and major updates of
+  `@types/node`, and the Docker entry ignores major updates of the `node` image, so both stay on
+  the Node LTS line of the build (Node 24) until it is moved deliberately.
 - **Documentation site** (`mkdocs.yml`, `docs-site/`, `.github/workflows/docs.yml`): MkDocs
   `1.6.1` (BSD-2-Clause) with Material for MkDocs `9.7.7` (MIT), every transitive dependency
   pinned with hashes in `docs-site/requirements.txt` (generated from `docs-site/requirements.in`
@@ -3004,6 +3007,7 @@ items of M0–M3b:
 
 | Version | Date | Change |
 |---|---|---|
+| 0.31.3 | 2026-10-15 | Dependabot ignores `msw >= 3.0.0` and major updates of `@types/node` and the `node` image (§17.4), so the weekly update no longer fails on held-back majors; Playwright 1.64.0. |
 | 0.31.2 | 2026-10-14 | Dependabot ignores `typescript >= 6.1.0` (§17.4) until typescript-eslint supports TypeScript 7, so the weekly npm update no longer fails on the peer dependency. |
 | 0.31.1 | 2026-10-14 | Notices are host-independent (§19.1): build.ps1 builds go-licenses for the host and runs its analysis with `GOOS=linux` like the Makefile and CI, so Linux-only dependencies (`prometheus/procfs`) are no longer dropped when the file is regenerated on Windows. |
 | 0.31.0 | 2026-10-14 | Supply-chain gate (§15.9, §17.4, §17.6, §18): OSV-Scanner v2.6.0 checks `go.mod` and `web/package-lock.json` against OSV incl. the OpenSSF malicious-packages feed in the local `vuln` target, in `security.yml` and as `release.yml` job `supply-chain`, which every publishing job needs; `TestSupplyChainScanPinned` keeps the version equal in Makefile, build.ps1 and both workflows and checks the dependency. |

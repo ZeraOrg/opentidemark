@@ -22,6 +22,13 @@ updates:
       # supports TypeScript 7 (otherwise every weekly npm update fails on the peer dependency).
       - dependency-name: typescript
         versions: [">=6.1.0"]
+      # Vitest's mocker needs msw 2 (msw 3 drops StartOptions.onUnhandledRequest); remove once
+      # Vitest supports msw 3.
+      - dependency-name: msw
+        versions: [">=3.0.0"]
+      # The types follow the Node LTS line used for the build (Node 24).
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     patterns: ["*"]
@@ -30,3 +37,7 @@ updates:
     directory: /
     patterns: ["*"]
     multi-ecosystem-group: dependencies
+    ignore:
+      # The web build stays on the current Node LTS line (Node 24); move up deliberately.
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
