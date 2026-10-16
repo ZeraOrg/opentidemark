@@ -76,6 +76,58 @@ func TestDocExamplesParseAndCompile(t *testing.T) {
 	}
 }
 
+// minDocQueries guards against the reference losing its tql blocks (e.g. a renamed fence).
+const minDocQueries = 150
+
+// docQueries returns every line of the ```tql blocks in docs/query-language.md, without the
+// trailing "  # comment" and blank lines: each is one complete query.
+func docQueries(t *testing.T) []string {
+	t.Helper()
+	data, err := os.ReadFile(docExamplesPath)
+	if err != nil {
+		t.Fatalf("%s: %v", docExamplesPath, err)
+	}
+	comment := regexp.MustCompile(`\s{2,}#.*$`)
+	var out []string
+	inside := false
+	for _, line := range strings.Split(string(data), "\n") {
+		switch {
+		case !inside && strings.TrimSpace(line) == "```tql":
+			inside = true
+		case inside && strings.HasPrefix(strings.TrimSpace(line), "```"):
+			inside = false
+		case inside:
+			if q := strings.TrimSpace(comment.ReplaceAllString(line, "")); q != "" {
+				out = append(out, q)
+			}
+		}
+	}
+	return out
+}
+
+// TestDocQueriesParseAndCompile keeps the public TQL reference honest: every query it shows in
+// a tql block parses, compiles and is read as TQL rather than as a plain-text fallback.
+func TestDocQueriesParseAndCompile(t *testing.T) {
+	queries := docQueries(t)
+	if len(queries) < minDocQueries {
+		t.Fatalf("only %d queries in tql blocks, want at least %d", len(queries), minDocQueries)
+	}
+	for _, q := range queries {
+		p, err := Parse(q)
+		if err != nil {
+			t.Errorf("Parse(%q): %v", q, err)
+			continue
+		}
+		if p.InterpretedAsText {
+			t.Errorf("%q was interpreted as text", q)
+			continue
+		}
+		if _, err := Compile(p, goldenOptions()); err != nil {
+			t.Errorf("Compile(%q): %v", q, err)
+		}
+	}
+}
+
 func TestResultKinds(t *testing.T) {
 	tests := map[string]ResultKind{
 		`level:error`:                     KindEvents,

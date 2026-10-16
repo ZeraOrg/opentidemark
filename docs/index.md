@@ -7,12 +7,8 @@ hide:
 ---
 # OpenTidemark: self-hosted logs, metrics and traces
 
-OpenTidemark is an open-source, self-hosted observability platform for logs, metrics and
-distributed traces. It accepts OpenTelemetry® (OTLP gRPC and HTTP), the Seq ingestion API used by
-Serilog and NLog, and Elasticsearch `_bulk` from Filebeat, Fluent Bit and Vector, stores
-telemetry in ClickHouse® and searches all of it with one query language: a self-hosted
-alternative to Seq and to Elasticsearch/Kibana, licensed under Apache-2.0 with every feature
-included and no user limits.
+OpenTidemark is an open-source, self-hosted observability platform for logs, metrics and traces.
+One place to see what your applications are doing and why something went wrong.
 
 [Read the docs](overview.md){ .tm-btn .tm-btn--primary } [Quick start](quickstart.md){ .tm-btn } [Source on GitHub](https://github.com/ZeraOrg/opentidemark){ .tm-btn .tm-btn--ghost }
 { .tm-cta }
@@ -26,11 +22,12 @@ changes between minor versions before 1.0. Your data is always kept on upgrade.
 
 ## Keep your clients, change a URL { #clients }
 
-Applications and shippers keep their existing clients and only change a URL and an API key.
-Each ingestion connection has its own key.
+A self-hosted alternative to Seq and to Elasticsearch/Kibana: applications and shippers keep
+their existing clients and only change a URL and an API key. Each ingestion connection has its
+own key.
 { .tm-lede }
 
-- **OpenTelemetry** SDKs and the Collector: OTLP over gRPC and HTTP, for logs, traces and metrics.
+- **OpenTelemetry®** SDKs and the Collector: OTLP over gRPC and HTTP, for logs, traces and metrics.
 - **Serilog and NLog** through the Seq ingestion API.
 - **Filebeat, Fluent Bit and Vector** through Elasticsearch `_bulk`.
 - **Logstash** through its `http` output to the native JSON endpoint.
@@ -82,8 +79,8 @@ should be available to everyone, not only to companies that can pay per-gigabyte
 
 ## Up and running in minutes { #get-started }
 
-OpenTidemark needs a ClickHouse server; the Docker Compose bundle brings one along. It also
-runs natively on Linux and Windows as a single binary.
+OpenTidemark stores your telemetry in ClickHouse®; the Docker Compose bundle brings a ClickHouse
+server along. It also runs natively on Linux and Windows as a single binary.
 { .tm-lede }
 
 1. Download `tidemark_<version>_docker.tar.gz` (or `.zip`) from the

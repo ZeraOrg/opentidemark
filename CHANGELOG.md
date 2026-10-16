@@ -16,6 +16,8 @@ Release archives, checksums and container images are on the
 - Documentation site: the home page is now a landing page with an overview of OpenTidemark
   (capabilities with screenshots, why self-host it, getting started); the former home page with
   every guide is the new "Documentation overview" page.
+- Documentation: the query language (TQL) reference now covers every part of the language, with
+  readable examples by task, an error guide, common pitfalls and a cheat sheet; every example is tested.
 
 ## [0.3.0] - 2026-10-14
 

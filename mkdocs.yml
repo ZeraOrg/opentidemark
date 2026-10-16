@@ -29,7 +29,7 @@ nav:
   - Quick start: quickstart.md
   - Installation: installation.md
   - Sending data: ingestion.md
-  - Query language: query-language.md
+  - Query language (TQL): query-language.md
   - Configuration: configuration.md
   - Migration:
       - From Seq: migrate-from-seq.md

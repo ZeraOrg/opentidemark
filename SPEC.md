@@ -8,7 +8,7 @@
 > well. Any change to behaviour, APIs, schema, configuration, layout, UI or tooling **must**
 > update this spec in the same commit. Version history is in §21.
 
-**Spec version:** 0.31.4 · **Last updated:** 2026-10-15
+**Spec version:** 0.31.5 · **Last updated:** 2026-10-16
 
 ---
 
@@ -281,7 +281,7 @@ Node **22 LTS** for builds. The built SPA is embedded in the Go binary via `go:e
 │   ├── images/                #   README screenshots (§19.3): explorer, event-detail-columns, trace-waterfall, dashboard, metrics, alerts, scope-picker, teams (.png); social-preview.png (1280×640 social preview of the repository and og:image of the documentation site, §17.4)
 │   ├── quickstart.md          #   running locally with Docker Compose: install, first event, everyday commands (§17.2)
 │   ├── installation.md        #   full installation guide per platform: Compose, native Linux/Windows + ClickHouse, macOS dev, hardening, HA pointer, operations, troubleshooting (§17)
-│   ├── query-language.md      #   TQL reference (§10; its example block = §10.1 verbatim)
+│   ├── query-language.md      #   complete TQL reference (§10) with examples; its example block = §10.1 verbatim, every `tql` block is tested (§18)
 │   ├── ingestion.md           #   protocols, keys, field mapping (§9.1–§9.7)
 │   ├── configuration.md       #   every variable the binary knows, with defaults (§7)
 │   ├── migrate-from-seq.md    #   moving from Seq with `tidemark import` (§9.9)
@@ -1141,8 +1141,8 @@ source metrics | name:http.server.request.duration | stats avg(value) by service
 
 ### 10.2 Lexical rules
 
-- Whitespace separates tokens. Keywords are case-insensitive: `and or not in source stats by span
-  sort asc desc limit fields where top as true false null`. Also `&&`, `||`, `!`.
+- Whitespace separates tokens. Keywords are case-insensitive: `and or not in like ci source stats
+  by span auto sort asc desc limit fields where top as true false null`. Also `&&`, `||`, `!`.
 - **Identifiers (fields):** `[A-Za-z_@][A-Za-z0-9_.\-@]*` (e.g. `Request.Path`, `@timestamp`,
   `http.status_code`) or backtick-quoted ``` `weird key` ```.
 - **Strings:** `'…'` or `"…"`, backslash escapes `\\ \' \" \n \t \*`.
@@ -1150,7 +1150,11 @@ source metrics | name:http.server.request.duration | stats avg(value) by service
   comparisons against `duration`/`@duration` (spans) only.
 - **Bare values** (right of `:`): any run of non-space, non-`()` characters; `*` is a wildcard.
 - **Regex:** `/…/` with `\/` escape (RE2 syntax, ClickHouse `match`).
-- **Relative time** literals in `@timestamp` comparisons: `now`, `now-15m`, ISO-8601 strings.
+- **Time literals** in `@timestamp` comparisons: `now` or `now` ± a whole number with one unit
+  `s|m|h|d|w` and no spaces (`now-15m`, `now+1h`, `now-2w`; case-insensitive; at most 100 years),
+  or a string in one of the layouts RFC 3339 (fractional seconds and offset allowed),
+  `YYYY-MM-DDThh:mm:ss`, `YYYY-MM-DDThh:mm`, `YYYY-MM-DD hh:mm:ss`, `YYYY-MM-DD` (no zone ⇒ UTC).
+  `now` is the end of the request range. After an operator a time with `:` must be quoted.
 - Details (normative):
   - Outside value position a bare word is any run of characters other than whitespace and
     `()[],|:=<>'"` and backtick; `!` ends a word only before `=` or at its start, `&` only in `&&`.
@@ -1213,6 +1217,10 @@ stats; max 50 `fields`; max 10,000 time buckets per timeseries. Input must be va
   after `top`. `limit` before stats, and `fields` together with stats/top, are errors.
 - `top n f by g` ⇒ `stats count() by g, f`, ordered by count desc, limited to n rows **per value
   of g** (`LIMIT n BY g`); without `by`, limited to n rows.
+- `sort` keys default to `asc`; sort keys and `as` names may be backtick-quoted. `limit` in a
+  query without stats caps the events returned (never above the page size). After a source clause
+  the filter is required: `source spans | * | stats …` (`source spans | stats …` reads `stats` as
+  a filter).
 
 ### 10.4 Field resolution
 
@@ -1277,6 +1285,10 @@ property. `@`-prefixed names are always built-ins; `props.<key>` / `attrs.<key>`
   - `duration` literals without a unit are milliseconds (like results); with a unit they are
     converted to ns for `duration_ns`. A unit on any other field is an error.
   - `@timestamp` needs a comparison (`:` alone is an error) and is not allowed with `in`.
+  - `?` is a wildcard only in a value that also contains an unescaped `*`; otherwise it is a
+    literal character. `in` takes no `ci`.
+  - `@bucket` is reserved as a result column name (also without `span`). Numeric aggregates of a
+    text built-in or attribute convert with `toFloat64OrNull`; `avg(level)` uses the ordinal.
   - The request range is half-open `[from, to)`.
   - `rate()` is `count()/seconds` (bucket or whole range). Metrics `rate(value)` must be the only
     aggregate of its stats stage; per series: `deltaSumTimestamp(value, toUnixTimestamp64Milli(timestamp))`
@@ -2847,7 +2859,7 @@ were attested under the former repository name (§1) and verify with `--repo Zer
 | Layer | Requirement |
 |---|---|
 | Go unit | `go test -race ./...` (Linux), `go test ./...` (Windows). Table-driven. Coverage ≥ 85% for `internal/tql`, `internal/normalize`, `internal/ingest/...`, `internal/auth`, `internal/retention`; ≥ 70% overall. |
-| TQL | Golden tests: queries in `internal/tql/testdata/*.tql` (`%cursor`/`%streams a,b|none`/`%where` directives) ⇒ `*.golden` (canonical form, SQL + args + columns, or error with position and caret); regenerate with `go test ./internal/tql -run TestGolden -update`. Every §10.1 example is read from `docs/query-language.md` (`TestDocExamplesParseAndCompile`) and must parse and compile; `internal/repotest` (`TestTQLDocExamplesMatchSpec`) asserts that block equals the §10.1 block of this file. Fuzz test `FuzzParse` (no panics, positioned errors, stable canonical round trip, no user text in SQL); found inputs are kept in `testdata/fuzz`. SQL-injection table (quotes, backticks, `--`, `;`, unicode, keys with `'`) and a max-size pathological-input timing test. |
+| TQL | Golden tests: queries in `internal/tql/testdata/*.tql` (`%cursor`/`%streams a,b|none`/`%where` directives) ⇒ `*.golden` (canonical form, SQL + args + columns, or error with position and caret); regenerate with `go test ./internal/tql -run TestGolden -update`. Every §10.1 example is read from `docs/query-language.md` (`TestDocExamplesParseAndCompile`) and must parse and compile, and so must every query line of the reference's `tql` code blocks (`TestDocQueriesParseAndCompile`, at least 150 queries; queries meant to fail use `text` blocks); `internal/repotest` (`TestTQLDocExamplesMatchSpec`) asserts that block equals the §10.1 block of this file. Fuzz test `FuzzParse` (no panics, positioned errors, stable canonical round trip, no user text in SQL); found inputs are kept in `testdata/fuzz`. SQL-injection table (quotes, backticks, `--`, `;`, unicode, keys with `'`) and a max-size pathological-input timing test. |
 | Ingestion | Fixture bodies in `testdata/` captured from real clients: Serilog Seq sink (CLEF), NLog Seq target (legacy JSON), Filebeat/Fluent Bit/Vector/Logstash `_bulk`, OTLP JSON + protobuf logs/traces/metrics. |
 | Integration | Build tag `integration`; needs `TIDEMARK_TEST_CLICKHOUSE_ADDR` (+ `TIDEMARK_TEST_CLICKHOUSE_{DATABASE,WRITER_USER,WRITER_PASSWORD,READER_USER,READER_PASSWORD}`). `scripts/with-clickhouse.sh <cmd>` starts a throw-away local server (binary from `$CLICKHOUSE_BIN`, `/opt/clickhouse/clickhouse` or `PATH`; temp dir; free loopback port; users from `deploy/clickhouse/users.d` with random passwords; a `backups` disk in the temp dir), exports those variables, runs the command and stops the server; with the variable already set it just runs the command. Packages run with `-p 1` because they share the `tidemark` database. Covers migrations, the reader against real data (`internal/store/clickhouse`), and end to end (`internal/app`): connection keys created via the API, rejection without a key / with a wrong-protocol key, Seq, ES `_bulk`, OTLP HTTP (JSON + protobuf) and native fixtures, then `POST /query` (events + cursor paging, table, timeseries), histogram, facets, fields, event by id + context, trace + trace search, metric names, export and live tail; stream access (`TestIntegrationStreamAccess`: logs, spans and metrics in two streams; a team member of one stream sees none of the other on every §15.10 path — queries incl. `stats count() by stream`, histogram, facets, fields, completion, event by id and context, CSV and NDJSON export, tail, trace search, a cross-stream trace, metric names and queries, streams list and fields; the selection never widens the scope; environments filter logs only; alert rules must name streams within the editor's scope, are hidden outside it and keep their streams after the author leaves the team; a team-less user sees every stream until deny-by-default is on and then sees nothing, without errors; an event naming a stream outside its connection's allowed streams lands in the default stream); retention TTL DDL. CI uses a ClickHouse service container (Linux job). Also covers insert deduplication of a replayed WAL batch and of a replayed import job (`tidemark import clef` of 12,345 lines, then the whole job re-run from an empty checkpoint: the row count is unchanged), address failover, operator commands (backup/restore/doctor) and the importers against fake sources. The replicated-schema test additionally needs `TIDEMARK_TEST_CLICKHOUSE_CLUSTER` and `TIDEMARK_TEST_CLICKHOUSE_CLUSTER_ADDRS` (a 1-shard, 3-replica cluster with Keeper, e.g. `deploy/ha/clickhouse/`); `scripts/with-clickhouse-cluster.sh <cmd>` starts such a cluster on loopback (three servers, each embedding Keeper with IPv6 disabled, free ports, users from `deploy/ha/clickhouse/users.d`, cluster `tidemark_cluster`), exports `TIDEMARK_TEST_CLICKHOUSE_{ADDR,CLUSTER,CLUSTER_ADDRS,WRITER_PASSWORD,READER_PASSWORD}` and removes it afterwards; PostgreSQL contract, bus and restore tests need `TIDEMARK_TEST_POSTGRES_DSN`. |
 | Security | Tests for auth on every route (table of routes × roles), CSRF, rate limits, key restrictions (protocol, CIDR, expiry, revoke), SSRF dialer, headers, SQL-injection attempts through TQL (fuzz corpus). |
@@ -3019,6 +3031,7 @@ items of M0–M3b:
 
 | Version | Date | Change |
 |---|---|---|
+| 0.31.5 | 2026-10-16 | TQL reference (§6.1, §10, §18): `docs/query-language.md` documents every part of the language with examples (filters, operators, functions, fields, levels, time and duration literals, sources, stages, aggregates, time series, results, dashboard variables, lexical rules, autocomplete, examples by task, errors, pitfalls, limits, grammar, cheat sheet); every query in its `tql` blocks is tested (`TestDocQueriesParseAndCompile`). §10 now states existing behaviour it left out: keywords `like`, `ci`, `auto`; `now±N` with units `s m h d w` and the accepted time layouts; `sort` defaults to `asc`; backtick names for sort keys and aliases; `limit` without stats; the filter required after a source clause; `?` as a wildcard only with `*`; no `ci` after `in`; `@bucket` reserved; numeric aggregates of text fields. |
 | 0.31.4 | 2026-10-15 | Documentation site (§17.4): the home page `docs/index.md` becomes a landing page (template `docs-site/overrides/home.html`: hero, supported clients, capabilities with screenshots, trust points, getting started, documentation links); the former home page moves to `docs/overview.md` ("Documentation overview", second in the navigation); `hooks.py` reads front matter that follows the SPDX comment. |
 | 0.31.3 | 2026-10-15 | Dependabot ignores `msw >= 3.0.0` and major updates of `@types/node` and the `node` image (§17.4), so the weekly update no longer fails on held-back majors; Playwright 1.64.0. |
 | 0.31.2 | 2026-10-14 | Dependabot ignores `typescript >= 6.1.0` (§17.4) until typescript-eslint supports TypeScript 7, so the weekly npm update no longer fails on the peer dependency. |
