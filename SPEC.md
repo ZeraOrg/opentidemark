@@ -8,7 +8,7 @@
 > well. Any change to behaviour, APIs, schema, configuration, layout, UI or tooling **must**
 > update this spec in the same commit. Version history is in §21.
 
-**Spec version:** 0.31.9 · **Last updated:** 2026-10-17
+**Spec version:** 0.31.10 · **Last updated:** 2026-10-17
 
 ---
 
@@ -2867,8 +2867,12 @@ the workflow env `PUBLIC`):
   digest pushed to the registry (`push-to-registry: true`, `create-storage-record: false`); a
   failed build/push adds an error annotation explaining the package prerequisites (organisation
   allows Actions to create packages, an existing `tidemark` package grants this repository write
-  access, a new package must be made public once). Elsewhere: Buildx only, `linux/amd64`, no
-  push, no login.
+  access, a new package must be made public once). After the push it checks an anonymous pull
+  (token from `https://ghcr.io/token?scope=repository:zeraorg/tidemark:pull`, then the
+  `<version>` manifest with an OCI index `Accept` header): anything but `200` adds a warning
+  annotation and a job-summary line saying the package is private and how an owner makes it
+  public; it does not fail the job, so the release still goes out. Elsewhere: Buildx only,
+  `linux/amd64`, no push, no login.
 - Job `release` ("GitHub release", needs `build` and `image`; `contents: write`; concurrency
   `release-<version>`, no cancel): downloads `dist`, writes the notes (passed through an environment
   variable, never inlined into the script). In the main public repository it checks the tag again (a
@@ -3064,6 +3068,7 @@ items of M0–M3b:
 
 | Version | Date | Change |
 |---|---|---|
+| 0.31.10 | 2026-10-17 | Release (§17.6): after pushing the image the `image` job checks an anonymous pull of the new manifest and, when it is refused (package still private), warns in an annotation and the job summary instead of letting the release ship a silently unpullable image. |
 | 0.31.9 | 2026-10-17 | Dead-letter cap (§7, §9.1): new `TIDEMARK_DEADLETTER_MAX_BYTES` (default 1 GiB, `0` = unlimited); the oldest dead-letter files are deleted to make room, a batch larger than the cap is refused (`deadletter_failed`), and rows are encoded before the file is created. Before, the folder grew without bound. |
 | 0.31.8 | 2026-10-17 | WAL free-space floor (§7, §9.8): new `TIDEMARK_WAL_MIN_FREE_BYTES` (default 1 GiB, `0` = off); below it appends fail with `wal.ErrLowDisk` and ingestion answers with backpressure until space is freed, so the WAL never fills the disk it shares with the metadata database, dead letters and backups. Before, only the WAL's own size cap applied, regardless of free space. |
 | 0.31.7 | 2026-10-17 | WAL fsync failures (§7, §9.8, §11.6): the first failed fsync (group commit or segment roll) fails the log (`wal.ErrFailed`); later appends are refused, `/healthz` answers `503 {"status":"failed"}`, and with the new `TIDEMARK_WAL_EXIT_ON_FAILURE` (default `true`) the process drains and exits with code 1 so its supervisor restarts it and the startup recovery rereads the WAL. Before, the error was only returned to waiting appends, later appends kept writing, and `/healthz` stayed `200`. The Windows service (§17.3) also restarts after a stop with an error exit code (failure actions on non-crash failures). |

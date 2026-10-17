@@ -287,6 +287,25 @@ jobs:
           subject-digest: ${{ steps.image.outputs.digest }}
           push-to-registry: true
           create-storage-record: false # would need the extra artifact-metadata permission
+      # A package created by Actions starts private, and the push above succeeds either way, so
+      # a release could ship an image nobody else can pull. Check an anonymous pull of the new
+      # manifest and say so loudly; the release itself still goes out (archives work regardless).
+      - name: check that anyone can pull the image
+        if: env.PUBLIC == 'true'
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          repo="${IMAGE#ghcr.io/}"
+          token="$(curl -sS "https://ghcr.io/token?scope=repository:${repo}:pull" | jq -r '.token // empty')" || token=""
+          code="$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${token}" \
+            -H 'Accept: application/vnd.oci.image.index.v1+json' "https://ghcr.io/v2/${repo}/manifests/${VERSION}")" || code="000"
+          if [[ "$code" == 200 ]]; then
+            echo "Anyone can pull \`$IMAGE:$VERSION\`." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          msg="$IMAGE:$VERSION was pushed but an anonymous pull is refused (HTTP $code): the package is private. An organisation owner makes it public once: Packages, tidemark, Package settings, Change visibility, Public. Until then docker pull and the Docker bundle fail for everyone else."
+          echo "::warning title=image is not public::$msg"
+          echo "**Warning:** $msg" >> "$GITHUB_STEP_SUMMARY"
 
   release:
     name: GitHub release

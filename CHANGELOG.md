@@ -11,13 +11,7 @@ Release archives, checksums and container images are on the
 
 ## [Unreleased]
 
-### Changed
-
-- Documentation site: the home page is now a landing page with an overview of OpenTidemark
-  (capabilities with screenshots, why self-host it, getting started); the former home page with
-  every guide is the new "Documentation overview" page.
-- Documentation: the query language (TQL) reference now covers every part of the language, with
-  readable examples by task, an error guide, common pitfalls and a cheat sheet; every example is tested.
+## [0.4.0] - 2026-10-17
 
 ### Added
 
@@ -31,6 +25,14 @@ Release archives, checksums and container images are on the
 - Windows service: it now also restarts when OpenTidemark stops because of a fatal error, not only
   after a crash. Existing installations get this when the service is registered again: stop it,
   run `tidemark.exe service uninstall`, then run `install.ps1` again (`tidemark.env` is kept).
+
+### Changed
+
+- Documentation site: the home page is now a landing page with an overview of OpenTidemark
+  (capabilities with screenshots, why self-host it, getting started); the former home page with
+  every guide is the new "Documentation overview" page.
+- Documentation: the query language (TQL) reference now covers every part of the language, with
+  readable examples by task, an error guide, common pitfalls and a cheat sheet; every example is tested.
 
 ### Fixed
 
@@ -210,7 +212,8 @@ First public release.
   windows/amd64 (systemd unit and Windows service installers), and a multi-arch container image
   with a Docker Compose setup.
 
-[Unreleased]: https://github.com/ZeraOrg/opentidemark/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/ZeraOrg/opentidemark/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/ZeraOrg/opentidemark/releases/tag/v0.4.0
 [0.3.0]: https://github.com/ZeraOrg/opentidemark/releases/tag/v0.3.0
 [0.2.1]: https://github.com/ZeraOrg/opentidemark/releases/tag/v0.2.1
 [0.2.0]: https://github.com/ZeraOrg/opentidemark/releases/tag/v0.2.0
