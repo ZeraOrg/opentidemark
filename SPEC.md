@@ -8,7 +8,7 @@
 > well. Any change to behaviour, APIs, schema, configuration, layout, UI or tooling **must**
 > update this spec in the same commit. Version history is in §21.
 
-**Spec version:** 0.31.5 · **Last updated:** 2026-10-16
+**Spec version:** 0.31.6 · **Last updated:** 2026-10-17
 
 ---
 
@@ -970,6 +970,12 @@ If no message is found, message = compact JSON of the original object (max 2 KiB
   every fsync covers all records written before it; `Append` returns after that fsync. New
   segments also fsync their directory (Linux/macOS; NTFS journals directory entries). Files are
   never renamed and are closed before deletion, so the same code works on Windows.
+- **Failed writes are undone.** When a record write fails part-way (e.g. the disk is full), the
+  active segment is truncated back to the end of the last complete record before the error is
+  returned (the request gets backpressure, nothing is acknowledged). If that truncation fails too,
+  every later `Append` retries it first and fails until it succeeds, so no record is ever written
+  behind a partial one — a later acknowledged record can never be hidden from the reader or cut
+  off by the startup truncation.
 - **Abandoned waits.** The request context only bounds the wait for the fsync: when the client
   goes away (cancelled request, gRPC deadline) while its record waits, the record is already
   written, the next group commit makes it durable and the pipeline stores it like any other. Such
@@ -3031,6 +3037,7 @@ items of M0–M3b:
 
 | Version | Date | Change |
 |---|---|---|
+| 0.31.6 | 2026-10-17 | WAL (§9.8): a record write that fails part-way (disk full) is undone by truncating the active segment back to the last complete record; until that succeeds every append fails. Before, the next acknowledged record was written behind the partial bytes, so the reader skipped it as corrupt and startup truncated it (data loss). |
 | 0.31.5 | 2026-10-16 | TQL reference (§6.1, §10, §18): `docs/query-language.md` documents every part of the language with examples (filters, operators, functions, fields, levels, time and duration literals, sources, stages, aggregates, time series, results, dashboard variables, lexical rules, autocomplete, examples by task, errors, pitfalls, limits, grammar, cheat sheet); every query in its `tql` blocks is tested (`TestDocQueriesParseAndCompile`). §10 now states existing behaviour it left out: keywords `like`, `ci`, `auto`; `now±N` with units `s m h d w` and the accepted time layouts; `sort` defaults to `asc`; backtick names for sort keys and aliases; `limit` without stats; the filter required after a source clause; `?` as a wildcard only with `*`; no `ci` after `in`; `@bucket` reserved; numeric aggregates of text fields. |
 | 0.31.4 | 2026-10-15 | Documentation site (§17.4): the home page `docs/index.md` becomes a landing page (template `docs-site/overrides/home.html`: hero, supported clients, capabilities with screenshots, trust points, getting started, documentation links); the former home page moves to `docs/overview.md` ("Documentation overview", second in the navigation); `hooks.py` reads front matter that follows the SPDX comment. |
 | 0.31.3 | 2026-10-15 | Dependabot ignores `msw >= 3.0.0` and major updates of `@types/node` and the `node` image (§17.4), so the weekly update no longer fails on held-back majors; Playwright 1.64.0. |

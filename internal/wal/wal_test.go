@@ -327,3 +327,110 @@ func TestSkipCorrupt(t *testing.T) {
 	}
 	_ = l.Close()
 }
+
+// errDiskFull stands in for ENOSPC in the fault-injection tests.
+var errDiskFull = errors.New("no space left on device")
+
+// faultyFile wraps the active segment: while short is set, a write stores only that many bytes
+// and fails, like a write that hits a full disk; truncateErr makes Truncate fail.
+type faultyFile struct {
+	segmentFile
+	short       int
+	truncateErr error
+}
+
+func (f *faultyFile) Write(p []byte) (int, error) {
+	if f.short <= 0 {
+		return f.segmentFile.Write(p)
+	}
+	n, err := f.segmentFile.Write(p[:min(f.short, len(p))])
+	if err != nil {
+		return n, err
+	}
+	return n, errDiskFull
+}
+
+func (f *faultyFile) Truncate(size int64) error {
+	if f.truncateErr != nil {
+		return f.truncateErr
+	}
+	return f.segmentFile.Truncate(size)
+}
+
+func injectFault(l *Log) *faultyFile {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	f := &faultyFile{segmentFile: l.active}
+	l.active = f
+	return f
+}
+
+func wantPayloads(t *testing.T, recs []Record, want ...string) {
+	t.Helper()
+	got := make([]string, len(recs))
+	for i, r := range recs {
+		got[i] = string(r.Payload)
+	}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("records = %q, want %q", got, want)
+	}
+}
+
+// Regression: a partial write (disk full) must not leave bytes that hide later acknowledged
+// records from the reader and from crash recovery.
+func TestPartialWriteDoesNotLoseLaterRecords(t *testing.T) {
+	tests := []struct {
+		name        string
+		truncateErr bool // the first undo fails too (still no space)
+	}{
+		{name: "undone at once"},
+		{name: "undone before the next append", truncateErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			l, _ := openLog(t, dir, Options{})
+			appendN(t, l, 0, 1)
+			fault := injectFault(l)
+			fault.short = 5
+			if tc.truncateErr {
+				fault.truncateErr = errDiskFull
+			}
+			if _, err := l.Append(context.Background(), []byte("lost")); !errors.Is(err, errDiskFull) {
+				t.Fatalf("append on a full disk: err = %v", err)
+			}
+			fault.short = 0
+			fault.truncateErr = nil
+			appendN(t, l, 1, 2)
+			wantPayloads(t, readAll(t, l, Pos{}), "record-000", "record-001", "record-002")
+			if err := l.Close(); err != nil {
+				t.Fatalf("close: %v", err)
+			}
+			l2, rep := openLog(t, dir, Options{})
+			defer l2.Close()
+			if rep.TruncatedBytes != 0 {
+				t.Fatalf("recovery truncated %d bytes of acknowledged records", rep.TruncatedBytes)
+			}
+			wantPayloads(t, readAll(t, l2, Pos{}), "record-000", "record-001", "record-002")
+		})
+	}
+}
+
+// While the partial bytes cannot be removed, appends keep failing instead of writing behind them.
+func TestAppendFailsUntilPartialWriteIsUndone(t *testing.T) {
+	l, _ := openLog(t, t.TempDir(), Options{})
+	defer l.Close()
+	fault := injectFault(l)
+	fault.short = 3
+	fault.truncateErr = errDiskFull
+	if _, err := l.Append(context.Background(), []byte("lost")); err == nil {
+		t.Fatal("append on a full disk succeeded")
+	}
+	fault.short = 0
+	if _, err := l.Append(context.Background(), []byte("blocked")); !errors.Is(err, errDiskFull) {
+		t.Fatalf("append behind undiscarded bytes: err = %v", err)
+	}
+	fault.truncateErr = nil
+	appendN(t, l, 0, 1)
+	wantPayloads(t, readAll(t, l, Pos{}), "record-000")
+}

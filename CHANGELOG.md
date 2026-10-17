@@ -19,6 +19,12 @@ Release archives, checksums and container images are on the
 - Documentation: the query language (TQL) reference now covers every part of the language, with
   readable examples by task, an error guide, common pitfalls and a cheat sheet; every example is tested.
 
+### Fixed
+
+- Ingestion: when the disk filled up during a write-ahead-log write, events acknowledged
+  afterwards could be lost (skipped as corrupt, or cut off at the next start). A failed write is
+  now undone before anything else is written.
+
 ## [0.3.0] - 2026-10-14
 
 ### Added

@@ -91,10 +91,11 @@ type Log struct {
 
 	mu       sync.Mutex
 	cond     *sync.Cond
-	active   *os.File
+	active   segmentFile
 	segs     []segment // on disk, ascending
 	written  Pos
 	durable  Pos
+	torn     bool // the active segment may hold part of a failed write after written
 	syncErr  error
 	closed   bool
 	syncWake chan struct{}
@@ -109,6 +110,14 @@ type Log struct {
 type segment struct {
 	seq  uint64
 	size int64
+}
+
+// segmentFile is the open active segment (*os.File; a fault injector in tests).
+type segmentFile interface {
+	io.WriteSeeker
+	Sync() error
+	Close() error
+	Truncate(size int64) error
 }
 
 // Open opens or creates the log in dir, truncating torn or corrupt record tails, and starts the
@@ -284,17 +293,40 @@ func (l *Log) write(payload []byte, recLen int64) (Pos, error) {
 	if l.closed {
 		return Pos{}, ErrClosed
 	}
+	if err := l.discardTorn(); err != nil {
+		return Pos{}, err
+	}
 	if l.written.Off > 0 && l.written.Off+recLen > l.opts.SegmentBytes {
 		if err := l.roll(); err != nil {
 			return Pos{}, err
 		}
 	}
 	if _, err := l.active.Write(buf); err != nil {
+		l.torn = true
+		if undoErr := l.discardTorn(); undoErr != nil {
+			return Pos{}, fmt.Errorf("write wal record: %w (%w)", err, undoErr)
+		}
 		return Pos{}, fmt.Errorf("write wal record: %w", err)
 	}
 	l.written.Off += recLen
 	l.segs[len(l.segs)-1].size = l.written.Off
 	return l.written, nil
+}
+
+// discardTorn removes what a failed write left after the last complete record, so no record is
+// ever written behind it; until that succeeds every append fails. The caller holds l.mu.
+func (l *Log) discardTorn() error {
+	if !l.torn {
+		return nil
+	}
+	if err := l.active.Truncate(l.written.Off); err != nil {
+		return fmt.Errorf("discard partial wal record: %w", err)
+	}
+	if _, err := l.active.Seek(l.written.Off, io.SeekStart); err != nil {
+		return fmt.Errorf("discard partial wal record: %w", err)
+	}
+	l.torn = false
+	return nil
 }
 
 // roll syncs and closes the active segment and starts the next one; the caller holds l.mu.

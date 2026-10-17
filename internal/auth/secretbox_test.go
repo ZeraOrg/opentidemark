@@ -4,10 +4,22 @@ package auth
 
 import (
 	"bytes"
+	"encoding/base64"
 	"errors"
 	"strings"
 	"testing"
 )
+
+// tamper flips one bit of the sealed ciphertext, so the result always differs from sealed.
+func tamper(t *testing.T, sealed string) string {
+	t.Helper()
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(sealed, sealedPrefix))
+	if err != nil {
+		t.Fatalf("decode sealed value: %v", err)
+	}
+	raw[len(raw)-1] ^= 1
+	return sealedPrefix + base64.RawURLEncoding.EncodeToString(raw)
+}
 
 func TestSecretBoxRoundTrip(t *testing.T) {
 	box, err := NewSecretBox(bytes.Repeat([]byte{7}, 32))
@@ -45,7 +57,7 @@ func TestSecretBoxErrors(t *testing.T) {
 		"plain":     "secret",
 		"bad b64":   sealedPrefix + "!!!",
 		"too short": sealedPrefix + "AA",
-		"tampered":  sealed[:len(sealed)-2] + "AA",
+		"tampered":  tamper(t, sealed),
 	} {
 		if _, err := box.Open(in); !errors.Is(err, ErrSecretBox) {
 			t.Errorf("%s: %v", name, err)
