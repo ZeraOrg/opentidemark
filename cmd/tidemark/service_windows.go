@@ -131,6 +131,11 @@ func install(m *mgr.Mgr, extra []string) error {
 	if err := s.SetRecoveryActions(actions, resetPeriodSeconds); err != nil {
 		return fmt.Errorf("set recovery actions: %w", err)
 	}
+	// A fatal error (a failed WAL, a failed listener) ends Execute with a non-zero exit code
+	// instead of a crash; restart in that case too (SPEC §9.8).
+	if err := s.SetRecoveryActionsOnNonCrashFailures(true); err != nil {
+		return fmt.Errorf("set recovery on non-crash failures: %w", err)
+	}
 	if err := eventlog.InstallAsEventCreate(serviceName, eventlog.Error|eventlog.Warning|eventlog.Info); err != nil {
 		return fmt.Errorf("register event source: %w", err)
 	}

@@ -60,6 +60,7 @@ const (
 	VarWALDir               = "TIDEMARK_WAL_DIR"
 	VarWALMaxBytes          = "TIDEMARK_WAL_MAX_BYTES"
 	VarWALSync              = "TIDEMARK_WAL_SYNC"
+	VarWALExitOnFailure     = "TIDEMARK_WAL_EXIT_ON_FAILURE"
 	VarBackupDir            = "TIDEMARK_BACKUP_DIR"
 	VarDrainSeconds         = "TIDEMARK_DRAIN_SECONDS"
 )
@@ -74,7 +75,7 @@ var allVars = []string{
 	VarSMTPPort, VarSMTPUsername, VarSMTPPassword, VarSMTPFrom, VarSMTPStartTLS, VarLogLevel, VarMaxStreams,
 	VarMetricsEnabled, VarMetricsToken, VarSecretKeyFile, VarEnvFile,
 	VarNodeID, VarMetaDriver, VarMetaDSN, VarCHCluster, VarCHInsertQuorum, VarWALEnabled, VarWALDir, VarWALMaxBytes,
-	VarWALSync, VarBackupDir, VarDrainSeconds,
+	VarWALSync, VarWALExitOnFailure, VarBackupDir, VarDrainSeconds,
 }
 
 // secretVars may be supplied as <VAR>_FILE (Docker/Kubernetes secrets).
@@ -94,7 +95,7 @@ var defaults = map[string]string{
 	VarAllowPrivateWebhooks: "false", VarSMTPPort: "587", VarSMTPStartTLS: "true", VarLogLevel: "info",
 	VarMaxStreams: "200", VarMetricsEnabled: "false",
 	VarMetaDriver: "sqlite", VarCHInsertQuorum: "auto", VarWALEnabled: "true", VarWALMaxBytes: "10737418240",
-	VarWALSync: "batch", VarDrainSeconds: "10",
+	VarWALSync: "batch", VarWALExitOnFailure: "true", VarDrainSeconds: "10",
 }
 
 // FlagName returns the CLI flag of a variable: TIDEMARK_HTTP_ADDR ⇒ http-addr.

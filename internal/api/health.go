@@ -15,19 +15,26 @@ type Pinger interface {
 
 const readinessTimeout = 2 * time.Second
 
-// Health serves /healthz (process alive) and /readyz (ClickHouse + metadata reachable, and not
-// draining). Output is intentionally minimal (SPEC §11.6, §17.5).
+// Health serves /healthz (process alive and not failed) and /readyz (ClickHouse + metadata
+// reachable, and not draining). Output is intentionally minimal (SPEC §11.6, §17.5).
 type Health struct {
 	Checks   []Pinger
-	Draining func() bool // optional: true once a graceful drain has started
+	Draining func() bool  // optional: true once a graceful drain has started
+	Failure  func() error // optional: non-nil once the process can no longer work (failed WAL)
 }
 
 // Register adds the probes to mux.
 func (h *Health) Register(mux *http.ServeMux) {
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-	})
+	mux.HandleFunc("GET /healthz", h.live)
 	mux.HandleFunc("GET /readyz", h.ready)
+}
+
+func (h *Health) live(w http.ResponseWriter, _ *http.Request) {
+	if h.Failure != nil && h.Failure() != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (h *Health) ready(w http.ResponseWriter, r *http.Request) {

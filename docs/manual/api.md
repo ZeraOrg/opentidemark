@@ -129,7 +129,7 @@ environments); `environments` filters **logs** only.
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /healthz` | `200 {"status":"ok"}` while the process runs |
+| `GET /healthz` | `200 {"status":"ok"}` while the process runs; `503 {"status":"failed"}` after a write-ahead-log disk failure |
 | `GET /readyz` | `200 {"status":"ready"}`; `503` when ClickHouse or metadata is unreachable, or while draining |
 | `GET /metrics` | Prometheus® metrics; only with `TIDEMARK_METRICS_ENABLED=true`, bearer `TIDEMARK_METRICS_TOKEN` if set |
 | Ingestion endpoints | Connection key, see [Ingestion](ingestion.md) |

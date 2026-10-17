@@ -401,6 +401,10 @@ request ─▶ auth ─▶ normalize ─▶ WAL append + fsync ─▶ 2xx ack
   twice. If ClickHouse is down, data accumulates in the WAL until `TIDEMARK_WAL_MAX_BYTES`, then
   ingestion returns `503`. A corrupt record in the middle of a segment is skipped and counted as
   `wal_corrupt`; undecodable payloads as `wal_decode`.
+- **Disk failures:** a write that fails part-way (disk full) is undone and answered with `503`.
+  If the disk fails to save the WAL (a failed fsync), ingestion is refused, `/healthz` answers
+  `503` and the process restarts itself (`TIDEMARK_WAL_EXIT_ON_FAILURE`, default `true`); after
+  the restart the WAL is checked and replayed.
 - **Dead letters:** rows ClickHouse rejects permanently are written as NDJSON to
   `<data>/deadletter/<signal>-<timestamp>.ndjson` and counted in
   `tidemark_pipeline_deadlettered_total`. There is no built-in replay; inspect the file, fix the

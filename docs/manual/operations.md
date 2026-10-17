@@ -195,7 +195,8 @@ The first upgraded node migrates under the migration lock and takes the pre-migr
 - Prometheus® scrape of `/metrics` on every node, with the alert rules in
   [Metrics › Alert rules](metrics.md#alert-rules).
 - Blackbox probe of `/readyz` (ClickHouse + metadata reachable; `503 {"status":"draining"}` during
-  shutdown) and `/healthz` (process alive).
+  shutdown) and `/healthz` (process alive; `503 {"status":"failed"}` after a write-ahead-log
+  disk failure).
 - `tidemark_wal_bytes` against `TIDEMARK_WAL_MAX_BYTES` and `tidemark_pipeline_queue_depth` for
   the backlog; `tidemark doctor --json` from cron for WAL, clock and disk.
 - `GET /api/v1/system` (admin) for a quick look: version, uptime, `queueDepth`, cumulative

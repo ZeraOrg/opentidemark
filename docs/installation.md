@@ -446,8 +446,8 @@ Administrator** from the unpacked directory:
 3. Runs `tidemark.exe service install` if the service doesn't exist yet. This registers the service
    `Tidemark` ("OpenTidemark observability") running `tidemark.exe serve` as the virtual account
    `NT SERVICE\Tidemark`. It uses delayed automatic start, restarts the service after a failure (up
-   to three times, 5 s apart, with the failure count reset after a day) and registers the event
-   log source `Tidemark`.
+   to three times, 5 s apart, with the failure count reset after a day), also when it stops
+   because of a fatal error rather than a crash, and registers the event log source `Tidemark`.
 4. Gives full control of `%ProgramData%\Tidemark` only to Administrators, SYSTEM and
    `NT SERVICE\Tidemark`, with inherited permissions removed.
 5. With `-OpenFirewall`, it adds inbound Windows Firewall rules "Tidemark TCP 8080", 5341, 9200,
@@ -756,7 +756,9 @@ For HA clusters, upgrade one node at a time (see `deploy/ha/README.md`).
 
 ### Checking health
 
-- `GET /healthz` answers `200 {"status":"ok"}` while the process runs.
+- `GET /healthz` answers `200 {"status":"ok"}` while the process runs, and `503
+  {"status":"failed"}` once the disk failed to save the write-ahead log (then the process normally
+  restarts by itself; see `TIDEMARK_WAL_EXIT_ON_FAILURE`).
 - `GET /readyz` answers `200 {"status":"ready"}` when ClickHouse and the metadata database are
   reachable. Otherwise it answers `503 {"status":"not ready"}`, or `{"status":"draining"}` during
   shutdown.

@@ -99,7 +99,8 @@ func (a *App) wire(ctx context.Context) error {
 
 	c := &components{realIP: realIP, metrics: a.metrics}
 	c.ingest = a.ingestDeps(connAuth, realIP, clock)
-	c.health = &api.Health{Checks: []api.Pinger{a.meta, ch.Pinger{Conn: a.chWriter}}, Draining: a.drainer.Draining}
+	c.health = &api.Health{Checks: []api.Pinger{a.meta, ch.Pinger{Conn: a.chWriter}}, Draining: a.drainer.Draining,
+		Failure: a.walFailure}
 	c.router = api.NewRouter(api.RouterDeps{Sessions: sessions, Tokens: auth.NewTokenAuthenticator(r.tokens, r.users, clock),
 		Limiter: auth.NewKeyedLimiter(clock, api.APIRateBurst, api.APIRateWindow), PublicURL: a.cfg.PublicURL,
 		ClientIP: realIP.ClientIP, Logger: a.logger})

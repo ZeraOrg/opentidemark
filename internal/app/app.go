@@ -168,7 +168,7 @@ func (a *App) Run(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 	case runErr = <-a.errs:
-		a.logger.Error("listener failed", "err", runErr)
+		a.logger.Error("fatal error, shutting down", "err", runErr)
 	}
 	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), a.cfg.Drain+shutdownTimeout)
 	defer cancel()
@@ -195,6 +195,13 @@ func (a *App) startBackground(ctx context.Context) {
 			job(ctx)
 		}()
 	}
+	for _, l := range a.journals {
+		a.bg.Add(1)
+		go func() {
+			defer a.bg.Done()
+			a.watchJournal(ctx, l)
+		}()
+	}
 	a.bg.Add(4)
 	go func() {
 		defer a.bg.Done()
@@ -212,6 +219,44 @@ func (a *App) startBackground(ctx context.Context) {
 		defer a.bg.Done()
 		a.sweepSessions(ctx)
 	}()
+}
+
+// watchJournal turns a failed WAL (a failed fsync, SPEC §9.8) into a fatal error: Run drains
+// and returns it, the process exits non-zero and its supervisor restarts it; the startup
+// recovery then rereads the segments. With TIDEMARK_WAL_EXIT_ON_FAILURE=false the node stays
+// up, refuses ingestion with backpressure and reports /healthz as failed.
+func (a *App) watchJournal(ctx context.Context, l failable) {
+	select {
+	case <-ctx.Done():
+		return
+	case <-l.Failed():
+	}
+	err := l.Err()
+	if !a.cfg.WAL.ExitOnFailure {
+		a.logger.Error("write-ahead log failed; ingestion is refused until the process restarts", "err", err)
+		return
+	}
+	a.logger.Error("write-ahead log failed; stopping so the supervisor restarts the process", "err", err)
+	select {
+	case a.errs <- fmt.Errorf("wal: %w", err):
+	default: // Run is already stopping on an earlier fatal error
+	}
+}
+
+// failable is a WAL as watchJournal sees it (implemented by *wal.Log).
+type failable interface {
+	Failed() <-chan struct{}
+	Err() error
+}
+
+// walFailure returns the error of the first failed WAL, or nil (/healthz).
+func (a *App) walFailure() error {
+	for _, l := range a.journals {
+		if err := l.Err(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (a *App) sweepSessions(ctx context.Context) {

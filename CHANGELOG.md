@@ -19,6 +19,15 @@ Release archives, checksums and container images are on the
 - Documentation: the query language (TQL) reference now covers every part of the language, with
   readable examples by task, an error guide, common pitfalls and a cheat sheet; every example is tested.
 
+### Added
+
+- `TIDEMARK_WAL_EXIT_ON_FAILURE` (default `true`): when the disk fails to save the write-ahead log,
+  OpenTidemark stops cleanly so Docker, systemd or the Windows service restarts it, and the log is
+  checked and replayed on start. `/healthz` now answers `503 {"status":"failed"}` in that state.
+- Windows service: it now also restarts when OpenTidemark stops because of a fatal error, not only
+  after a crash. Existing installations get this when the service is registered again: stop it,
+  run `tidemark.exe service uninstall`, then run `install.ps1` again (`tidemark.env` is kept).
+
 ### Fixed
 
 - Ingestion: when the disk filled up during a write-ahead-log write, events acknowledged

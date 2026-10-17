@@ -49,6 +49,10 @@ var (
 	ErrCorrupt = errors.New("write-ahead log record is corrupt")
 	ErrTooBig  = errors.New("write-ahead log record is too large")
 	ErrEmpty   = errors.New("write-ahead log record is empty")
+	// ErrFailed: an fsync failed. The kernel may have dropped the written pages, so the log
+	// cannot tell what is on disk; it refuses appends until the process restarts and the
+	// startup recovery rereads the segments (SPEC §9.8).
+	ErrFailed = errors.New("write-ahead log failed")
 )
 
 var castagnoli = crc32.MakeTable(crc32.Castagnoli)
@@ -99,6 +103,7 @@ type Log struct {
 	syncErr  error
 	closed   bool
 	syncWake chan struct{}
+	failed   chan struct{} // closed when syncErr is set
 	stop     chan struct{}
 	notify   chan struct{}
 	done     chan struct{}
@@ -132,8 +137,8 @@ func Open(dir string, opts Options) (*Log, RecoveryReport, error) {
 	if err := os.MkdirAll(dir, dirPerm); err != nil {
 		return nil, RecoveryReport{}, fmt.Errorf("create wal dir: %w", err)
 	}
-	l := &Log{dir: dir, opts: opts, syncWake: make(chan struct{}, 1), stop: make(chan struct{}), notify: make(chan struct{}, 1),
-		done: make(chan struct{}), cp: &checkpointFile{dir: dir}}
+	l := &Log{dir: dir, opts: opts, syncWake: make(chan struct{}, 1), failed: make(chan struct{}),
+		stop: make(chan struct{}), notify: make(chan struct{}, 1), done: make(chan struct{}), cp: &checkpointFile{dir: dir}}
 	l.cond = sync.NewCond(&l.mu)
 	rep, err := l.recover()
 	if err != nil {
@@ -293,6 +298,9 @@ func (l *Log) write(payload []byte, recLen int64) (Pos, error) {
 	if l.closed {
 		return Pos{}, ErrClosed
 	}
+	if l.syncErr != nil {
+		return Pos{}, l.syncErr
+	}
 	if err := l.discardTorn(); err != nil {
 		return Pos{}, err
 	}
@@ -332,7 +340,8 @@ func (l *Log) discardTorn() error {
 // roll syncs and closes the active segment and starts the next one; the caller holds l.mu.
 func (l *Log) roll() error {
 	if err := l.syncActive(); err != nil {
-		return err
+		l.fail(err)
+		return l.syncErr
 	}
 	if err := l.active.Close(); err != nil {
 		return fmt.Errorf("close segment: %w", err)
@@ -350,6 +359,26 @@ func (l *Log) syncActive() error {
 		return fmt.Errorf("fsync wal: %w", err)
 	}
 	return nil
+}
+
+// fail records the first fsync error, wakes every waiter and closes Failed; the caller holds l.mu.
+func (l *Log) fail(err error) {
+	if l.syncErr != nil {
+		return
+	}
+	l.syncErr = fmt.Errorf("%w: %w", ErrFailed, err)
+	close(l.failed)
+	l.cond.Broadcast()
+}
+
+// Failed is closed once the log has failed (Err returns why); it never reopens.
+func (l *Log) Failed() <-chan struct{} { return l.failed }
+
+// Err returns the error that failed the log, or nil.
+func (l *Log) Err() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.syncErr
 }
 
 func (l *Log) markDurable(end Pos) {
@@ -413,7 +442,7 @@ func (l *Log) syncLoop() {
 		if l.durable.Less(l.written) {
 			target := l.written
 			if err := l.syncActive(); err != nil {
-				l.syncErr = err
+				l.fail(err)
 			} else {
 				l.durable = target
 			}

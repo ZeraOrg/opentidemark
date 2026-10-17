@@ -332,11 +332,20 @@ func TestSkipCorrupt(t *testing.T) {
 var errDiskFull = errors.New("no space left on device")
 
 // faultyFile wraps the active segment: while short is set, a write stores only that many bytes
-// and fails, like a write that hits a full disk; truncateErr makes Truncate fail.
+// and fails, like a write that hits a full disk; truncateErr makes Truncate fail and syncErr
+// makes Sync fail.
 type faultyFile struct {
 	segmentFile
 	short       int
 	truncateErr error
+	syncErr     error
+}
+
+func (f *faultyFile) Sync() error {
+	if f.syncErr != nil {
+		return f.syncErr
+	}
+	return f.segmentFile.Sync()
 }
 
 func (f *faultyFile) Write(p []byte) (int, error) {
@@ -433,4 +442,56 @@ func TestAppendFailsUntilPartialWriteIsUndone(t *testing.T) {
 	fault.truncateErr = nil
 	appendN(t, l, 0, 1)
 	wantPayloads(t, readAll(t, l, Pos{}), "record-000")
+}
+
+var errIO = errors.New("input/output error")
+
+// An fsync failure is fatal: the waiting append fails, Failed fires, and later appends are refused
+// even once fsync works again, because the kernel may have dropped the unsynced pages.
+func TestSyncFailureFailsTheLog(t *testing.T) {
+	tests := []struct {
+		name   string
+		opts   Options
+		before int // records appended before the fault
+		do     func(l *Log) error
+	}{
+		{name: "group commit", do: func(l *Log) error {
+			_, err := l.Append(context.Background(), []byte("unsynced"))
+			return err
+		}},
+		{name: "segment roll", opts: Options{SegmentBytes: 32}, before: 1, do: func(l *Log) error {
+			_, err := l.Append(context.Background(), []byte("needs-a-new-segment"))
+			if l.Segments() != 1 {
+				return fmt.Errorf("rolled despite the failed fsync: %d segments (%v)", l.Segments(), err)
+			}
+			return err
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			l, _ := openLog(t, t.TempDir(), tc.opts)
+			defer l.Close()
+			appendN(t, l, 0, tc.before)
+			if l.Err() != nil {
+				t.Fatalf("new log failed: %v", l.Err())
+			}
+			fault := injectFault(l)
+			fault.syncErr = errIO
+			if err := tc.do(l); !errors.Is(err, ErrFailed) || !errors.Is(err, errIO) {
+				t.Fatalf("append with failing fsync: err = %v", err)
+			}
+			select {
+			case <-l.Failed():
+			case <-time.After(time.Second):
+				t.Fatal("Failed did not fire")
+			}
+			if !errors.Is(l.Err(), ErrFailed) {
+				t.Fatalf("Err = %v", l.Err())
+			}
+			fault.syncErr = nil
+			if _, err := l.Append(context.Background(), []byte("after")); !errors.Is(err, ErrFailed) {
+				t.Fatalf("append after the failure: err = %v", err)
+			}
+		})
+	}
 }

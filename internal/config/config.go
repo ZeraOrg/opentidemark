@@ -80,10 +80,11 @@ type Meta struct {
 
 // WAL configures the ingestion write-ahead log (SPEC §9.8).
 type WAL struct {
-	Enabled  bool
-	Dir      string
-	MaxBytes int64
-	Sync     string // "batch" | "none"
+	Enabled       bool
+	Dir           string
+	MaxBytes      int64
+	Sync          string // "batch" | "none"
+	ExitOnFailure bool   // a failed fsync stops the process so the supervisor restarts it
 }
 
 // SMTP settings.

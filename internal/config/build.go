@@ -167,7 +167,7 @@ func parseHA(p *parser, c *Config) {
 		p.intRange(VarCHInsertQuorum, 1, maxQuorum)
 	}
 	c.WAL = WAL{Enabled: p.boolean(VarWALEnabled), MaxBytes: p.intRange(VarWALMaxBytes, minWALBytes, maxWALBytes),
-		Sync: strings.ToLower(p.str(VarWALSync))}
+		Sync: strings.ToLower(p.str(VarWALSync)), ExitOnFailure: p.boolean(VarWALExitOnFailure)}
 	c.WAL.Dir = absPath(p, VarWALDir)
 	if c.WAL.Sync != "batch" && c.WAL.Sync != "none" {
 		p.fail(VarWALSync, errors.New("must be batch or none"))

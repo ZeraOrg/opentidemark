@@ -8,7 +8,7 @@
 > well. Any change to behaviour, APIs, schema, configuration, layout, UI or tooling **must**
 > update this spec in the same commit. Version history is in §21.
 
-**Spec version:** 0.31.6 · **Last updated:** 2026-10-17
+**Spec version:** 0.31.7 · **Last updated:** 2026-10-17
 
 ---
 
@@ -407,6 +407,7 @@ kebab-case of the suffix). Invalid configuration aborts startup with a clear mes
 | `TIDEMARK_WAL_DIR` | `<data>/wal` | |
 | `TIDEMARK_WAL_MAX_BYTES` | `10737418240` | WAL size cap shared by all signals (min 1 MiB); when full ⇒ backpressure |
 | `TIDEMARK_WAL_SYNC` | `batch` | `batch` (group commit ≤ 10 ms, fsync before ack) or `none` (testing only) |
+| `TIDEMARK_WAL_EXIT_ON_FAILURE` | `true` | A failed WAL fsync stops the process (drain, exit code 1) so its supervisor restarts it and the startup recovery rereads the WAL; `false` keeps it running with ingestion refused (§9.8) |
 | `TIDEMARK_BACKUP_DIR` | `<data>/backups` | Automatic pre-migration backups (§8.5) |
 | `TIDEMARK_DRAIN_SECONDS` | `10` | Graceful drain period on shutdown, 0–600 (§17.5) |
 | `TIDEMARK_METRICS_ENABLED` / `TIDEMARK_METRICS_TOKEN` | `false` / — | Expose `/metrics` (§11.6) |
@@ -976,6 +977,15 @@ If no message is found, message = compact JSON of the original object (max 2 KiB
   every later `Append` retries it first and fails until it succeeds, so no record is ever written
   behind a partial one — a later acknowledged record can never be hidden from the reader or cut
   off by the startup truncation.
+- **A failed fsync fails the log.** After a failed fsync the kernel may have dropped the written
+  pages, so neither retrying the fsync nor the in-memory positions can be trusted. The log records
+  the first fsync error — group commit or segment roll — as `wal.ErrFailed`: the waiting appends
+  fail (no acknowledgement), every later `Append` is refused (backpressure), and `/healthz`
+  answers `503` (§11.6). With `TIDEMARK_WAL_EXIT_ON_FAILURE=true` (default) the process then shuts
+  down like on SIGTERM (drain, flush what is durable) and exits with code 1, so Docker
+  (`restart: unless-stopped`), systemd (`Restart=on-failure`) or the Windows service recovery
+  restart it; on start the segments are reread and repaired and the uncommitted records replayed.
+  Records whose append failed may still be stored (at-least-once, like an abandoned wait).
 - **Abandoned waits.** The request context only bounds the wait for the fsync: when the client
   goes away (cancelled request, gRPC deadline) while its record waits, the record is already
   written, the next group commit makes it durable and the pipeline stores it like any other. Such
@@ -1705,7 +1715,7 @@ KibanaConfig = { file: { name: string, size: number } }
 
 ### 11.6 Operational endpoints (no auth, minimal output)
 
-`GET /healthz` (process alive) · `GET /readyz` (ClickHouse + metadata DB reachable; `503
+`GET /healthz` (process alive; `503 {"status":"failed"}` once a WAL has failed, §9.8) · `GET /readyz` (ClickHouse + metadata DB reachable; `503
 {"status":"draining"}` once a graceful drain started, §17.5) · `GET /metrics`
 (Prometheus; **disabled unless** `TIDEMARK_METRICS_ENABLED=true`, optionally protected by
 `TIDEMARK_METRICS_TOKEN`).
@@ -2471,7 +2481,8 @@ Normative details:
   Administrator) copies `tidemark.exe` to `%ProgramFiles%\Tidemark`, writes config to
   `%ProgramData%\Tidemark\tidemark.env` (same rules as Linux), runs `tidemark.exe service install`
   (service name `Tidemark`, account `NT SERVICE\Tidemark`, delayed auto start, recovery: restart
-  on failure), restricts `%ProgramData%\Tidemark` to Administrators, SYSTEM and the service
+  on failure, also when the service stops with an error exit code — failure actions on non-crash
+  failures), restricts `%ProgramData%\Tidemark` to Administrators, SYSTEM and the service
   account, and opens inbound TCP 8080, 5341, 9200, 4317, 4318 only if `-OpenFirewall` is passed.
 - ClickHouse for native installs is set up separately (native packages or Docker) with the users of
   `deploy/clickhouse/users.d` and the passwords from `tidemark.env`. The users read their
@@ -3037,6 +3048,7 @@ items of M0–M3b:
 
 | Version | Date | Change |
 |---|---|---|
+| 0.31.7 | 2026-10-17 | WAL fsync failures (§7, §9.8, §11.6): the first failed fsync (group commit or segment roll) fails the log (`wal.ErrFailed`); later appends are refused, `/healthz` answers `503 {"status":"failed"}`, and with the new `TIDEMARK_WAL_EXIT_ON_FAILURE` (default `true`) the process drains and exits with code 1 so its supervisor restarts it and the startup recovery rereads the WAL. Before, the error was only returned to waiting appends, later appends kept writing, and `/healthz` stayed `200`. The Windows service (§17.3) also restarts after a stop with an error exit code (failure actions on non-crash failures). |
 | 0.31.6 | 2026-10-17 | WAL (§9.8): a record write that fails part-way (disk full) is undone by truncating the active segment back to the last complete record; until that succeeds every append fails. Before, the next acknowledged record was written behind the partial bytes, so the reader skipped it as corrupt and startup truncated it (data loss). |
 | 0.31.5 | 2026-10-16 | TQL reference (§6.1, §10, §18): `docs/query-language.md` documents every part of the language with examples (filters, operators, functions, fields, levels, time and duration literals, sources, stages, aggregates, time series, results, dashboard variables, lexical rules, autocomplete, examples by task, errors, pitfalls, limits, grammar, cheat sheet); every query in its `tql` blocks is tested (`TestDocQueriesParseAndCompile`). §10 now states existing behaviour it left out: keywords `like`, `ci`, `auto`; `now±N` with units `s m h d w` and the accepted time layouts; `sort` defaults to `asc`; backtick names for sort keys and aliases; `limit` without stats; the filter required after a source clause; `?` as a wildcard only with `*`; no `ci` after `in`; `@bucket` reserved; numeric aggregates of text fields. |
 | 0.31.4 | 2026-10-15 | Documentation site (§17.4): the home page `docs/index.md` becomes a landing page (template `docs-site/overrides/home.html`: hero, supported clients, capabilities with screenshots, trust points, getting started, documentation links); the former home page moves to `docs/overview.md` ("Documentation overview", second in the navigation); `hooks.py` reads front matter that follows the SPDX comment. |

@@ -71,5 +71,6 @@ secrets). Setting both forms is an error.
 | `TIDEMARK_WAL_DIR` | `<data dir>/wal` | Directory of the write-ahead log. |
 | `TIDEMARK_WAL_MAX_BYTES` | `10737418240` | Size cap of the write-ahead log for all signals (minimum 1 MiB); when full, ingestion answers `503` (backpressure). |
 | `TIDEMARK_WAL_SYNC` | `batch` | `batch` (group commit, fsync before the acknowledgement) or `none` (testing only). |
+| `TIDEMARK_WAL_EXIT_ON_FAILURE` | `true` | When the disk fails to save the write-ahead log (a failed fsync), stop the process so Docker, systemd or the Windows service restarts it and recovers the log. `false` keeps it running with ingestion refused (`503`) until you restart it. |
 | `TIDEMARK_BACKUP_DIR` | `<data dir>/backups` | Automatic backups of the metadata database taken before migrations (the last 10 are kept). |
 | `TIDEMARK_DRAIN_SECONDS` | `10` | Graceful drain on shutdown, 0–600 seconds: `/readyz` answers `503` so the load balancer stops sending traffic before the listeners close. |
