@@ -21,6 +21,10 @@ Release archives, checksums and container images are on the
 
 ### Added
 
+- `TIDEMARK_DEADLETTER_MAX_BYTES` (default 1 GiB): the dead-letter folder no longer grows without
+  bound; the oldest files are deleted to make room for new ones.
+- `TIDEMARK_WAL_MIN_FREE_BYTES` (default 1 GiB): ingestion pauses with `503` before the
+  write-ahead log fills the disk, and resumes by itself once space is freed. `0` turns it off.
 - `TIDEMARK_WAL_EXIT_ON_FAILURE` (default `true`): when the disk fails to save the write-ahead log,
   OpenTidemark stops cleanly so Docker, systemd or the Windows service restarts it, and the log is
   checked and replayed on start. `/healthz` now answers `503 {"status":"failed"}` in that state.

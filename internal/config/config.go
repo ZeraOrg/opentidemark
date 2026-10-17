@@ -85,6 +85,7 @@ type WAL struct {
 	MaxBytes      int64
 	Sync          string // "batch" | "none"
 	ExitOnFailure bool   // a failed fsync stops the process so the supervisor restarts it
+	MinFreeBytes  int64  // free-space floor of the WAL's file system; 0 = off
 }
 
 // SMTP settings.
@@ -116,6 +117,7 @@ type Config struct {
 	BatchMaxRows           int
 	BatchMaxWait           time.Duration
 	QueueMaxRows           int
+	DeadLetterMaxBytes     int64 // cap of the dead-letter folder; 0 = unlimited
 	MaxBodyBytes           int64
 	MaxDecompressedBytes   int64
 	QueryTimeout           time.Duration

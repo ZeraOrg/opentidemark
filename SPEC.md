@@ -8,7 +8,7 @@
 > well. Any change to behaviour, APIs, schema, configuration, layout, UI or tooling **must**
 > update this spec in the same commit. Version history is in §21.
 
-**Spec version:** 0.31.7 · **Last updated:** 2026-10-17
+**Spec version:** 0.31.9 · **Last updated:** 2026-10-17
 
 ---
 
@@ -387,6 +387,7 @@ kebab-case of the suffix). Invalid configuration aborts startup with a clear mes
 | `TIDEMARK_BATCH_MAX_ROWS` | `10000` | Max rows per insert |
 | `TIDEMARK_BATCH_MAX_WAIT` | `1s` | Max wait before flushing |
 | `TIDEMARK_QUEUE_MAX_ROWS` | `200000` | Per-signal queue capacity; full ⇒ backpressure (§9.1) |
+| `TIDEMARK_DEADLETTER_MAX_BYTES` | `1073741824` | Size cap of `<data>/deadletter` (0 – 2^50; `0` = unlimited): the oldest files are deleted to make room (§9.1) |
 | `TIDEMARK_MAX_BODY_BYTES` | `10485760` | Compressed request body limit |
 | `TIDEMARK_MAX_DECOMPRESSED_BYTES` | `104857600` | Decompressed limit (bomb protection) |
 | `TIDEMARK_QUERY_TIMEOUT` | `30s` | ClickHouse `max_execution_time` for user queries |
@@ -407,6 +408,7 @@ kebab-case of the suffix). Invalid configuration aborts startup with a clear mes
 | `TIDEMARK_WAL_DIR` | `<data>/wal` | |
 | `TIDEMARK_WAL_MAX_BYTES` | `10737418240` | WAL size cap shared by all signals (min 1 MiB); when full ⇒ backpressure |
 | `TIDEMARK_WAL_SYNC` | `batch` | `batch` (group commit ≤ 10 ms, fsync before ack) or `none` (testing only) |
+| `TIDEMARK_WAL_MIN_FREE_BYTES` | `1073741824` | Free-space floor of the WAL's file system (0 – 2^50; `0` = off): below it appends fail with backpressure until space is freed (§9.8) |
 | `TIDEMARK_WAL_EXIT_ON_FAILURE` | `true` | A failed WAL fsync stops the process (drain, exit code 1) so its supervisor restarts it and the startup recovery rereads the WAL; `false` keeps it running with ingestion refused (§9.8) |
 | `TIDEMARK_BACKUP_DIR` | `<data>/backups` | Automatic pre-migration backups (§8.5) |
 | `TIDEMARK_DRAIN_SECONDS` | `10` | Graceful drain period on shutdown, 0–600 (§17.5) |
@@ -811,7 +813,12 @@ Dialect details (normative):
   `Retry-After: 1` (OTLP gRPC: `UNAVAILABLE`) and nothing from that request is enqueued.
 - **Durability:** a request is acknowledged after enqueue. Batches failing to insert are retried
   with exponential backoff (100 ms → 30 s, max 10 attempts) then written as NDJSON to
-  `<data>/deadletter/<signal>-<ts>.ndjson` and counted in self-metrics.
+  `<data>/deadletter/<signal>-<ts>-<seq>.ndjson` and counted in self-metrics. The folder is capped
+  at `TIDEMARK_DEADLETTER_MAX_BYTES` (default 1 GiB, `0` = unlimited): before a file is written,
+  the oldest `.ndjson` files (by modification time) are deleted until it fits, with a warning in
+  the log, so the most recent failures stay available. A batch larger than the whole cap is not
+  written (`pipeline.ErrDeadLetterTooBig`, counted as `deadletter_failed`). Rows are encoded before
+  the file is created, so an encoding error leaves no partial file.
 - **Stream selection:** explicit per-protocol value (ES `_index`, OTLP resource attribute
   `tidemark.stream`, native/CLEF property `@stream`/`_stream`) if the connection allows overriding
   (`applied_properties` can pin it) else `default_stream`. When the connection has
@@ -977,6 +984,15 @@ If no message is found, message = compact JSON of the original object (max 2 KiB
   every later `Append` retries it first and fails until it succeeds, so no record is ever written
   behind a partial one — a later acknowledged record can never be hidden from the reader or cut
   off by the startup truncation.
+- **Free-space floor.** All signals share a `wal.DiskGuard`: while the file system holding the
+  WAL has less than `TIDEMARK_WAL_MIN_FREE_BYTES` available (default 1 GiB; `0` = off), `Append`
+  fails with `wal.ErrLowDisk` before writing anything, which ingestion answers with backpressure
+  (§9.1) and counts as `backpressure` drops. The free space is read at most once per second
+  (`statfs` / `GetDiskFreeSpaceEx`, as `doctor`) and the bytes appended since are subtracted, so
+  a burst cannot overshoot the floor; ingestion resumes by itself within a second of space being
+  freed. Where the free space cannot be read (development platforms) the guard never refuses.
+  The floor keeps room for the metadata database, dead letters and backups on the same disk, so
+  the WAL never runs the disk full.
 - **A failed fsync fails the log.** After a failed fsync the kernel may have dropped the written
   pages, so neither retrying the fsync nor the in-memory positions can be trusted. The log records
   the first fsync error — group commit or segment roll — as `wal.ErrFailed`: the waiting appends
@@ -3048,6 +3064,8 @@ items of M0–M3b:
 
 | Version | Date | Change |
 |---|---|---|
+| 0.31.9 | 2026-10-17 | Dead-letter cap (§7, §9.1): new `TIDEMARK_DEADLETTER_MAX_BYTES` (default 1 GiB, `0` = unlimited); the oldest dead-letter files are deleted to make room, a batch larger than the cap is refused (`deadletter_failed`), and rows are encoded before the file is created. Before, the folder grew without bound. |
+| 0.31.8 | 2026-10-17 | WAL free-space floor (§7, §9.8): new `TIDEMARK_WAL_MIN_FREE_BYTES` (default 1 GiB, `0` = off); below it appends fail with `wal.ErrLowDisk` and ingestion answers with backpressure until space is freed, so the WAL never fills the disk it shares with the metadata database, dead letters and backups. Before, only the WAL's own size cap applied, regardless of free space. |
 | 0.31.7 | 2026-10-17 | WAL fsync failures (§7, §9.8, §11.6): the first failed fsync (group commit or segment roll) fails the log (`wal.ErrFailed`); later appends are refused, `/healthz` answers `503 {"status":"failed"}`, and with the new `TIDEMARK_WAL_EXIT_ON_FAILURE` (default `true`) the process drains and exits with code 1 so its supervisor restarts it and the startup recovery rereads the WAL. Before, the error was only returned to waiting appends, later appends kept writing, and `/healthz` stayed `200`. The Windows service (§17.3) also restarts after a stop with an error exit code (failure actions on non-crash failures). |
 | 0.31.6 | 2026-10-17 | WAL (§9.8): a record write that fails part-way (disk full) is undone by truncating the active segment back to the last complete record; until that succeeds every append fails. Before, the next acknowledged record was written behind the partial bytes, so the reader skipped it as corrupt and startup truncated it (data loss). |
 | 0.31.5 | 2026-10-16 | TQL reference (§6.1, §10, §18): `docs/query-language.md` documents every part of the language with examples (filters, operators, functions, fields, levels, time and duration literals, sources, stages, aggregates, time series, results, dashboard variables, lexical rules, autocomplete, examples by task, errors, pitfalls, limits, grammar, cheat sheet); every query in its `tql` blocks is tested (`TestDocQueriesParseAndCompile`). §10 now states existing behaviour it left out: keywords `like`, `ci`, `auto`; `now±N` with units `s m h d w` and the accepted time layouts; `sort` defaults to `asc`; backtick names for sort keys and aliases; `limit` without stats; the filter required after a source clause; `?` as a wildcard only with `*`; no `ci` after `in`; `@bucket` reserved; numeric aggregates of text fields. |

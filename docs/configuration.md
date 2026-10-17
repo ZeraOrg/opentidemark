@@ -42,6 +42,7 @@ secrets). Setting both forms is an error.
 | `TIDEMARK_BATCH_MAX_ROWS` | `10000` | Maximum rows per ClickHouse insert. |
 | `TIDEMARK_BATCH_MAX_WAIT` | `1s` | Maximum time before a batch is flushed. |
 | `TIDEMARK_QUEUE_MAX_ROWS` | `200000` | Queue capacity per signal type; when full, ingestion answers `503` (backpressure). |
+| `TIDEMARK_DEADLETTER_MAX_BYTES` | `1073741824` | Size cap of the dead-letter folder (rows ClickHouse rejected). When a new file would go over it, the oldest files are deleted first. `0` means no cap. |
 | `TIDEMARK_MAX_BODY_BYTES` | `10485760` | Limit for a (compressed) request body. |
 | `TIDEMARK_MAX_DECOMPRESSED_BYTES` | `104857600` | Limit after decompression (protects against decompression bombs). |
 | `TIDEMARK_QUERY_TIMEOUT` | `30s` | Execution time limit of a user query. |
@@ -71,6 +72,7 @@ secrets). Setting both forms is an error.
 | `TIDEMARK_WAL_DIR` | `<data dir>/wal` | Directory of the write-ahead log. |
 | `TIDEMARK_WAL_MAX_BYTES` | `10737418240` | Size cap of the write-ahead log for all signals (minimum 1 MiB); when full, ingestion answers `503` (backpressure). |
 | `TIDEMARK_WAL_SYNC` | `batch` | `batch` (group commit, fsync before the acknowledgement) or `none` (testing only). |
+| `TIDEMARK_WAL_MIN_FREE_BYTES` | `1073741824` | Free space (bytes) to keep on the disk of the write-ahead log. Below it, ingestion answers `503` (backpressure) until space is freed, so the disk never runs full. `0` turns the check off. |
 | `TIDEMARK_WAL_EXIT_ON_FAILURE` | `true` | When the disk fails to save the write-ahead log (a failed fsync), stop the process so Docker, systemd or the Windows service restarts it and recovers the log. `false` keeps it running with ingestion refused (`503`) until you restart it. |
 | `TIDEMARK_BACKUP_DIR` | `<data dir>/backups` | Automatic backups of the metadata database taken before migrations (the last 10 are kept). |
 | `TIDEMARK_DRAIN_SECONDS` | `10` | Graceful drain on shutdown, 0–600 seconds: `/readyz` answers `503` so the load balancer stops sending traffic before the listeners close. |

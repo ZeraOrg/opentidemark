@@ -31,6 +31,7 @@ const (
 	VarBatchMaxRows         = "TIDEMARK_BATCH_MAX_ROWS"
 	VarBatchMaxWait         = "TIDEMARK_BATCH_MAX_WAIT"
 	VarQueueMaxRows         = "TIDEMARK_QUEUE_MAX_ROWS"
+	VarDeadLetterMaxBytes   = "TIDEMARK_DEADLETTER_MAX_BYTES"
 	VarMaxBodyBytes         = "TIDEMARK_MAX_BODY_BYTES"
 	VarMaxDecompressedBytes = "TIDEMARK_MAX_DECOMPRESSED_BYTES"
 	VarQueryTimeout         = "TIDEMARK_QUERY_TIMEOUT"
@@ -61,6 +62,7 @@ const (
 	VarWALMaxBytes          = "TIDEMARK_WAL_MAX_BYTES"
 	VarWALSync              = "TIDEMARK_WAL_SYNC"
 	VarWALExitOnFailure     = "TIDEMARK_WAL_EXIT_ON_FAILURE"
+	VarWALMinFreeBytes      = "TIDEMARK_WAL_MIN_FREE_BYTES"
 	VarBackupDir            = "TIDEMARK_BACKUP_DIR"
 	VarDrainSeconds         = "TIDEMARK_DRAIN_SECONDS"
 )
@@ -70,12 +72,12 @@ var allVars = []string{
 	VarHTTPAddr, VarSeqAddr, VarESAddr, VarOTLPHTTPAddr, VarOTLPGRPCAddr, VarTLSCertFile, VarTLSKeyFile,
 	VarPublicURL, VarDataDir, VarCHAddr, VarCHDatabase, VarCHWriterUser, VarCHWriterPassword, VarCHReaderUser,
 	VarCHReaderPassword, VarCHTLS, VarAdminUsername, VarAdminPassword, VarBootstrapIngestKey, VarBatchMaxRows,
-	VarBatchMaxWait, VarQueueMaxRows, VarMaxBodyBytes, VarMaxDecompressedBytes, VarQueryTimeout, VarQueryMaxRows,
+	VarBatchMaxWait, VarQueueMaxRows, VarDeadLetterMaxBytes, VarMaxBodyBytes, VarMaxDecompressedBytes, VarQueryTimeout, VarQueryMaxRows,
 	VarSessionIdleTimeout, VarSessionAbsTimeout, VarTrustedProxies, VarAllowPrivateWebhooks, VarSMTPHost,
 	VarSMTPPort, VarSMTPUsername, VarSMTPPassword, VarSMTPFrom, VarSMTPStartTLS, VarLogLevel, VarMaxStreams,
 	VarMetricsEnabled, VarMetricsToken, VarSecretKeyFile, VarEnvFile,
 	VarNodeID, VarMetaDriver, VarMetaDSN, VarCHCluster, VarCHInsertQuorum, VarWALEnabled, VarWALDir, VarWALMaxBytes,
-	VarWALSync, VarWALExitOnFailure, VarBackupDir, VarDrainSeconds,
+	VarWALSync, VarWALExitOnFailure, VarWALMinFreeBytes, VarBackupDir, VarDrainSeconds,
 }
 
 // secretVars may be supplied as <VAR>_FILE (Docker/Kubernetes secrets).
@@ -90,12 +92,13 @@ var defaults = map[string]string{
 	VarPublicURL: "http://localhost:8080", VarCHAddr: "localhost:9000", VarCHDatabase: "tidemark",
 	VarCHWriterUser: "tidemark_writer", VarCHReaderUser: "tidemark_reader", VarCHTLS: "false",
 	VarAdminUsername: "admin", VarAdminPassword: "admin", VarBatchMaxRows: "10000", VarBatchMaxWait: "1s",
-	VarQueueMaxRows: "200000", VarMaxBodyBytes: "10485760", VarMaxDecompressedBytes: "104857600",
+	VarQueueMaxRows: "200000", VarDeadLetterMaxBytes: "1073741824", VarMaxBodyBytes: "10485760", VarMaxDecompressedBytes: "104857600",
 	VarQueryTimeout: "30s", VarQueryMaxRows: "10000", VarSessionIdleTimeout: "12h", VarSessionAbsTimeout: "168h",
 	VarAllowPrivateWebhooks: "false", VarSMTPPort: "587", VarSMTPStartTLS: "true", VarLogLevel: "info",
 	VarMaxStreams: "200", VarMetricsEnabled: "false",
 	VarMetaDriver: "sqlite", VarCHInsertQuorum: "auto", VarWALEnabled: "true", VarWALMaxBytes: "10737418240",
-	VarWALSync: "batch", VarWALExitOnFailure: "true", VarDrainSeconds: "10",
+	VarWALSync: "batch", VarWALExitOnFailure: "true", VarWALMinFreeBytes: "1073741824",
+	VarDrainSeconds: "10",
 }
 
 // FlagName returns the CLI flag of a variable: TIDEMARK_HTTP_ADDR ⇒ http-addr.

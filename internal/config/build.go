@@ -167,7 +167,8 @@ func parseHA(p *parser, c *Config) {
 		p.intRange(VarCHInsertQuorum, 1, maxQuorum)
 	}
 	c.WAL = WAL{Enabled: p.boolean(VarWALEnabled), MaxBytes: p.intRange(VarWALMaxBytes, minWALBytes, maxWALBytes),
-		Sync: strings.ToLower(p.str(VarWALSync)), ExitOnFailure: p.boolean(VarWALExitOnFailure)}
+		Sync: strings.ToLower(p.str(VarWALSync)), ExitOnFailure: p.boolean(VarWALExitOnFailure),
+		MinFreeBytes: p.intRange(VarWALMinFreeBytes, 0, maxWALBytes)}
 	c.WAL.Dir = absPath(p, VarWALDir)
 	if c.WAL.Sync != "batch" && c.WAL.Sync != "none" {
 		p.fail(VarWALSync, errors.New("must be batch or none"))
@@ -227,6 +228,7 @@ func parseLimits(p *parser, c *Config) {
 	c.BatchMaxRows = int(p.intRange(VarBatchMaxRows, 1, maxBatchRows))
 	c.BatchMaxWait = p.duration(VarBatchMaxWait, minBatchWait, maxBatchWait)
 	c.QueueMaxRows = int(p.intRange(VarQueueMaxRows, 1, maxBatchRows*100))
+	c.DeadLetterMaxBytes = p.intRange(VarDeadLetterMaxBytes, 0, maxWALBytes)
 	c.MaxBodyBytes = p.intRange(VarMaxBodyBytes, minBodyBytes, maxBodyBytes)
 	c.MaxDecompressedBytes = p.intRange(VarMaxDecompressedBytes, minBodyBytes, maxBodyBytes*4)
 	c.QueryTimeout = p.duration(VarQueryTimeout, time.Second, maxQueryTimeout)

@@ -112,7 +112,11 @@ func (a *App) openWAL() (*pipeline.WALJournals, error) {
 		return nil, nil
 	}
 	budget := wal.NewBudget(a.cfg.WAL.MaxBytes)
-	opts := wal.Options{Sync: wal.SyncMode(a.cfg.WAL.Sync), Budget: budget}
+	disk := wal.NewDiskGuard(uint64(a.cfg.WAL.MinFreeBytes), func() (uint64, error) { //nolint:gosec // validated >= 0
+		free, _, err := diskSpace(a.cfg.WAL.Dir)
+		return free, err
+	}, time.Now)
+	opts := wal.Options{Sync: wal.SyncMode(a.cfg.WAL.Sync), Budget: budget, Disk: disk}
 	j := &pipeline.WALJournals{IsPermanent: ch.IsPermanent}
 	for _, s := range []struct {
 		name string
@@ -128,6 +132,7 @@ func (a *App) openWAL() (*pipeline.WALJournals, error) {
 				"bytes", rep.TruncatedBytes, "at", rep.TruncatedAt)
 		}
 		a.journals = append(a.journals, l)
+		a.walLogs = append(a.walLogs, l)
 		a.metrics.WALBytes(s.name, l.Size)
 		*s.dst = l
 	}
@@ -145,8 +150,12 @@ func (a *App) closeJournals() {
 			a.logger.Warn("close wal", "err", err)
 		}
 	}
-	a.journals = nil
+	a.journals, a.walLogs = nil, nil
 }
+
+// handOffJournals passes ownership of the WAL logs to the pipeline, which closes them on
+// shutdown; walLogs keeps watching them (SPEC §9.8).
+func (a *App) handOffJournals() { a.journals = nil }
 
 // buildCluster creates the leader elector and the invalidation bus (SPEC §17.5).
 func (a *App) buildCluster() {

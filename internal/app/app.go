@@ -53,7 +53,8 @@ type App struct {
 	metrics  *selfmetrics.Metrics
 	sessions *meta.Sessions
 	tlsCfg   *tls.Config
-	journals []*wal.Log
+	journals []*wal.Log // WAL logs the app still owns (closed on a startup failure)
+	walLogs  []*wal.Log // every open WAL log, watched for failures even once the pipeline owns them
 	elector  *cluster.Elector
 	bus      cluster.Bus
 	drainer  cluster.Drainer
@@ -195,7 +196,7 @@ func (a *App) startBackground(ctx context.Context) {
 			job(ctx)
 		}()
 	}
-	for _, l := range a.journals {
+	for _, l := range a.walLogs {
 		a.bg.Add(1)
 		go func() {
 			defer a.bg.Done()
@@ -251,7 +252,7 @@ type failable interface {
 
 // walFailure returns the error of the first failed WAL, or nil (/healthz).
 func (a *App) walFailure() error {
-	for _, l := range a.journals {
+	for _, l := range a.walLogs {
 		if err := l.Err(); err != nil {
 			return err
 		}

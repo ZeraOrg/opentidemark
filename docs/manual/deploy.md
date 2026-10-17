@@ -82,7 +82,8 @@ volume:
       `secret.key`, dead-letter files, import uploads and the pre-migration backups.
 - [ ] Free space in the data directory ≥ `TIDEMARK_WAL_MAX_BYTES` (default 10 GiB) plus the
       metadata and its 10 backup copies. The WAL grows when ClickHouse is slow or down; when it is
-      full, ingestion answers `503`.
+      full, or the disk has less than `TIDEMARK_WAL_MIN_FREE_BYTES` (1 GiB) free, ingestion answers
+      `503`.
 - [ ] `tidemark doctor` fails below 1 GiB free and warns below 10 % free in the data directory;
       monitor the same thresholds.
 - [ ] ClickHouse data (`/var/lib/clickhouse`, Compose volume `ch-data`) on its own volume, sized

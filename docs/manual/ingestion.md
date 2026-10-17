@@ -392,6 +392,7 @@ request ─▶ auth ─▶ normalize ─▶ WAL append + fsync ─▶ 2xx ack
 | Situation | Client sees | What to do |
 |---|---|---|
 | Queue (`TIDEMARK_QUEUE_MAX_ROWS`) or WAL (`TIDEMARK_WAL_MAX_BYTES`) full | `503` + `Retry-After: 1` (gRPC `UNAVAILABLE`); nothing stored | Retry with backoff (all mainstream shippers do); investigate ClickHouse |
+| Disk of the WAL below `TIDEMARK_WAL_MIN_FREE_BYTES` (default 1 GiB) free | `503` + `Retry-After: 1`; nothing stored | Free disk space; ingestion resumes within a second |
 | Connection rate limit | `429` + `Retry-After` | Raise `rateLimitEps` or spread load |
 | Body too large | `413` | Lower client batch size (`TIDEMARK_MAX_BODY_BYTES` 10 MiB compressed, 100 MiB decompressed) |
 | Invalid lines (CLEF, native) | Accepted lines stored; `400` only if **all** lines are invalid | Fix the producer; native responses list up to 20 `errors` |
@@ -406,9 +407,11 @@ request ─▶ auth ─▶ normalize ─▶ WAL append + fsync ─▶ 2xx ack
   `503` and the process restarts itself (`TIDEMARK_WAL_EXIT_ON_FAILURE`, default `true`); after
   the restart the WAL is checked and replayed.
 - **Dead letters:** rows ClickHouse rejects permanently are written as NDJSON to
-  `<data>/deadletter/<signal>-<timestamp>.ndjson` and counted in
+  `<data>/deadletter/<signal>-<timestamp>-<n>.ndjson` and counted in
   `tidemark_pipeline_deadlettered_total`. There is no built-in replay; inspect the file, fix the
-  cause, and re-send the data from the source if needed.
+  cause, and re-send the data from the source if needed. The folder is capped at
+  `TIDEMARK_DEADLETTER_MAX_BYTES` (1 GiB): the oldest files are deleted to make room, and a
+  warning is logged when that happens.
 - **Without WAL** (`TIDEMARK_WAL_ENABLED=false`) the in-memory queue is used; acknowledged rows can
   be lost on a crash. Do not disable it in production.
 

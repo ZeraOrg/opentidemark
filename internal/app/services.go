@@ -159,9 +159,10 @@ func (a *App) buildPipeline(gate pipeline.StreamGate) error {
 	}
 	a.pipeline = pipeline.New(pipeline.Config{MaxRows: a.cfg.BatchMaxRows, MaxWait: a.cfg.BatchMaxWait, QueueRows: a.cfg.QueueMaxRows},
 		pipeline.Deps{Events: writer, Spans: writer, Metrics: writer, Gate: gate,
-			Dead:  pipeline.NewFileDeadLetter(filepath.Join(a.cfg.DataDir, deadLetterDir), time.Now),
+			Dead: pipeline.NewFileDeadLetter(filepath.Join(a.cfg.DataDir, deadLetterDir), a.cfg.DeadLetterMaxBytes,
+				time.Now, a.logger),
 			Stats: a.metrics.Pipeline(), Logger: a.logger, Now: time.Now, WAL: journals})
-	a.journals = nil // owned by the pipeline from here on
+	a.handOffJournals()
 	return nil
 }
 

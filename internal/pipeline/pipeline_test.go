@@ -7,10 +7,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -361,7 +363,7 @@ func TestBackoff(t *testing.T) {
 func TestFileDeadLetter(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "deadletter")
 	now := time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)
-	d := NewFileDeadLetter(dir, func() time.Time { return now })
+	d := NewFileDeadLetter(dir, 0, func() time.Time { return now }, quietLogger())
 	if err := d.Write("events", []any{model.Event{Message: "a"}, model.Event{Message: "b"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -389,8 +391,87 @@ func TestFileDeadLetter(t *testing.T) {
 	if err := d.Write("events", []any{func() {}}); err == nil {
 		t.Error("unencodable row accepted")
 	}
-	bad := NewFileDeadLetter(filepath.Join(files[0], "sub"), time.Now)
+	bad := NewFileDeadLetter(filepath.Join(files[0], "sub"), 0, time.Now, quietLogger())
 	if err := bad.Write("events", nil); err == nil {
 		t.Error("dir under a file accepted")
+	}
+}
+
+func deadLetterFiles(t *testing.T, dir string) []string {
+	t.Helper()
+	files, err := filepath.Glob(filepath.Join(dir, "*.ndjson"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return files
+}
+
+// The dead-letter folder stays under its cap by deleting the oldest files first.
+func TestFileDeadLetterCap(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "deadletter")
+	clock := time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
+	row := []any{model.Event{Message: strings.Repeat("x", 100)}}
+	size := func() int64 {
+		b, _ := json.Marshal(row[0])
+		return int64(len(b) + 1) // NDJSON newline
+	}()
+	d := NewFileDeadLetter(dir, 3*size, func() time.Time { return clock }, quietLogger())
+	for i := 0; i < 5; i++ {
+		if err := d.Write("events", row); err != nil {
+			t.Fatalf("write %d: %v", i, err)
+		}
+		files := deadLetterFiles(t, dir)
+		// Distinct modification times so "oldest" is well defined on coarse file systems.
+		mod := clock.Add(time.Duration(i) * time.Second)
+		for _, f := range files {
+			if strings.HasSuffix(f, fmt.Sprintf("-%d.ndjson", i+1)) {
+				if err := os.Chtimes(f, mod, mod); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+	}
+	files := deadLetterFiles(t, dir)
+	if len(files) != 3 {
+		t.Fatalf("kept %d files, want 3: %v", len(files), files)
+	}
+	for _, f := range files {
+		if strings.HasSuffix(f, "-1.ndjson") || strings.HasSuffix(f, "-2.ndjson") {
+			t.Fatalf("an oldest file survived: %v", files)
+		}
+	}
+	var total int64
+	for _, f := range files {
+		st, err := os.Stat(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		total += st.Size()
+	}
+	if total > 3*size {
+		t.Fatalf("folder holds %d bytes, cap %d", total, 3*size)
+	}
+}
+
+func TestFileDeadLetterRefusesBatchOverCap(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "deadletter")
+	d := NewFileDeadLetter(dir, 10, time.Now, quietLogger())
+	err := d.Write("events", []any{model.Event{Message: "longer than ten bytes"}})
+	if !errors.Is(err, ErrDeadLetterTooBig) {
+		t.Fatalf("oversized batch: err = %v", err)
+	}
+	if files := deadLetterFiles(t, dir); len(files) != 0 {
+		t.Fatalf("oversized batch left files: %v", files)
+	}
+}
+
+func TestFileDeadLetterUnencodableRowLeavesNoFile(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "deadletter")
+	d := NewFileDeadLetter(dir, 0, time.Now, quietLogger())
+	if err := d.Write("events", []any{func() {}}); err == nil {
+		t.Fatal("unencodable row accepted")
+	}
+	if files := deadLetterFiles(t, dir); len(files) != 0 {
+		t.Fatalf("partial file left: %v", files)
 	}
 }
