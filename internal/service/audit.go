@@ -30,6 +30,10 @@ const (
 	ActionConnectionRevoke  = "connection.revoke"
 	ActionSettingsUpdate    = "settings.update"
 	ActionIngestAuthFailure = "ingest.auth_failed"
+	ActionUpdateApply       = "update.apply"
+	ActionUpdateInstalled   = "update.installed"
+	ActionUpdateRolledBack  = "update.rolled_back"
+	ActionUpdateFailed      = "update.failed"
 )
 
 // AuditStore appends and lists audit entries.

@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: Apache-2.0
+# Starts the update helper when the service stages an update request (SPEC §17.7); installed and
+# enabled by deploy/install.sh unless --no-self-update is passed. PathModified (not PathExists):
+# the helper never deletes the request, it records what it did in its own state.json.
+[Unit]
+Description=OpenTidemark update request
+Documentation=https://github.com/ZeraOrg/opentidemark
+
+[Path]
+PathModified=/var/lib/tidemark/update/request.json
+Unit=tidemark-update.service
+
+[Install]
+WantedBy=multi-user.target

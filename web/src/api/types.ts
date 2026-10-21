@@ -608,6 +608,62 @@ export interface SystemReport {
   clickhouseError?: string;
 }
 
+// ---- §11.5 updates (§17.7) ------------------------------------------------------------------
+export type InstallKind = 'systemd' | 'windows-service' | 'container' | 'manual' | 'dev';
+
+/** Why one-click install is not available (`apply.reason`, and `details.reason` of a 409). */
+export type UpdateApplyReason =
+  'disabled' | 'dev' | 'container' | 'ha' | 'not-a-service' | 'helper-missing' | 'unsupported-platform';
+
+/** Why `POST /system/update/apply` was refused now (`details.reason` of a 409). */
+export type UpdateRefusal = UpdateApplyReason | 'draining' | 'wal-failed' | 'in-progress';
+
+/** Code of the last failed release check. */
+export type UpdateErrorCode = 'unreachable' | 'rate_limited' | 'invalid_response' | 'not_found';
+
+/** `idle`, or the step of the update being applied. */
+export type UpdateState = 'idle' | 'downloading' | 'verifying' | 'staged' | 'installing' | 'restarting';
+
+/** Archive download progress in bytes, while `state` is `downloading`. */
+export interface UpdateProgress {
+  bytes: number;
+  total: number;
+}
+
+/** The outcome of the last update attempt. */
+export interface UpdateResult {
+  phase: 'installed' | 'rolled_back' | 'failed';
+  from?: string;
+  to: string;
+  at: string;
+  message?: string;
+}
+
+export interface UpdateRelease {
+  version: string;
+  prerelease: boolean;
+  publishedAt: string;
+  notesUrl: string;
+}
+
+/** `GET /system/update`: the update status of this node. */
+export interface UpdateStatus {
+  enabled: boolean;
+  current: string;
+  nodeId: string;
+  installKind: InstallKind;
+  apply: { supported: boolean; reason?: UpdateApplyReason };
+  /** Only while a newer release is known. */
+  latest?: UpdateRelease;
+  available: boolean;
+  /** Time of the last attempt, successful or not. */
+  checkedAt?: string;
+  error?: UpdateErrorCode;
+  state: UpdateState;
+  progress?: UpdateProgress;
+  lastResult?: UpdateResult;
+}
+
 // ---- §11.5 imports (§9.9) ----------------------------------------------------------------------
 export type ImportKind = 'elastic' | 'seq' | 'clef-file' | 'kibana';
 export type ImportStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';

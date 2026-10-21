@@ -2,8 +2,9 @@
 # Installing OpenTidemark on Linux (native, systemd)
 
 This archive contains the `tidemark` binary with the web UI built in, the installer
-`deploy/install.sh`, the systemd unit `deploy/tidemark.service` and the ClickHouse configuration
-in `deploy/clickhouse/`. OpenTidemark stores telemetry in ClickHouse 25.8, which you install
+`deploy/install.sh`, the systemd unit `deploy/tidemark.service`, the update helper units
+`deploy/tidemark-update.service` and `deploy/tidemark-update.path`, and the ClickHouse
+configuration in `deploy/clickhouse/`. OpenTidemark stores telemetry in ClickHouse 25.8, which you install
 separately (step 3). The full guide, with every option and troubleshooting, is
 <https://github.com/ZeraOrg/opentidemark/blob/main/docs/installation.md>.
 
@@ -11,12 +12,22 @@ Replace `<version>` and `<arch>` (`amd64` or `arm64`) below with the values in t
 
 ## 1. Verify the download
 
-In the directory with the archive and `checksums.txt` from the same release:
+In the directory with the archive, `checksums.txt` and `checksums.txt.minisig` from the same
+release:
 
 ```bash
+minisign -Vm checksums.txt -P RWTzWC1xqWTY457VdX92WvxpPeXXOUhpiGzch3af0NEoe9ENK8bEbiDE
 sha256sum -c checksums.txt --ignore-missing
 gh attestation verify tidemark_<version>_linux_<arch>.tar.gz --repo ZeraOrg/opentidemark   # optional, needs the GitHub CLI
 ```
+
+The first command checks the [minisign](https://jedisct1.github.io/minisign/) signature of
+`checksums.txt` (`checksums.txt.minisig`, same release) and must print
+`Trusted comment: opentidemark v<version> checksums.txt`. If the release was signed with the
+offline backup key, use
+`-P RWSeiFy+aYECqVbvFDNIW//gdsHLox72jDPcY3swGgJm/WQTA+0s9nwP` instead. Both keys are listed in
+[SECURITY.md](https://github.com/ZeraOrg/opentidemark/blob/main/SECURITY.md). Releases 0.4.0 and
+earlier are not signed.
 
 ## 2. Install the service
 
@@ -30,6 +41,12 @@ This creates the system user `tidemark`, `/var/lib/tidemark`, `/etc/tidemark/tid
 ClickHouse passwords, a bootstrap ingest key and `TIDEMARK_CLICKHOUSE_ADDR=localhost:9000`; an
 existing file is kept), installs the binary to `/usr/local/bin/tidemark` and enables the hardened
 unit `tidemark.service`. Add `--start` to start it right away.
+
+It also installs the update helper: `tidemark-update.path` watches
+`/var/lib/tidemark/update/request.json` and starts `tidemark-update.service`, which installs a
+release the service has downloaded and verified, as root but without network or capabilities,
+and rolls it back if the new version doesn't come up. The service itself can't change its binary.
+Add `--no-self-update` to leave the helper out (or remove it).
 
 ## 3. Set up ClickHouse
 
@@ -79,15 +96,19 @@ sudo systemctl stop tidemark
 sudo ./deploy/install.sh native ./tidemark --start
 ```
 
-The installer replaces the binary and the unit and keeps `/etc/tidemark/tidemark.env` and your
-data.
+The installer replaces the binary and the units and keeps `/etc/tidemark/tidemark.env` and your
+data. An install made before the update helper existed gets it the first time you run the new
+installer. `tidemark update check` asks GitHub whether a newer release exists.
 
 ## 6. Uninstall
 
 ```bash
 sudo systemctl disable --now tidemark
-sudo rm /etc/systemd/system/tidemark.service /usr/local/bin/tidemark
+sudo systemctl disable --now tidemark-update.path   # when the update helper is installed
+sudo rm -f /etc/systemd/system/tidemark.service /etc/systemd/system/tidemark-update.service \
+  /etc/systemd/system/tidemark-update.path /usr/local/bin/tidemark /usr/local/bin/tidemark.previous
 sudo systemctl daemon-reload
+sudo rm -rf /var/lib/tidemark-update
 sudo rm -r /var/lib/tidemark /etc/tidemark      # deletes the metadata, keys and settings
 sudo userdel tidemark
 ```

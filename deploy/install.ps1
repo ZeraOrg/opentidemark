@@ -8,12 +8,15 @@
       Creates deploy\.env from .env.example on first run (random ClickHouse passwords and a
       bootstrap ingest key), then runs `docker compose up -d --build` unless -NoStart is given.
 
-  -Mode Native -Binary <path to tidemark.exe> [-OpenFirewall] [-Start]
+  -Mode Native -Binary <path to tidemark.exe> [-OpenFirewall] [-Start] [-NoSelfUpdate]
       Run as Administrator. Copies tidemark.exe to %ProgramFiles%\Tidemark, writes
       %ProgramData%\Tidemark\tidemark.env (random secrets on first run), registers the Windows
       service `Tidemark` (delayed auto start, restart on failure, virtual account
       NT SERVICE\Tidemark) and restricts the data directory to Administrators, SYSTEM and the
-      service account. Firewall rules for the OpenTidemark ports are added only with -OpenFirewall.
+      service account. Unless -NoSelfUpdate is given it also registers the update helper service
+      `TidemarkUpdate` (LocalSystem, started on demand by the Tidemark service) and creates
+      %ProgramFiles%\Tidemark\state; -NoSelfUpdate removes an installed helper.
+      Firewall rules for the OpenTidemark ports are added only with -OpenFirewall.
       ClickHouse runs separately (Docker Desktop) with the users from deploy\clickhouse\users.d and
       the passwords written to tidemark.env.
 
@@ -27,7 +30,8 @@ param(
     [string]$Binary,
     [switch]$OpenFirewall,
     [switch]$Start,
-    [switch]$NoStart
+    [switch]$NoStart,
+    [switch]$NoSelfUpdate
 )
 
 Set-StrictMode -Version Latest
@@ -138,6 +142,21 @@ function Assert-Administrator {
     }
 }
 
+# Install-UpdateHelper registers (or, with -NoSelfUpdate, removes) the update helper service
+# TidemarkUpdate (SPEC §17.7). Its work directory under Program Files inherits that folder's
+# permissions: only administrators and SYSTEM can write, the service can read state.json.
+function Install-UpdateHelper {
+    param([string]$ProgramDir, [string]$DataDir, [string]$Exe)
+    if ($NoSelfUpdate) {
+        & $Exe service uninstall-update
+        if ($LASTEXITCODE -ne 0) { throw "tidemark service uninstall-update failed with exit code $LASTEXITCODE" }
+        return
+    }
+    New-Item -ItemType Directory -Force -Path (Join-Path $ProgramDir 'state'), (Join-Path $DataDir 'update') | Out-Null
+    & $Exe service install-update
+    if ($LASTEXITCODE -ne 0) { throw "tidemark service install-update failed with exit code $LASTEXITCODE" }
+}
+
 function Install-Native {
     Assert-Administrator
     if (-not $Binary -or -not (Test-Path -LiteralPath $Binary -PathType Leaf)) { throw 'install: -Binary must point to tidemark.exe' }
@@ -161,11 +180,12 @@ function Install-Native {
     }
 
     if (-not (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue)) {
-        & $exe service install
+        & $exe service install --no-self-update
         if ($LASTEXITCODE -ne 0) { throw "tidemark service install failed with exit code $LASTEXITCODE" }
     }
     # The virtual account exists once the service is registered.
     Protect-Path -Path $dataDir -Principals @('BUILTIN\Administrators', 'NT AUTHORITY\SYSTEM', $ServiceAccount)
+    Install-UpdateHelper -ProgramDir $programDir -DataDir $dataDir -Exe $exe
 
     if ($OpenFirewall) {
         foreach ($port in $FirewallPorts) {

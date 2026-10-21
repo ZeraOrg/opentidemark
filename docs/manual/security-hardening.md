@@ -396,6 +396,45 @@ chat), and prefer an internal HTTPS endpoint. Importers (Seq, Elasticsearch sour
 private addresses because sources are usually internal; they never follow redirects and always
 verify TLS.
 
+### Update check {#update-check}
+
+Once a day (first 1–15 minutes after start) every node asks
+`https://api.github.com/repos/ZeraOrg/opentidemark/releases/latest` whether a newer release
+exists, so admins can see it under `GET /api/v1/system/update`. The request sends no
+installation data: no version, node name, cookies or tokens, only the fixed user agent
+`OpenTidemark-update-check`. GitHub sees your public IP address (or your proxy's) and the time.
+Development builds never make the request.
+
+- **Egress:** allow outbound HTTPS (443) to `api.github.com`, and for one-click updates to
+  `github.com` and `release-assets.githubusercontent.com` (or `objects.githubusercontent.com`),
+  where GitHub serves the release files. The update client follows at most
+  three redirects, only over `https` and only to `api.github.com`, `github.com`,
+  `release-assets.githubusercontent.com` and `objects.githubusercontent.com`; it never connects
+  to private addresses directly.
+- **Proxy:** set `TIDEMARK_UPDATE_PROXY=http://proxy.internal:3128` (or `https://…`, optionally
+  with `user:password@`; it also accepts `TIDEMARK_UPDATE_PROXY_FILE`). The requests are tunnelled
+  with `CONNECT`; the proxy may be on a private address. `HTTPS_PROXY` and similar environment
+  variables are ignored, and the proxy's credentials never appear in logs.
+- **Opt out:** `TIDEMARK_UPDATE_CHECK=false` stops all update traffic.
+
+### Update helper {#update-helper}
+
+The service account never has write access to its own binary. On native Linux installs the
+service only downloads a release into `/var/lib/tidemark/update` and verifies it; the helper
+`tidemark-update.service` installs it. The helper runs the installed, root-owned binary as root,
+but with an empty capability bounding set, no network (`PrivateNetwork`), `NoNewPrivileges` and
+write access only to `/usr/local/bin` and its own `/var/lib/tidemark-update`. It never writes
+into the service's directory. It verifies the staged files again with the signing keys built
+into its own binary and refuses versions that aren't newer, so a compromised service could at
+most ask for a genuine, newer OpenTidemark release. Pass `--no-self-update` to `install.sh` to do
+without the helper.
+
+On Windows the helper is the service `TidemarkUpdate` (LocalSystem, manual start). Its
+permissions let `NT SERVICE\Tidemark` start and query it, but not stop, reconfigure or delete it.
+It writes only to `%ProgramFiles%\Tidemark` (administrators and SYSTEM only), reads the staged
+files from `%ProgramData%\Tidemark\update` refusing symbolic links, junctions and other reparse
+points, and verifies them with its own built-in keys as on Linux. `-NoSelfUpdate` leaves it out.
+
 ## Rate limiting and resource limits
 
 | Limit | Value | Effect |

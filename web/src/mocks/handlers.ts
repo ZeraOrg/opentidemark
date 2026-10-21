@@ -22,6 +22,7 @@ import type {
   Stream,
   Team,
   TeamSummary,
+  UpdateStatus,
   User,
 } from '../api/types';
 import { isStreamName } from '../api/types';
@@ -33,6 +34,20 @@ const SESSION_KEY = 'tm.mock.session';
 const MIN_PASSWORD = 12;
 const MAX_TEAM_NAME = 64;
 const DEFAULT_CREDS_KEY = 'tm.mock.defaultCredentials';
+/** Selects the update state (one of D.UPDATE_SCENARIOS); the default shows an available update. */
+const UPDATE_SCENARIO_KEY = 'tm.mock.update';
+const UPDATE_MIN_GAP_MS = 60_000;
+/** The mock install timeline (ms since the request): state boundaries, then a restart gap. */
+const APPLY_TIMELINE = {
+  downloading: 2_500,
+  verifying: 3_500,
+  staged: 4_000,
+  installing: 5_500,
+  restarting: 7_000,
+  /** The server is unreachable (network error) until here, then the outcome is visible. */
+  back: 10_000,
+} as const;
+const APPLY_ARCHIVE_BYTES = 24_600_000;
 const CSRF = 'mock-csrf-token';
 const HOUR = 3_600_000;
 
@@ -56,6 +71,11 @@ function signedIn(): boolean {
 
 function defaultCredentials(): boolean {
   return storage()?.getItem(DEFAULT_CREDS_KEY) !== '0';
+}
+
+function updateScenario(): D.UpdateScenario {
+  const v = storage()?.getItem(UPDATE_SCENARIO_KEY);
+  return D.isUpdateScenario(v) ? v : 'available';
 }
 
 function err(status: number, code: string, message: string, details: Record<string, unknown> = {}) {
@@ -583,6 +603,15 @@ const state = {
   indexed: [...D.INDEXED],
   teams: D.TEAMS.map((t) => ({ ...t, memberIds: [...t.memberIds], streams: [...t.streams] })),
   denyByDefault: false,
+  /** Time of the last manual update check (ms), 0 before the first; drives the 60 s gap. */
+  updateCheckedAt: 0,
+  /** The install started by `POST /system/update/apply`, until the page forgets it. */
+  updateApply: null as null | {
+    version: string;
+    from: string;
+    startedAt: number;
+    outcome: 'installed' | 'rolled_back';
+  },
 };
 let seq = 100;
 const nextId = (p: string): string => `${p}-${seq++}`;
@@ -740,6 +769,45 @@ type Handler = (args: {
   params: Record<string, string | readonly string[] | undefined>;
   url: URL;
 }) => Promise<Response> | Response;
+
+/** The update status `t` ms into the mock install `a` (states, progress, then the outcome). */
+function applyStatus(
+  status: UpdateStatus,
+  a: NonNullable<typeof state.updateApply>,
+  t: number,
+): UpdateStatus {
+  if (t < APPLY_TIMELINE.downloading) {
+    const bytes = Math.min(
+      APPLY_ARCHIVE_BYTES,
+      Math.round((APPLY_ARCHIVE_BYTES * t) / APPLY_TIMELINE.downloading),
+    );
+    return { ...status, state: 'downloading', progress: { bytes, total: APPLY_ARCHIVE_BYTES } };
+  }
+  if (t < APPLY_TIMELINE.verifying) return { ...status, state: 'verifying' };
+  if (t < APPLY_TIMELINE.staged) return { ...status, state: 'staged' };
+  if (t < APPLY_TIMELINE.installing) return { ...status, state: 'installing' };
+  if (t < APPLY_TIMELINE.restarting) return { ...status, state: 'restarting' };
+  const at = new Date(a.startedAt + APPLY_TIMELINE.restarting).toISOString();
+  if (a.outcome === 'installed') {
+    return {
+      ...status,
+      current: a.version,
+      latest: undefined,
+      available: false,
+      lastResult: { phase: 'installed', from: a.from, to: a.version, at },
+    };
+  }
+  return {
+    ...status,
+    lastResult: {
+      phase: 'rolled_back',
+      from: a.from,
+      to: a.version,
+      at,
+      message: 'the new version did not become ready within 10 min',
+    },
+  };
+}
 
 function authed(fn: Handler) {
   return async ({
@@ -1598,6 +1666,67 @@ export const handlers = [
   http.get(
     `${P}/system`,
     authed(() => json(D.SYSTEM as unknown as JsonBodyType)),
+  ),
+  http.get(
+    `${P}/system/update`,
+    authed(() => {
+      const status = D.updateStatus(updateScenario());
+      if (state.updateCheckedAt > 0) status.checkedAt = new Date(state.updateCheckedAt).toISOString();
+      const a = state.updateApply;
+      if (a === null) return json(status as unknown as JsonBodyType);
+      const t = Date.now() - a.startedAt;
+      if (t >= APPLY_TIMELINE.restarting && t < APPLY_TIMELINE.back) return HttpResponse.error();
+      return json(applyStatus(status, a, t) as unknown as JsonBodyType);
+    }),
+  ),
+  // Install (SPEC §11.5): 409 with the apply reason, 400 unless the latest version, 409
+  // in-progress while the timeline runs, else 202 and the status walks APPLY_TIMELINE.
+  http.post(
+    `${P}/system/update/apply`,
+    authed(async ({ request }) => {
+      const scenario = updateScenario();
+      const status = D.updateStatus(scenario);
+      const outcome = D.applyOutcome(scenario);
+      if (!status.apply.supported || outcome === null) {
+        return err(409, 'conflict', 'the update cannot be applied', { reason: status.apply.reason ?? 'dev' });
+      }
+      const { version } = await body<{ version?: string }>(request);
+      if (version === undefined || version !== status.latest?.version) {
+        return err(400, 'bad_request', 'version is not the latest release', { field: 'version' });
+      }
+      const a = state.updateApply;
+      if (a !== null && Date.now() - a.startedAt < APPLY_TIMELINE.back) {
+        return err(409, 'conflict', 'an update is being applied', { reason: 'in-progress' });
+      }
+      const started = { version, from: status.current, startedAt: Date.now(), outcome };
+      state.updateApply = started;
+      return json(applyStatus(status, started, 0) as unknown as JsonBodyType, 202);
+    }),
+  ),
+  // Check now (SPEC §11.5): 409 when disabled or a development build, 429 within 60 s of the
+  // previous manual check, else the scenario's status with `checkedAt` = now (a failed lookup
+  // keeps its error).
+  http.post(
+    `${P}/system/update/check`,
+    authed(() => {
+      const status = D.updateStatus(updateScenario());
+      if (!status.enabled || status.installKind === 'dev') {
+        return err(409, 'conflict', 'the update check is unavailable', {
+          reason: status.enabled ? 'dev' : 'disabled',
+        });
+      }
+      const since = Date.now() - state.updateCheckedAt;
+      if (since < UPDATE_MIN_GAP_MS) {
+        const retryAfter = Math.ceil((UPDATE_MIN_GAP_MS - since) / 1000);
+        return HttpResponse.json(
+          { error: { code: 'rate_limited', message: 'too many requests', details: {} } },
+          { status: 429, headers: { 'Retry-After': String(retryAfter) } },
+        );
+      }
+      state.updateCheckedAt = Date.now();
+      status.checkedAt = new Date(state.updateCheckedAt).toISOString();
+      return json(status as unknown as JsonBodyType);
+    }),
   ),
   http.get(
     `${P}/imports`,

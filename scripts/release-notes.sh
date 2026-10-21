@@ -3,7 +3,7 @@
 #
 # Prints the release notes of one version (SPEC §17.6): the body of the "## [<version>] - <date>"
 # section of CHANGELOG.md, without leading and trailing blank lines, followed by an "Install"
-# section for that version (assets, quick commands, verification). Fails when the changelog
+# section for that version (assets, quick commands, signature and checksum verification). Fails when the changelog
 # section is missing or empty, so a release cannot go out without user-facing notes.
 #
 #   scripts/release-notes.sh <version> [<changelog>]
@@ -52,11 +52,18 @@ management, upgrade, uninstall). The full OpenTidemark installation guide is
 <https://github.com/ZeraOrg/opentidemark/blob/v${v}/docs/installation.md>; the documentation site is
 <https://zeraorg.github.io/opentidemark/>.
 
-**Verify the download:**
+**Verify the download:** \`checksums.txt\` is signed with minisign
+(\`checksums.txt.minisig\`; trusted comment \`opentidemark v${v} checksums.txt\`). Check the signature, then
+the archives against it:
 
 \`\`\`bash
+minisign -Vm checksums.txt -P RWTzWC1xqWTY457VdX92WvxpPeXXOUhpiGzch3af0NEoe9ENK8bEbiDE
 sha256sum -c checksums.txt --ignore-missing
 gh attestation verify tidemark_${v}_linux_amd64.tar.gz --repo ZeraOrg/opentidemark
 gh attestation verify oci://ghcr.io/zeraorg/tidemark:${v} --repo ZeraOrg/opentidemark
 \`\`\`
+
+If the CI signing key is ever replaced, releases are signed with the offline backup key
+\`RWSeiFy+aYECqVbvFDNIW//gdsHLox72jDPcY3swGgJm/WQTA+0s9nwP\`; both keys are listed in
+<https://github.com/ZeraOrg/opentidemark/blob/main/SECURITY.md>.
 NOTES

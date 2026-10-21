@@ -76,3 +76,5 @@ secrets). Setting both forms is an error.
 | `TIDEMARK_WAL_EXIT_ON_FAILURE` | `true` | When the disk fails to save the write-ahead log (a failed fsync), stop the process so Docker, systemd or the Windows service restarts it and recovers the log. `false` keeps it running with ingestion refused (`503`) until you restart it. |
 | `TIDEMARK_BACKUP_DIR` | `<data dir>/backups` | Automatic backups of the metadata database taken before migrations (the last 10 are kept). |
 | `TIDEMARK_DRAIN_SECONDS` | `10` | Graceful drain on shutdown, 0–600 seconds: `/readyz` answers `503` so the load balancer stops sending traffic before the listeners close. |
+| `TIDEMARK_UPDATE_CHECK` | `true` | Check once a day whether a newer OpenTidemark release exists (a request to `api.github.com` that carries no installation data) and show it to admins. `false` turns off all update traffic. Development builds never check. |
+| `TIDEMARK_UPDATE_PROXY` | — | Optional `http://` or `https://` proxy for the update check, e.g. `http://user:password@proxy.internal:3128` (*secret*). The `HTTPS_PROXY` environment variable is not used. |

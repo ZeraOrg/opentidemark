@@ -361,6 +361,188 @@
   background: var(--tm-color-accent);
 }
 
+/* ---- update card (SPEC §16.4, §17.7) --------------------------------------------------------- */
+.updateStack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.updateHead {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: var(--tm-text-md);
+}
+
+.updateVersion {
+  font-family: var(--tm-font-mono);
+  font-weight: var(--tm-font-weight-semibold);
+}
+
+.updateSteps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--tm-color-border-subtle);
+  font-size: var(--tm-text-sm);
+  line-height: var(--tm-leading-sm);
+  color: var(--tm-color-fg-muted);
+}
+
+.updateSteps p {
+  margin: 0;
+}
+
+.updateSteps strong {
+  color: var(--tm-color-fg);
+}
+
+.snippet {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.snippet > pre {
+  flex: 1;
+  min-width: 0;
+}
+
+.extLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: var(--tm-font-weight-medium);
+}
+
+.noWrap {
+  white-space: nowrap;
+}
+
+.dialogText {
+  margin: 0;
+  font-size: var(--tm-text-sm);
+  line-height: var(--tm-leading-sm);
+  color: var(--tm-color-fg-muted);
+}
+
+.dialogText strong {
+  color: var(--tm-color-fg);
+}
+
+/* one-click update progress (SPEC §16.4) */
+.applyBox {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--tm-color-border);
+  border-radius: var(--tm-radius-md);
+  background: var(--tm-color-info-soft);
+  font-size: var(--tm-text-sm);
+  line-height: var(--tm-leading-sm);
+}
+
+.applyHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--tm-color-fg);
+}
+
+.applySpinner {
+  flex: none;
+  color: var(--tm-color-info);
+  animation: applySpin 1s linear infinite;
+}
+
+@keyframes applySpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .applySpinner {
+    animation: none;
+  }
+}
+
+.applySteps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.applyStep {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--tm-color-fg-subtle);
+}
+
+.applyStepMark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--tm-color-border-strong);
+  border-radius: 50%;
+  font-size: var(--tm-text-xs);
+  font-weight: var(--tm-font-weight-semibold);
+}
+
+.applyStepDone {
+  color: var(--tm-color-fg-muted);
+}
+
+.applyStepDone .applyStepMark {
+  border-color: var(--tm-color-success);
+  background: var(--tm-color-success-soft);
+  color: var(--tm-color-success);
+}
+
+.applyStepCurrent {
+  color: var(--tm-color-fg);
+  font-weight: var(--tm-font-weight-semibold);
+}
+
+.applyStepCurrent .applyStepMark {
+  border-color: var(--tm-color-info);
+  background: var(--tm-color-bg-raised);
+  color: var(--tm-color-info);
+}
+
+.applyText {
+  color: var(--tm-color-fg);
+}
+
+.applyBar {
+  display: block;
+  width: 100%;
+  max-width: 420px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--tm-color-bg-input);
+  overflow: hidden;
+}
+
+.applyBar span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--tm-color-info);
+  transition: width 0.3s ease-out;
+}
+
 .filters {
   display: grid;
   grid-template-columns: minmax(0, 200px) minmax(0, 320px) 200px;

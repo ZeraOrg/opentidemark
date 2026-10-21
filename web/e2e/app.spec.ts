@@ -298,6 +298,151 @@ test.describe('signed in', () => {
     ).toBeVisible();
   });
 
+  test('update chip and the system update card (admin only)', async ({ page }) => {
+    await page.goto('/settings/system');
+    const chip = page.getByRole('link', { name: /^Update available · v/ });
+    await expect(chip).toBeVisible();
+    const card = page.getByRole('region', { name: 'Updates' });
+    await expect(card.getByText('Update available')).toBeVisible();
+    const notes = card.getByRole('link', { name: /^Release notes/ });
+    await expect(notes).toHaveAttribute('href', /github\.com\/ZeraOrg\/opentidemark\/releases\/tag\/v/);
+    await expect(notes).toHaveAttribute('rel', 'noopener noreferrer');
+    await expect(card.getByRole('button', { name: /^Install v/ })).toBeVisible();
+    await settle(page);
+    await snap(page, '25-update-card');
+
+    // Check now: the first check succeeds, the second within a minute is refused with the wait.
+    await card.getByRole('button', { name: 'Check now' }).click();
+    await expect(page.getByText(/is available$/)).toBeVisible();
+    await card.getByRole('button', { name: 'Check now' }).click();
+    await expect(card.getByText(/Try again in \d+ s\./)).toBeVisible();
+
+    // The chip is a link to the card (also from another page).
+    await navTo(page, 'Events');
+    await chip.click();
+    await expect(page).toHaveURL(/\/settings\/system#update$/);
+    await expect(card).toBeVisible();
+
+    await page.getByRole('button', { name: /^Theme:/ }).click();
+    await page.getByRole('menuitemradio', { name: 'Light' }).click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+    await settle(page);
+    await snap(page, '25-update-card-light');
+    await page.getByRole('button', { name: /^Theme:/ }).click();
+    await page.getByRole('menuitemradio', { name: 'Dark' }).click();
+
+    // A container install gets copyable Compose commands.
+    await page.evaluate(() => sessionStorage.setItem('tm.mock.update', 'container'));
+    await page.reload();
+    await expect(card.getByLabel('pull and restart', { exact: true })).toContainText(
+      'docker compose pull tidemark',
+    );
+    await expect(card.getByRole('button', { name: /^Copy: / })).toHaveCount(3);
+    await settle(page);
+    await snap(page, '25-update-container');
+
+    // Without the update helper there is no install button, only the installer guide.
+    await page.evaluate(() => sessionStorage.setItem('tm.mock.update', 'helper-missing'));
+    await page.reload();
+    await expect(card.getByText(/needs the update helper/)).toBeVisible();
+    await expect(card.getByRole('link', { name: /^Upgrade guide/ })).toBeVisible();
+    await expect(card.getByRole('button', { name: /^Install v/ })).toHaveCount(0);
+    await page.evaluate(() => sessionStorage.removeItem('tm.mock.update'));
+
+    // An editor sees no chip, no System entry and the UI never asks for the status.
+    const requests: string[] = [];
+    page.on('request', (r) => {
+      if (r.url().includes('/api/v1/system/update')) requests.push(r.url());
+    });
+    await switchUser(page, 'maria');
+    await navTo(page, 'Settings');
+    await expect(page.getByRole('heading', { level: 1, name: 'Account' })).toBeVisible();
+    await expect(page.getByRole('link', { name: /^Update available/ })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'System' })).toHaveCount(0);
+    expect(requests).toEqual([]);
+  });
+
+  test('one-click update: dialog, progress through the restart, the result and a rollback', async ({
+    page,
+  }) => {
+    await page.goto('/settings/system');
+    const card = page.getByRole('region', { name: 'Updates' });
+    const install = card.getByRole('button', { name: /^Install v/ });
+    await expect(install).toBeVisible();
+    const version = ((await install.textContent()) ?? '').replace(/^Install v/, '');
+    const dialog = page.getByRole('dialog', { name: `Install v${version}` });
+    const confirm = dialog.getByRole('button', { name: `Install v${version}` });
+    const typed = dialog.getByLabel(`Type ${version} to confirm`);
+
+    // The dialog explains the restart and the rollback; a minor bump needs the typed version.
+    await install.click();
+    await expect(dialog.getByText(/15–30 seconds/)).toBeVisible();
+    await expect(dialog.getByText(/within 10 minutes/)).toBeVisible();
+    await expect(dialog.getByRole('link', { name: /^Release notes/ })).toHaveAttribute(
+      'rel',
+      'noopener noreferrer',
+    );
+    await expect(confirm).toBeDisabled();
+    await settle(page);
+    await snap(page, '26-update-dialog');
+    // Escape closes it and returns focus to the button.
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(install).toBeFocused();
+
+    await install.click();
+    await typed.fill(version);
+    await expect(confirm).toBeEnabled();
+    await confirm.click();
+    await expect(dialog).toHaveCount(0);
+    const progress = card.getByRole('status', { name: `Installing v${version}` });
+    await expect(progress.getByText(/^Downloading/)).toBeVisible();
+    await expect(progress.getByRole('progressbar', { name: 'Download progress' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Updating…' })).toBeVisible();
+    await expect(card.getByRole('button', { name: 'Check now' })).toHaveCount(0);
+    await snap(page, '26-update-progress');
+    // The mock takes the server away for a few seconds around the restart; the card stays calm.
+    await expect(progress.getByText(/coming back/)).toBeVisible({ timeout: 15_000 });
+    await snap(page, '26-update-restarting');
+    await expect(card.getByText('Up to date')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('status').filter({ hasText: `Installed v${version}` })).toBeVisible();
+    await expect(card.getByText(/^Last update/).locator('xpath=following-sibling::dd[1]')).toContainText(
+      `installed v${version}`,
+    );
+    await expect(page.getByRole('link', { name: /^Updat/ })).toHaveCount(0);
+    await settle(page);
+    await snap(page, '26-update-installed');
+
+    // A rollback, in the light theme and on a phone: the dialog, the progress and the result.
+    await page.evaluate(() => sessionStorage.setItem('tm.mock.update', 'apply-rollback'));
+    await page.reload();
+    await page.getByRole('button', { name: /^Theme:/ }).click();
+    await page.getByRole('menuitemradio', { name: 'Light' }).click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+    await install.click();
+    await settle(page);
+    await snap(page, '26-update-dialog-light');
+    await page.keyboard.press('Escape');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await install.click();
+    await settle(page);
+    await snap(page, '26-update-dialog-mobile');
+    await typed.fill(version);
+    await confirm.click();
+    await expect(progress.getByText(/^Downloading/)).toBeVisible();
+    await snap(page, '26-update-progress-mobile');
+    const alert = card.getByRole('alert');
+    await expect(alert).toContainText(`The update to v${version} was rolled back`, { timeout: 20_000 });
+    await expect(alert).toContainText('did not become ready within 10 min');
+    await expect(card.getByRole('button', { name: `Install v${version}` })).toBeEnabled();
+    await settle(page);
+    await snap(page, '26-update-rollback-mobile', true);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await settle(page);
+    await snap(page, '26-update-rollback-light');
+    await page.evaluate(() => sessionStorage.removeItem('tm.mock.update'));
+  });
+
   test('scope picker narrows the explorer and is remembered', async ({ page }) => {
     await page.goto('/events');
     const grid = page.getByRole('grid', { name: 'Events' });
@@ -473,5 +618,17 @@ test.describe('phone (390 px)', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'Platform' })).toBeVisible();
     await settle(page);
     await snap(page, '12-team-mobile', true);
+  });
+
+  test('update chip and card on a phone', async ({ page }) => {
+    await signIn(page);
+    const chip = page.getByRole('link', { name: /^Update available · v/ });
+    await expect(chip).toBeVisible();
+    await chip.click();
+    await expect(page).toHaveURL(/\/settings\/system#update$/);
+    const card = page.getByRole('region', { name: 'Updates' });
+    await expect(card.getByText('Update available')).toBeVisible();
+    await settle(page);
+    await snap(page, '12-update-mobile', true);
   });
 });

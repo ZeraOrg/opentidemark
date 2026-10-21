@@ -21,7 +21,7 @@ RUN go mod download
 COPY . .
 COPY --from=web /src/web/dist/ /tmp/web-dist/
 RUN if [ -f /tmp/web-dist/index.html ]; then rm -rf internal/web/assets/dist && cp -R /tmp/web-dist internal/web/assets/dist; fi
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/tidemark ./cmd/tidemark \
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags "-s -w -X main.version=${VERSION} -X main.distribution=container" -o /out/tidemark ./cmd/tidemark \
  && mkdir -p /out/licenses /out/data \
  && cp LICENSE NOTICE THIRD_PARTY_NOTICES.md /out/licenses/
 

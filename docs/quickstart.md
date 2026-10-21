@@ -18,7 +18,8 @@ For servers and native installs see the [installation guide](installation.md).
 Download `tidemark_<version>_docker.tar.gz` (or `.zip` on Windows) and `checksums.txt` from the
 latest [release](https://github.com/ZeraOrg/opentidemark/releases) (every release after 0.1.0 has one).
 The bundle holds the Compose file, pinned to that release's published image, the installers and
-the ClickHouse configuration.
+the ClickHouse configuration. To check the minisign signature of `checksums.txt` first, see
+[Installation](installation.md#release-archives).
 
 ```bash
 sha256sum -c checksums.txt --ignore-missing

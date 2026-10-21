@@ -123,6 +123,9 @@ environments); `environments` filters **logs** only.
 | `GET/PATCH /settings` | admin | `retention`, `access` (`{denyByDefault}`), `ui` |
 | `GET /audit?from&to&actor&action&limit` | admin | Audit log |
 | `GET /system` | admin | Version, uptime, queues, counters, ClickHouse® |
+| `GET /system/update` | admin | Update status: current and newest release, install kind, last check and its error |
+| `POST /system/update/check` | admin | Check for a newer release now; `429` within 60 s of the previous check, `409` (`details.reason` `disabled` or `dev`) when the check is off or this is a development build |
+| `POST /system/update/apply` | admin | Install the latest release: body `{"version": "<latest.version>"}`, `202` with the status (`state` `downloading`, then `verifying`, `staged`, `installing`, `restarting`; `progress {bytes, total}`; `lastResult` after it finished). `400` (`details.field` `version`) unless it is the latest release; `409` with `details.reason` when this installation can't update itself (`apply.reason`: `disabled`, `dev`, `container`, `ha`, `unsupported-platform`, `not-a-service`, `helper-missing`), while draining (`draining`), with a failed write-ahead log (`wal-failed`) or while an update runs, including while the helper waits for the new version to confirm (`in-progress`). Audited as `update.apply` |
 | `GET/POST /imports`, `GET /imports/{id}`, `POST /imports/{id}/cancel` | admin | Import jobs |
 
 ### Outside `/api/v1` (no API authentication)

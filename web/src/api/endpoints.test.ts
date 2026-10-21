@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { jsonResponse, scriptedFetch } from '../test/fakes';
 import { ApiClient } from './client';
-import { search, teams, users } from './endpoints';
+import { admin, search, teams, users } from './endpoints';
 
 function client() {
   const { fetch, calls } = scriptedFetch(() => jsonResponse([]));
@@ -66,6 +66,18 @@ describe('teams endpoints (SPEC §11.5)', () => {
       'PUT /api/v1/teams/t1/streams {"streams":["payments"]}',
       'DELETE /api/v1/teams/t1 ',
       'PUT /api/v1/users/u1/teams {"teamIds":["t1"]}',
+    ]);
+  });
+});
+
+describe('update endpoints (SPEC §11.5, §17.7)', () => {
+  it('reads the status and posts the check without a body', async () => {
+    const { api, calls } = client();
+    await admin.update(api);
+    await admin.checkUpdate(api);
+    expect(calls.map((c) => `${String(c.init.method)} ${c.url} ${String(c.init.body ?? '')}`)).toEqual([
+      'GET /api/v1/system/update ',
+      'POST /api/v1/system/update/check ',
     ]);
   });
 });

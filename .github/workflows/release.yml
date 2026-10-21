@@ -5,7 +5,9 @@
 # names a version without a tag v<VERSION> yet:
 # OSV-Scanner checks go.mod and web/package-lock.json for known vulnerabilities and malicious
 # packages (a finding stops the release), `make dist` builds the archives and `make docs-offline` the offline documentation bundle
-# (tidemark_<VERSION>_docs.zip), all listed in checksums.txt; their build provenance is attested, the image
+# (tidemark_<VERSION>_docs.zip), all listed in checksums.txt; the sign job (the only one in the
+# protected environment "release") signs checksums.txt with minisign and attests the build
+# provenance, the image
 # is scanned with Trivy (HIGH/CRITICAL with a fix fail the release), the
 # multi-arch image is pushed to ghcr.io/zeraorg/tidemark, and finally the tag v<VERSION> and the
 # GitHub release (notes = the CHANGELOG.md section of the version plus an Install section,
@@ -31,6 +33,13 @@ env:
   IMAGE: ghcr.io/zeraorg/tidemark
   TRIVY_VERSION: v0.75.0 # same as security.yml (internal/repotest)
   OSV_SCANNER_VERSION: v2.6.0 # same as security.yml, Makefile and build.ps1 (internal/repotest)
+  # minisign signs checksums.txt (SPEC §17.6). The official Linux archive of this version, pinned
+  # by its SHA-256 (checked against its author's minisign signature when the pin was set).
+  MINISIGN_VERSION: "0.12"
+  MINISIGN_SHA256: 9a599b48ba6eb7b1e80f12f36b94ceca7c00b7a5173c95c3efc88d9822957e73
+  # The trusted release signing public keys: CI key, then the offline backup key. Same as
+  # internal/update/keys.go and SECURITY.md (internal/repotest).
+  RELEASE_SIGNING_KEYS: RWTzWC1xqWTY457VdX92WvxpPeXXOUhpiGzch3af0NEoe9ENK8bEbiDE RWSeiFy+aYECqVbvFDNIW//gdsHLox72jDPcY3swGgJm/WQTA+0s9nwP
   PUBLIC: ${{ github.repository == 'ZeraOrg/opentidemark' }}
 
 jobs:
@@ -173,8 +182,6 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
-      id-token: write # build provenance attestation (main public repository)
-      attestations: write
     steps:
       - uses: actions/checkout@v7
         with:
@@ -201,6 +208,73 @@ jobs:
         run: pip install --require-hashes -r docs-site/requirements.txt
       - name: offline documentation bundle
         run: scripts/ci-annotate.sh "make docs-offline" -- make docs-offline
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  sign:
+    name: sign
+    # The only job in the protected environment "release", which holds the release signing key
+    # (an unencrypted minisign secret key). It runs no build code: it downloads the finished
+    # dist/, signs checksums.txt (prehashed, the trusted comment names the release), checks the
+    # signature against the trusted public keys and then attests the build provenance of every
+    # file checksums.txt lists. Without the key the public release fails: nothing unsigned is
+    # published. Other repositories sign their draft test build with a throwaway key.
+    needs: [prepare, build]
+    if: needs.prepare.outputs.proceed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # Only the public repository has (and needs) the environment; elsewhere the job runs without it.
+    environment: ${{ github.repository == 'ZeraOrg/opentidemark' && 'release' || '' }}
+    permissions:
+      contents: read
+      id-token: write # build provenance attestation (main public repository)
+      attestations: write
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - name: install minisign
+        run: |
+          archive="$RUNNER_TEMP/minisign.tar.gz"
+          curl -fsSL -o "$archive" \
+            "https://github.com/jedisct1/minisign/releases/download/${MINISIGN_VERSION}/minisign-${MINISIGN_VERSION}-linux.tar.gz"
+          echo "${MINISIGN_SHA256}  $archive" | sha256sum -c -
+          mkdir "$RUNNER_TEMP/minisign"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/minisign" minisign-linux/x86_64/minisign
+          echo "$RUNNER_TEMP/minisign/minisign-linux/x86_64" >> "$GITHUB_PATH"
+      - name: sign checksums.txt
+        env:
+          SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: |
+          key="$RUNNER_TEMP/release-signing.key"
+          trap 'rm -f "$key"' EXIT
+          trusted="$RELEASE_SIGNING_KEYS"
+          if [[ -n "$SIGNING_KEY" ]]; then
+            (umask 077 && printf '%s\n' "$SIGNING_KEY" > "$key")
+          elif [[ "$PUBLIC" == true ]]; then
+            echo "::error title=release::the release signing key is missing (secret RELEASE_SIGNING_KEY of the environment release); a release is never published unsigned"
+            exit 1
+          else
+            echo "::notice title=release::no release signing key here; the draft is signed with a throwaway key"
+            minisign -G -W -p "$RUNNER_TEMP/throwaway.pub" -s "$key" > /dev/null
+            trusted="$(sed -n 2p "$RUNNER_TEMP/throwaway.pub")"
+          fi
+          minisign -S -s "$key" -m dist/checksums.txt -x dist/checksums.txt.minisig \
+            -t "opentidemark v${VERSION} checksums.txt" < /dev/null
+          for pub in $trusted; do
+            if minisign -V -m dist/checksums.txt -P "$pub" | grep -Fxq "Trusted comment: opentidemark v${VERSION} checksums.txt"; then
+              exit 0
+            fi
+          done
+          echo "::error title=release::the signature of checksums.txt does not verify with a trusted release signing key"
+          exit 1
       - name: attest build provenance
         if: env.PUBLIC == 'true'
         uses: actions/attest-build-provenance@v4
@@ -208,8 +282,8 @@ jobs:
           subject-checksums: dist/checksums.txt
       - uses: actions/upload-artifact@v7
         with:
-          name: dist
-          path: dist/
+          name: signature
+          path: dist/checksums.txt.minisig
           if-no-files-found: error
           retention-days: 7
 
@@ -309,7 +383,7 @@ jobs:
 
   release:
     name: GitHub release
-    needs: [prepare, build, image]
+    needs: [prepare, build, sign, image]
     if: needs.prepare.outputs.proceed == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -329,6 +403,10 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: dist
+          path: dist
+      - uses: actions/download-artifact@v8
+        with:
+          name: signature
           path: dist
       - name: write the release notes
         env:

@@ -242,6 +242,7 @@ curl -s 'http://prometheus:9090/api/v1/query?query=up{job="tidemark"}'
 | `tidemark_pipeline_write_errors_total` | counter | `signal` | Failed ClickHouse insert attempts |
 | `tidemark_pipeline_queue_depth` | gauge | `signal` | Rows acknowledged but not yet written (with WAL: the WAL backlog) |
 | `tidemark_wal_bytes` | gauge | `signal` | Bytes of the WAL segments on disk, read at scrape time; compare with `TIDEMARK_WAL_MAX_BYTES` (only with the WAL enabled) |
+| `tidemark_update_available` | gauge | | `1` while a newer OpenTidemark release is known from the daily update check, else `0` |
 | `go_*`, `process_*` | | | Go runtime and process collectors (memory, GC, goroutines, CPU, open file descriptors) |
 
 Counter series with labels appear only after their first increment (for example

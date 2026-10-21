@@ -29,7 +29,7 @@ const (
 // openMeta opens the metadata database of the configured driver with backups and downgrade
 // protection (SPEC §8.4, §8.5).
 func (a *App) openMeta(ctx context.Context) (*meta.DB, error) {
-	opts := []meta.Option{meta.WithBinaryVersion(a.version), meta.WithBackupDir(a.cfg.BackupDir)}
+	opts := []meta.Option{meta.WithBinaryVersion(a.build.Version), meta.WithBackupDir(a.cfg.BackupDir)}
 	var (
 		db  *meta.DB
 		err error

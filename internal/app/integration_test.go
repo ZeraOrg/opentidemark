@@ -59,7 +59,7 @@ func startApp(t *testing.T) (*App, testutil.ClickHouseEnv) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, err := New(ctx, cfg, "it", slog.New(slog.NewTextHandler(io.Discard, nil)))
+	a, err := New(ctx, cfg, BuildInfo{Version: "it"}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}

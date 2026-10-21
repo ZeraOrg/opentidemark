@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: Apache-2.0
+# Update helper (SPEC §15.9, §17.7), started by tidemark-update.path. It runs the installed binary
+# as root, so the tidemark service never needs write access to its own binary: it re-verifies the
+# staged release with the built-in signing keys, refuses downgrades, replaces
+# /usr/local/bin/tidemark (keeping tidemark.previous), waits up to 10 minutes for the new version
+# to confirm and rolls back without it. The service restarts itself when state.json changes.
+[Unit]
+Description=OpenTidemark update helper
+Documentation=https://github.com/ZeraOrg/opentidemark
+
+[Service]
+Type=oneshot
+User=root
+# Reads the staged files (/var/lib/tidemark/update, group-readable) through the service's group.
+SupplementaryGroups=tidemark
+ExecStart=/usr/local/bin/tidemark update install
+TimeoutStartSec=15min
+UMask=0022
+# state.json is read by the service, so the directory is world-readable; nothing in it is secret.
+StateDirectory=tidemark-update
+StateDirectoryMode=0755
+
+# Hardening: writes only to /usr/local/bin and its state directory, no network, no capabilities
+# (root owns both directories, so none are needed).
+ProtectSystem=strict
+ReadWritePaths=/usr/local/bin
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+CapabilityBoundingSet=
+AmbientCapabilities=

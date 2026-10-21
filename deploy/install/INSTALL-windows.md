@@ -12,12 +12,22 @@ Replace `<version>` below with the version in the archive name. Run every comman
 
 ## 1. Verify the download
 
-Compare the hash with the line for the archive in `checksums.txt` from the same release:
+Check the signature of `checksums.txt` (with `checksums.txt.minisig` from the same release), then
+compare the hash with the line for the archive in it:
 
 ```powershell
+minisign -Vm checksums.txt -P RWTzWC1xqWTY457VdX92WvxpPeXXOUhpiGzch3af0NEoe9ENK8bEbiDE
 Get-FileHash .\tidemark_<version>_windows_amd64.zip -Algorithm SHA256
 gh attestation verify .\tidemark_<version>_windows_amd64.zip --repo ZeraOrg/opentidemark   # optional, needs the GitHub CLI
 ```
+
+The first command checks the [minisign](https://jedisct1.github.io/minisign/) signature of
+`checksums.txt` (`checksums.txt.minisig`, same release) and must print
+`Trusted comment: opentidemark v<version> checksums.txt`. If the release was signed with the
+offline backup key, use
+`-P RWSeiFy+aYECqVbvFDNIW//gdsHLox72jDPcY3swGgJm/WQTA+0s9nwP` instead. Both keys are listed in
+[SECURITY.md](https://github.com/ZeraOrg/opentidemark/blob/main/SECURITY.md). Releases 0.4.0 and
+earlier are not signed.
 
 ## 2. Unblock and unpack
 
@@ -50,6 +60,12 @@ This copies `tidemark.exe` to `%ProgramFiles%\Tidemark`, writes
 and restricts `%ProgramData%\Tidemark` to Administrators, SYSTEM and the service account.
 `-OpenFirewall` adds inbound rules for TCP 8080, 5341, 9200, 4317 and 4318; `-Start` starts the
 service.
+
+It also registers the update helper service `TidemarkUpdate` (LocalSystem, manual start), which
+installs a release the Tidemark service has downloaded and verified, restarts the service and
+rolls the update back if the new version doesn't come up. The Tidemark service may only start and
+query it; it can't change its own binary. Add `-NoSelfUpdate` to leave the helper out (or remove
+it).
 
 ## 4. ClickHouse in Docker Desktop
 
@@ -95,13 +111,15 @@ directory:
 ```
 
 The installer stops the service, replaces the binary, keeps `tidemark.env`, the service
-registration and your data, and starts it again.
+registration and your data, and starts it again. An install made before the update helper existed
+gets it the first time you run the new installer. `& "$env:ProgramFiles\Tidemark\tidemark.exe"
+update check` asks GitHub whether a newer release exists.
 
 ## 7. Uninstall
 
 ```powershell
 Stop-Service Tidemark
-& "$env:ProgramFiles\Tidemark\tidemark.exe" service uninstall
+& "$env:ProgramFiles\Tidemark\tidemark.exe" service uninstall   # also removes TidemarkUpdate
 Get-NetFirewallRule -DisplayName 'Tidemark TCP *' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
 Remove-Item -Recurse "$env:ProgramFiles\Tidemark"
 Remove-Item -Recurse "$env:ProgramData\Tidemark"   # deletes the metadata, keys and settings

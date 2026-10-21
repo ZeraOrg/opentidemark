@@ -38,11 +38,18 @@ const (
 	sessionSweepInterval  = time.Hour
 )
 
+// BuildInfo describes the running binary (stamped by cmd/tidemark, SPEC §17.6).
+type BuildInfo struct {
+	Version        string // -X main.version
+	Distribution   string // -X main.distribution: "archive", "container" or "" (development build)
+	WindowsService bool   // running under the Windows Service Control Manager
+}
+
 // App is a fully wired OpenTidemark instance.
 type App struct {
 	cfg     config.Config
 	logger  *slog.Logger
-	version string
+	build   BuildInfo
 	started time.Time
 
 	meta     *meta.DB
@@ -82,8 +89,8 @@ type listener struct {
 }
 
 // New builds the application: opens storage, applies migrations, seeds and wires everything.
-func New(ctx context.Context, cfg config.Config, version string, logger *slog.Logger) (*App, error) {
-	a := &App{cfg: cfg, logger: logger, version: version, started: time.Now(), errs: make(chan error, 8)}
+func New(ctx context.Context, cfg config.Config, build BuildInfo, logger *slog.Logger) (*App, error) {
+	a := &App{cfg: cfg, logger: logger, build: build, started: time.Now(), errs: make(chan error, 8)}
 	for _, w := range cfg.Warnings {
 		logger.Warn("configuration", "warning", w)
 	}
@@ -156,11 +163,12 @@ func (a *App) Start(ctx context.Context) error {
 	if a.grpc != nil {
 		a.serveGRPC()
 	}
-	a.logger.Info("tidemark started", "version", a.version, "listeners", a.Addrs())
+	a.logger.Info("tidemark started", "version", a.build.Version, "listeners", a.Addrs())
 	return nil
 }
 
-// Run starts the app and blocks until ctx ends or a listener fails, then shuts down.
+// Run starts the app and blocks until ctx ends or a fatal error occurs (a failed listener or WAL,
+// or ErrRestartForUpdate), then shuts down.
 func (a *App) Run(ctx context.Context) error {
 	if err := a.Start(ctx); err != nil {
 		return err
@@ -169,7 +177,11 @@ func (a *App) Run(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 	case runErr = <-a.errs:
-		a.logger.Error("fatal error, shutting down", "err", runErr)
+		if errors.Is(runErr, ErrRestartForUpdate) {
+			a.logger.Info("shutting down to restart for an update")
+		} else {
+			a.logger.Error("fatal error, shutting down", "err", runErr)
+		}
 	}
 	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), a.cfg.Drain+shutdownTimeout)
 	defer cancel()
@@ -238,10 +250,7 @@ func (a *App) watchJournal(ctx context.Context, l failable) {
 		return
 	}
 	a.logger.Error("write-ahead log failed; stopping so the supervisor restarts the process", "err", err)
-	select {
-	case a.errs <- fmt.Errorf("wal: %w", err):
-	default: // Run is already stopping on an earlier fatal error
-	}
+	a.fatal(fmt.Errorf("wal: %w", err))
 }
 
 // failable is a WAL as watchJournal sees it (implemented by *wal.Log).

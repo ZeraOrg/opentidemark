@@ -125,6 +125,39 @@ describe('ApiClient', () => {
     expect(e3).toMatchObject({ code: 'http_500', message: 'HTTP 500' });
   });
 
+  it('carries Retry-After of a 429 as details.retryAfter (seconds only, never a date)', async () => {
+    const limited = (
+      retryAfter: string,
+      body: unknown = { error: { code: 'rate_limited', message: 'slow down' } },
+    ) =>
+      new Response(JSON.stringify(body), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json', 'Retry-After': retryAfter },
+      });
+    const api = (res: Response) =>
+      new ApiClient({ fetch: scriptedFetch(() => res).fetch, cookies: () => '' });
+    const err = await api(limited('42'))
+      .post('/x')
+      .catch((e: unknown) => e);
+    expect(err).toMatchObject({ status: 429, code: 'rate_limited', details: { retryAfter: 42 } });
+    expect(isApiError(err) && err.retryAfter).toBe(42);
+    const dated = await api(limited('Wed, 21 Oct 2026 07:28:00 GMT'))
+      .post('/x')
+      .catch((e: unknown) => e);
+    expect(isApiError(dated) && dated.retryAfter).toBeUndefined();
+    const plain = await api(limited('7', 'nope'))
+      .post('/x')
+      .catch((e: unknown) => e);
+    expect(plain).toMatchObject({ code: 'http_429', details: { retryAfter: 7 } });
+    const none = await new ApiClient({
+      fetch: scriptedFetch(() => jsonResponse({}, 500)).fetch,
+      cookies: () => '',
+    })
+      .get('/x')
+      .catch((e: unknown) => e);
+    expect(isApiError(none) && none.retryAfter).toBeUndefined();
+  });
+
   it('reports network failures and timeouts', async () => {
     const down = new ApiClient({ fetch: () => Promise.reject(new TypeError('failed')), cookies: () => '' });
     await expect(down.get('/x')).rejects.toMatchObject({ status: 0, code: 'network' });

@@ -88,6 +88,12 @@ type WAL struct {
 	MinFreeBytes  int64  // free-space floor of the WAL's file system; 0 = off
 }
 
+// Update configures the release check (SPEC §17.7).
+type Update struct {
+	Check bool     // false: no update traffic at all
+	Proxy *url.URL // explicit proxy for the update client; nil = direct (may hold credentials: never log it)
+}
+
 // SMTP settings.
 type SMTP struct {
 	Host     string
@@ -138,6 +144,7 @@ type Config struct {
 	WAL                    WAL
 	BackupDir              string
 	Drain                  time.Duration
+	Update                 Update
 	// Warnings lists non-fatal issues (unknown TIDEMARK_ variables) for logging.
 	Warnings []string
 }

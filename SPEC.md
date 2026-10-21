@@ -8,7 +8,7 @@
 > well. Any change to behaviour, APIs, schema, configuration, layout, UI or tooling **must**
 > update this spec in the same commit. Version history is in §21.
 
-**Spec version:** 0.31.11 · **Last updated:** 2026-10-21
+**Spec version:** 0.32.10 · **Last updated:** 2026-10-21
 
 ---
 
@@ -250,11 +250,14 @@ Node **22 LTS** for builds. The built SPA is embedded in the Go binary via `go:e
 │   ├── service/               # application services (search, dashboards, streams, users …)
 │   ├── alerting/              # evaluator, state machine, notifiers (webhook, slack, email, teams)
 │   ├── retention/             # builds & applies TTL rules (§12.3)
-│   ├── httpx/                 # middleware: security headers, logging, recovery, limits, CSRF, IP filters
+│   ├── httpx/                 # middleware: security headers, logging, recovery, limits, CSRF, IP filters; SSRF-safe outbound clients incl. the update client (§15.6)
 │   ├── selfmetrics/           # Prometheus metrics for OpenTidemark itself
+│   ├── update/                # release check (§17.7): SemVer precedence, GitHub source, selection, checker job, install-kind detection (detect_{linux,windows,other}.go),
+│   │                          #   trusted release signing keys (keys.go), minisign verification, checksums, archive extraction,
+│   │                          #   staging and the helper's install/rollback (verify, checksums, archive, stage, install, fs_{linux,windows,other}.go)
 │   ├── testutil/              # shared test fakes and the TIDEMARK_TEST_CLICKHOUSE_* reader
 │   ├── repotest/              # repository-wide tests: SPDX headers, Apache LICENSE text, CI ClickHouse grants = users.d,
-│   │                          #   public docs = this spec (§18)
+│   │                          #   public docs = this spec, release tooling and signing keys (§18)
 │   └── web/                   # go:embed of web/dist + SPA fallback handler
 ├── web/                       # React SPA (§16)
 │   ├── src/{app,api,components,features/<feature>,lib,mocks,tql,styles,test}
@@ -412,6 +415,8 @@ kebab-case of the suffix). Invalid configuration aborts startup with a clear mes
 | `TIDEMARK_WAL_EXIT_ON_FAILURE` | `true` | A failed WAL fsync stops the process (drain, exit code 1) so its supervisor restarts it and the startup recovery rereads the WAL; `false` keeps it running with ingestion refused (§9.8) |
 | `TIDEMARK_BACKUP_DIR` | `<data>/backups` | Automatic pre-migration backups (§8.5) |
 | `TIDEMARK_DRAIN_SECONDS` | `10` | Graceful drain period on shutdown, 0–600 (§17.5) |
+| `TIDEMARK_UPDATE_CHECK` | `true` | Daily release check against `api.github.com` (§17.7); `false` = no update traffic at all. Development builds never check |
+| `TIDEMARK_UPDATE_PROXY` | — | Explicit `http://` or `https://` proxy for the update client, optional `user:password@`, nothing but scheme, credentials, host and port (supports `_FILE`; never logged with its credentials). Empty = direct; `HTTPS_PROXY` and friends are never used (§15.6) |
 | `TIDEMARK_METRICS_ENABLED` / `TIDEMARK_METRICS_TOKEN` | `false` / — | Expose `/metrics` (§11.6) |
 | `TIDEMARK_SECRET_KEY_FILE` | `<data>/secret.key` | AES key for secrets at rest (§15.5) |
 | `TIDEMARK_ENV_FILE` | `<data>/tidemark.env` | Optional env file read at startup (§17.3) |
@@ -1640,7 +1645,26 @@ Group = { labels: {[field: string]: string} /* {} when ungrouped */, state: stri
 | `GET /teams`, `POST /teams`, `GET /teams/access`, `GET/PATCH/DELETE /teams/{id}`, `PUT /teams/{id}/members`, `PUT /teams/{id}/streams` (§15.10) | admin |
 | `GET /audit?from&to&actor&action` | admin |
 | `GET /system` (version, uptime, queue depth, ingest rates, ClickHouse version/disk) | admin |
+| `GET /system/update` (update status, §17.7), `POST /system/update/check` (check now), `POST /system/update/apply` (one-click update) | admin |
 | `GET /imports` (newest 100), `GET /imports/{id}`, `POST /imports` (JSON for `elastic`/`seq`; `multipart/form-data` for `clef-file`/`kibana`), `POST /imports/{id}/cancel` (§9.9) | admin |
+
+Update bodies (§17.7): `GET /system/update` ⇒ `{enabled, current, nodeId, installKind, apply:{supported,
+reason?}, latest?:{version, prerelease, publishedAt, notesUrl}, available, checkedAt?, error?, state,
+progress?:{bytes, total}, lastResult?:{phase, from?, to, at, message?}}` (field meanings in §17.7;
+absent fields are omitted). `POST /system/update/check` (no body)
+checks immediately and answers `200` with the same object, also when the lookup failed (then
+`error` is set); `429 rate_limited` with `Retry-After` within 60 s of the previous check
+(scheduled or manual); `409 conflict` with `details.reason` `disabled`
+(`TIDEMARK_UPDATE_CHECK=false`) or `dev` (development build), and no request is made.
+`POST /system/update/apply` `{version}` starts installing the latest release in the background
+and answers `202` with the status (`state` `downloading`); checked in this order: `409 conflict`
+with `details.reason` = `apply.reason` when one-click update is not supported, `400 bad_request`
+with `details.field = version` unless `version` equals `latest.version`, `409` with
+`details.reason` `draining` (graceful drain started) or `wal-failed` (a write-ahead log failed),
+`409` with `in-progress` while an update is being applied, or while `state.json` records an
+installed update that is not confirmed yet and is younger than the 10 min confirmation timeout
+(the helper is still waiting). Audited as `update.apply`
+`{from, to}` (§15.5).
 
 Team bodies (§15.10): `GET /teams` returns `[{id, name, description, memberCount, streams,
 createdAt, updatedAt}]` by name; `POST /teams` `{name, description?}` ⇒ 201 Team; `GET
@@ -1751,6 +1775,7 @@ Self-metrics (`internal/selfmetrics`, own registry, plus the Go runtime and proc
 | `tidemark_pipeline_write_errors_total` | `signal` | Failed insert attempts (ClickHouse unreachable or rejecting) |
 | `tidemark_pipeline_queue_depth` | `signal` | Rows acknowledged but not yet in ClickHouse (WAL backlog) |
 | `tidemark_wal_bytes` | `signal` | Bytes of the WAL segments on disk, read at scrape time (only with the WAL) |
+| `tidemark_update_available` | — | `1` while the release check (§17.7) knows a newer release, else `0` (read at scrape time) |
 
 ---
 
@@ -2083,13 +2108,26 @@ deviation must be recorded in this section.
   `team.members`, `team.streams`, `user.teams` (§11.5, §11.2), `user.delete` with the user's
   `teams`, `transferredTo` and the numbers of transferred `dashboards` and `signals`, `stream.delete` with `revokedFromTeams`, `settings.update` with
   `access.denyByDefault`, `alert.create|update` with `streams`, `connection.create|update`
-  with `allowedStreams`.
+  with `allowedStreams`; updates (§17.7): `update.apply` `{from, to}` by the admin, and with the
+  `system` actor `update.installed` `{from, to}` (the new version confirmed), `update.rolled_back`
+  `{from, to, reason}` (seen by the restored version) and `update.failed` `{to, stage, reason}`
+  (`stage` `download`, `verify` or `install`); the target is the new version.
 
 ### 15.6 Outbound requests (SSRF)
 Webhook/Slack/Teams URLs must be `https` (http allowed only with `ALLOW_PRIVATE_WEBHOOKS`);
 DNS-resolved addresses in loopback, link-local, private (RFC 1918/4193), CGNAT, multicast or
 metadata ranges (169.254.169.254) are rejected at dial time (custom `net.Dialer.Control`) unless
-`TIDEMARK_ALLOW_PRIVATE_WEBHOOKS=true`. No redirects followed.
+`TIDEMARK_ALLOW_PRIVATE_WEBHOOKS=true`. No redirects are followed, with one exception: the
+**update client** (`httpx.UpdateClient`, used only for the release check and downloads of §17.7)
+follows at most 3 redirect hops, and only to `https` URLs without credentials whose host is on a
+fixed allow-list passed by the caller (the initial request is checked against the same list
+before anything is dialed). Private destinations are never allowed for it, whatever
+`ALLOW_PRIVATE_WEBHOOKS` says. Environment proxies (`HTTPS_PROXY`, …) are ignored by every
+outbound client; the update client alone may use an explicitly configured `http`/`https` proxy
+(`TIDEMARK_UPDATE_PROXY`, §7; optional `user:password`, nothing but scheme, credentials, host and port). Then only that proxy
+is dialed (it may be a private address, being operator configuration), every request is tunnelled
+with `CONNECT`, the allow-list still applies to the request URL and every redirect, and the
+proxy's credentials never appear in errors or logs (only `scheme://host:port` is logged).
 
 ### 15.7 Web hardening
 Headers on every UI/API response: `Content-Security-Policy: default-src 'self'; script-src 'self';
@@ -2130,10 +2168,27 @@ migrations and admin services.
   stable release that has been public for at least 7 days, so a freshly published compromised
   version is usually detected and withdrawn before it is used. A version already pinned newer
   (e.g. for a security fix) is never downgraded.
+- **Update check (§17.7):** the daily request to `api.github.com` carries no installation data
+  (fixed `User-Agent: OpenTidemark-update-check`, no version, node id, cookies or tokens); GitHub
+  sees the server's IP address (or the proxy's) and the time. `TIDEMARK_UPDATE_CHECK=false` stops
+  all update traffic; development builds never make the request.
+- **Release signing (§17.6):** every release signs `checksums.txt` with minisign (Ed25519,
+  prehashed). The signing key is held as an Actions secret of a protected environment that only
+  `main` of the main public repository may use, and only the workflow job that signs (which runs
+  no build code) can read it; an offline backup key can replace it. Both public keys are built
+  into the binary (`internal/update/keys.go`) and published in `SECURITY.md`. A release without
+  the key fails; nothing is published unsigned.
 - Container: distroless `nonroot` (UID 65532), read-only root FS, `no-new-privileges`, all
   capabilities dropped; data only in `/data` volume.
 - Linux service runs as dedicated `tidemark` user with systemd hardening (`ProtectSystem=strict`,
   `NoNewPrivileges`, `PrivateTmp`, …). Windows service runs as `NT SERVICE\Tidemark` virtual account.
+- **Update helper (§17.7):** the service never has write access to its own binary. It only
+  downloads and stages a release in its data directory; the Linux helper
+  (`tidemark-update.service`) runs the installed root-owned binary as root but without
+  capabilities, network or write access outside `/usr/local/bin` and its state directory,
+  re-verifies the staged files with the built-in signing keys (so a compromised service can at
+  most ask for a genuine, newer release), refuses downgrades and rolls back what does not confirm.
+  `--no-self-update` leaves it out.
 
 ### 15.10 Data access by stream
 Every read of telemetry data is limited to the caller's **stream scope** (`model.StreamScope`,
@@ -2211,7 +2266,12 @@ selection is not a security boundary — keep production data in its own stream.
 
 Global shell: collapsible left nav, top bar with the **scope picker** (streams and environment,
 §16.6; on Events, Traces, Metrics and dashboard views), the global time picker (relative presets
-+ absolute range, synced to URL), theme toggle (dark default, light, system), user menu. All
++ absolute range, synced to URL), the **update chip** (admins only: once the release check (§17.7)
+knows a newer release, a small accent chip "Update available · v<x>" linking to
+`/settings/system#update`, reading "Updating…" with a spinner while `state` is not `idle`; on
+phones an icon-only button in the mobile bar with the same accessible name; `GET /system/update` is asked only for admins, at most every 15 minutes, so other
+roles never make the request; it is a chip, never a banner — banners are reserved for the
+default-credentials warning), theme toggle (dark default, light, system), user menu. All
 explorer state (q, from, to, streams, env, signals, selected event) is in the URL for shareable
 links. A user who can see no stream (§15.10) gets, instead of those views, the empty state "You
 don't have access to any streams yet · Ask an admin to add you to a team", and no query is sent.
@@ -2345,7 +2405,64 @@ members, streams with "none · members see nothing" for a team without grants, u
 team" dialog (name 1–64, description); the team page with three cards that save on their own and
 show *Unsaved changes* / *Saved* — Details (rename, description, "Delete team" with typed
 confirmation), Members (searchable multi-select of users) and Streams (multi-select of known
-streams plus typed names validated against §8.1 and marked "no data yet").
+streams plus typed names validated against §8.1 and marked "no data yet"); **System**: a
+full-width **Updates** card (`id="update"`, §17.7) above the version, queue, counter and
+ClickHouse cards. Its headline is one of "Update available" with `v<latest>` (and a
+*pre-release* tag), "Up to date", "Check failed", "Not checked yet · the first check runs within
+15 minutes of start", or an info notice for `enabled:false` (`TIDEMARK_UPDATE_CHECK=false`, with
+a link to the releases page) and for a development build; a failed last check (`error`) adds a
+warning with what to do (`unreachable` → outbound HTTPS to `api.github.com` or
+`TIDEMARK_UPDATE_PROXY`; `rate_limited`; `invalid_response` → a proxy or captive portal;
+`not_found`) and keeps the last known release. Facts: running version, latest release with its
+published date (`YYYY-MM-DD HH:mm` local) and a "Release notes" link (`latest.notesUrl`,
+`target="_blank" rel="noopener noreferrer"`), last checked (date and age), installation kind.
+"Check now" (hidden when disabled or a development build) calls `POST /system/update/check`,
+replaces the status and toasts the result; a `429` shows "Checked less than a minute ago. Try
+again in <Retry-After> s.", a `409` its `details.reason` in words. "How to update" (while a
+newer release is known) depends on the installation: `container` → copyable commands (set
+`TM_IMAGE=ghcr.io/zeraorg/tidemark:<version>` in `.env`, `docker compose pull tidemark && docker
+compose up -d --no-build tidemark`; built from source `git fetch --tags && git checkout
+v<version> && docker compose up -d --build`); `apply.reason` `ha` → one node at a time with a
+link to the rolling upgrade; `unsupported-platform` → build from source; otherwise the installer
+with a link to the upgrade guide; `helper-missing` and `not-a-service` first say in bold why the
+installer is the way (the helper is missing — the installer adds it, so later releases install from
+the card; the service install is needed). A `lastResult` adds the fact "Last update" ("installed
+v<to> (from v<from>)", "rolled back to v<from> after installing v<to>", "failed to install v<to>",
+with date and age), and a `rolled_back` or `failed` result shows a danger notice ("The update to
+v<to> was rolled back; v<current> is running again." / "… failed; v<current> keeps running.", the
+`message`, and where the helper's log is: `journalctl -u tidemark-update`, the Windows Application
+event log).
+
+**One-click install** (while `apply.supported` and a newer release is known): the actions row adds
+the primary button "Install v<latest>", which opens a confirmation dialog (focus-trapped, Escape
+closes and returns focus) that explains the flow (download, signature and checksum verification,
+install, restart), the pause (ingestion pauses for about 15–30 s; accepted events are kept and
+clients retry), the automatic rollback when the new version is not healthy within 10 minutes, and
+links the release notes. A major bump, or a minor bump before 1.0 (breaking changes possible),
+adds a warning and requires typing the version before "Install" enables; a patch release needs
+no typing. Confirming calls `POST /system/update/apply` `{version}`: `202` replaces the status
+and starts the progress view; `409 in-progress` also shows the progress view; `400` field
+`version` (the latest release changed) closes the dialog, says so in a warning and refetches the
+status; other `409` reasons (`draining`, `wal-failed`, an `apply.reason`) stay in the dialog in
+words. The version being installed, the version running before it and `lastResult.at` at the
+start are remembered in `localStorage` (`tm.update.target`) so the view survives a reload or a
+new sign-in. **Progress view** (`role="status"`, `aria-live="polite"`, named "Installing v<x>"):
+the status is polled every 2 s; four steps (Download, Verify, Install, Restart) with the current
+one marked, a line per state ("Downloading <bytes> of <total>" with a `progressbar`, "Verifying
+the signature and checksum…", "Handing over to the update helper…" for `staged`, "Installing the
+new binary…", "Restarting the service…", "Waiting for the update to start…" while the server has
+not reported a state yet), and a note to keep the page open. A poll that fails with a network
+error, `502`, `503` or `504` means the server is restarting: the view shows "Restarting the
+service… the server is coming back; this page reconnects on its own." and polling continues;
+after 15 minutes unreachable (or 15 minutes without any reported state) a warning says it is
+taking longer than expected and names the helper's log (`journalctl -u tidemark-update`, the
+Windows Application event log). A `401` during the restart toasts "Sign in again to keep
+following the update" before the usual redirect to the login page, and the card resumes after the
+sign-in. While the view is shown the headline chip reads "Updating" and "Check now" and "Install"
+are hidden. Once the status reports `current` = the installed version the card toasts
+"Installed v<x>" and returns to its normal state ("Up to date" with the "Last update" fact); once
+`lastResult` records this attempt as `rolled_back` or `failed` the view ends and the danger notice
+above shows the outcome.
 
 ### 16.5 Accessibility & responsiveness
 WCAG 2.1 AA contrast in both themes; full keyboard navigation (`/` focuses query bar, `j/k`
@@ -2357,8 +2474,8 @@ works from 360 px wide (explorer collapses rails into sheets).
   transport, preference store, series palette, clock) and provides them by context; components
   use only those interfaces, so tests and mock mode substitute fakes. Server state lives in
   TanStack Query; per-browser preferences in `localStorage` keys `tm.theme`, `tm.density`,
-  `tm.history`, `tm.columns.logs`, `tm.nav.collapsed`, `tm.passwordPrompt`, `tm.scope` (every
-  access guarded).
+  `tm.history`, `tm.columns.logs`, `tm.nav.collapsed`, `tm.passwordPrompt`, `tm.scope`,
+  `tm.update.target` (every access guarded).
 - **Scope picker** (`web/src/app/ScopePicker.tsx`, `scope.ts`): the selection lives in the URL
   (`streams`, `env`, comma lists; capped at the §11.3 limits) and the last applied choice in
   `tm.scope`, which is re-applied when a scoped route is opened without either parameter (so
@@ -2381,7 +2498,8 @@ works from 360 px wide (explorer collapses rails into sheets).
   `ApiError{status, code, message, details}` with client codes `network`, `timeout`, `http_<n>`;
   a 401 outside the login/me probe clears the session and routes to `/login?next=<path>` (only
   same-origin paths are accepted as `next`). `invalid_query` byte offsets (`pos`/`len`) and
-  completion ranges are converted between UTF-8 bytes and UTF-16 code units.
+  completion ranges are converted between UTF-8 bytes and UTF-16 code units. A `Retry-After`
+  header given in seconds is carried as `details.retryAfter` (`ApiError.retryAfter`).
 - **Session:** the default-credentials banner (`me.defaultCredentials`) cannot be dismissed and
   links to the account form; after a sign-in with `mustChangePassword` the login page offers the
   change ("Not now" allowed, §15.2) and a toast repeats the prompt once per sign-in.
@@ -2475,7 +2593,8 @@ Normative details:
   Both build stages run on the build platform (`FROM --platform=$BUILDPLATFORM`) and the Go
   stage cross-compiles with `GOOS=$TARGETOS GOARCH=$TARGETARCH` (BuildKit's automatic build
   arguments), so the multi-arch release image (§17.6) needs no emulation for npm or the Go
-  compiler; build argument `VERSION` (default `dev`) is stamped with `-X main.version`.
+  compiler; build argument `VERSION` (default `dev`) is stamped with `-X main.version`, and
+  `-X main.distribution=container` marks the binary as the container distribution (§17.6, §17.7).
 - Published image (§17.6): `ghcr.io/zeraorg/tidemark:<version>` (also `<major>.<minor>` and
   `latest` for releases without a pre-release suffix), `linux/amd64` + `linux/arm64`. Compose
   uses it when `.env` sets `TM_IMAGE` to it and the stack is started without building
@@ -2484,22 +2603,38 @@ Normative details:
   release (§17.6) holds a copy of this Compose file without the `build:` block whose image
   defaults to `ghcr.io/zeraorg/tidemark:<version>`, so the same installers pull instead of
   building there (`docker compose up -d --build` with nothing to build pulls missing images).
+- Containers never update themselves (§17.7): `apply.reason` is `container`; a new version is
+  pulled as above.
 
 ### 17.3 Native installs
-- **Linux:** `sudo install.sh native <binary> [--start]` creates user `tidemark`,
+- **Linux:** `sudo install.sh native <binary> [--start] [--no-self-update]` creates user `tidemark`,
   `/var/lib/tidemark` (0750), `/etc/tidemark/tidemark.env` (root:tidemark 0640, from
   `.env.example` with generated secrets and `TIDEMARK_CLICKHOUSE_ADDR=localhost:9000`, only when
   absent), installs the binary to `/usr/local/bin/tidemark` and `deploy/tidemark.service`
   (hardened: `ProtectSystem=strict`, `NoNewPrivileges`, `PrivateTmp`, `SystemCallFilter=@system-service`,
   no capabilities; `MemoryDenyWriteExecute` is **not** set: it was incompatible with the earlier
-  run-time-compiled SQLite build and has not yet been verified with the translated one).
-- **Windows:** `install.ps1 -Mode Native -Binary <tidemark.exe> [-OpenFirewall] [-Start]` (as
+  run-time-compiled SQLite build and has not yet been verified with the translated one;
+  `SuccessExitStatus=3` and `RestartForceExitStatus=3` restart it for an update, §17.7). Unless
+  `--no-self-update` is passed it also creates `/var/lib/tidemark/update` (`tidemark:tidemark`
+  0750), installs `deploy/tidemark-update.service` and `deploy/tidemark-update.path` and enables
+  the path unit (`systemctl enable --now`); `--no-self-update` disables and removes them if
+  present. Existing installs get the helper by running the installer again.
+- **Windows:** `install.ps1 -Mode Native -Binary <tidemark.exe> [-OpenFirewall] [-Start] [-NoSelfUpdate]` (as
   Administrator) copies `tidemark.exe` to `%ProgramFiles%\Tidemark`, writes config to
   `%ProgramData%\Tidemark\tidemark.env` (same rules as Linux), runs `tidemark.exe service install`
   (service name `Tidemark`, account `NT SERVICE\Tidemark`, delayed auto start, recovery: restart
   on failure, also when the service stops with an error exit code — failure actions on non-crash
   failures), restricts `%ProgramData%\Tidemark` to Administrators, SYSTEM and the service
   account, and opens inbound TCP 8080, 5341, 9200, 4317, 4318 only if `-OpenFirewall` is passed.
+  Unless `-NoSelfUpdate` is passed it creates `%ProgramFiles%\Tidemark\state` (inheriting the
+  Program Files permissions: administrators and SYSTEM write, users read) and
+  `%ProgramData%\Tidemark\update` and runs `tidemark.exe service install-update` (§17.7);
+  `-NoSelfUpdate` runs `service uninstall-update`. A new registration uses
+  `service install --no-self-update` and then that step, so existing installs get the helper by
+  running the installer again. `tidemark service install [--no-self-update] [serve flags]`
+  registers `Tidemark` and, without the flag, the update service; `install-update` registers it
+  or, when it exists, updates its binary path and permissions; `uninstall-update` deletes it if
+  present; `uninstall` deletes both.
 - ClickHouse for native installs is set up separately (native packages or Docker) with the users of
   `deploy/clickhouse/users.d` and the passwords from `tidemark.env`. The users read their
   passwords from the ClickHouse server's environment (`from_env`), so `docs/installation.md`
@@ -2517,7 +2652,8 @@ Normative details:
 - `make build` / `.\build.ps1 build`: `npm ci && npm run build` in `web/`, then
   `CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$VERSION" ./cmd/tidemark`.
   `$VERSION` defaults to `git describe --tags --always --dirty` (or `dev`) for development builds;
-  release archives take it from the `VERSION` file instead (`dist`, §17.6).
+  release archives take it from the `VERSION` file instead (`dist`, §17.6). These builds (and
+  `cross`, `dev`) set no `main.distribution`, so they are development builds (§17.7).
 - `Makefile` and `build.ps1` expose the same targets: `build`, `web` (copies `web/dist` into
   `internal/web/assets/dist`), `cross` (the three release targets into `bin/`), `dist` (release
   archives and `checksums.txt` into `dist/`, §17.6), `checksums` (rewrites `dist/checksums.txt`),
@@ -2709,7 +2845,8 @@ HA PostgreSQL (`TIDEMARK_META_DRIVER=postgres`). A load balancer (HAProxy/nginx/
 - **Graceful drain:** on SIGTERM / service stop, `/readyz` returns 503 immediately, the node keeps
   serving for `TIDEMARK_DRAIN_SECONDS` (default 10) so the LB removes it, then stops listeners and
   flushes the WAL to ClickHouse.
-- **Rolling upgrades:** upgrade one node at a time; additive migrations (§8.5) keep old nodes
+- **Rolling upgrades:** one-click update (§17.7) is off in HA mode (`apply.reason` `ha`); upgrade
+  one node at a time with the installer; additive migrations (§8.5) keep old nodes
   working; the first upgraded node migrates under the migration lock.
 - A node whose WAL holds data for a failed ClickHouse keeps it until a replica is reachable; a
   permanently lost node loses only its unflushed WAL (bounded by `TIDEMARK_WAL_MAX_BYTES`; the
@@ -2745,15 +2882,21 @@ HA PostgreSQL (`TIDEMARK_META_DRIVER=postgres`). A load balancer (HAProxy/nginx/
   both Linux archives, the Windows archive, `docker pull ghcr.io/zeraorg/tidemark:<version>`,
   the offline documentation bundle `tidemark_<version>_docs.zip`), a
   pointer to the `INSTALL.md` of each archive, to `docs/installation.md` at tag
-  `v<version>` and to the documentation site, and the verification commands (`sha256sum -c`, `gh attestation verify` for an
-  archive and the image). It fails with a clear message when the section is missing or empty; it
+  `v<version>` and to the documentation site, and the verification commands (`minisign -Vm
+  checksums.txt -P <CI key>` with the trusted comment it prints, `sha256sum -c`, `gh attestation
+  verify` for an archive and the image), followed by the backup key and a link to `SECURITY.md`. It fails with a clear message when the section is missing or empty; it
   is the release notes source.
 
 **Archives (`make dist` / `.\build.ps1 dist`).** Both read the version from `VERSION` only (never
 from git, so the same commit gives the same archives locally and in CI), fail unless it matches
 the pattern, run `web`, recreate `dist/` and build for each of `linux/amd64`, `linux/arm64` and
-`windows/amd64` with `CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=<version>"`
-(`tidemark version` prints `tidemark <version>`), the web UI embedded. Each archive holds one
+`windows/amd64` with `CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=<version>
+-X main.distribution=archive"` (`tidemark version` prints `tidemark <version>`), the web UI
+embedded. **Distribution stamp:** `main.distribution` is `archive` for these archives (build.ps1:
+`Build-Binary -Distribution archive`) and `container` for the Dockerfile (§17.2); it is empty for
+every other build. Only a stamped binary whose version matches the pattern above is a release
+build; anything else is a development build without update checks (§17.7).
+`TestDistributionStamp` keeps the three stamps. Each archive holds one
 directory `tidemark_<version>_<os>_<arch>/` with the binary (`tidemark` / `tidemark.exe`),
 `INSTALL.md` (copied from `deploy/install/INSTALL-<os>.md`) and the files of the shared lists
 (`DIST_FILES` in the Makefile, `$DistFiles` in build.ps1; kept equal and existing by
@@ -2799,8 +2942,9 @@ checksums`), so the bundle is listed next to the archives. The online site never
 offline configuration.
 
 `deploy/install/INSTALL-{linux,windows,docker}.md` are version-independent and use only absolute
-`https://` links (`TestInstallDocs`); they cover verifying the download (checksum and
-`gh attestation verify`), installing (Linux: `sudo ./deploy/install.sh native ./tidemark` and a
+`https://` links (`TestInstallDocs`); they cover verifying the download (the minisign
+signature of `checksums.txt` with the CI key, the backup key and the expected trusted comment, the
+checksum and `gh attestation verify`), installing (Linux: `sudo ./deploy/install.sh native ./tidemark` and a
 short ClickHouse setup; Windows: `Unblock-File` or `-ExecutionPolicy Bypass`, Administrator,
 the SmartScreen note for the unsigned `tidemark.exe`, ClickHouse in Docker Desktop; Docker:
 `./install.sh docker` / `.\install.ps1 -Mode Docker`, `TM_BIND_ADDR=127.0.0.1`, the collector
@@ -2843,16 +2987,31 @@ the workflow env `PUBLIC`):
 - Job `supply-chain` ("supply chain", `contents: read`; needs `prepare`): checks out the source
   commit and runs OSV-Scanner on `go.mod` and `web/package-lock.json` (§15.9); a finding fails
   it and with it every later job, so nothing is built, tagged or pushed.
-- Job `build` ("archives", needs `prepare` and `supply-chain`, `contents: read`, `id-token: write`, `attestations: write`): checkout
+- Job `build` ("archives", needs `prepare` and `supply-chain`, `contents: read`): checkout
   of the source commit, setup-go (`go-version-file`), setup-node 24 (npm cache), `make dist`
   through `scripts/ci-annotate.sh`, then setup-python 3.13 (pip cache keyed on
   `docs-site/requirements.txt`), `pip install --require-hashes` and `make docs-offline` (the
-  documentation bundle above, which rewrites `checksums.txt`); in the main public repository a
-  build provenance attestation of every archive and the bundle
-  (`actions/attest-build-provenance`, `subject-checksums: dist/checksums.txt`); uploads `dist/`
-  as artifact `dist` (7 days). `internal/repotest` (`TestReleaseDocsBundle`) checks that the
+  documentation bundle above, which rewrites `checksums.txt`); uploads `dist/` as artifact `dist`
+  (7 days). `internal/repotest` (`TestReleaseDocsBundle`) checks that the
   workflow, both task runners, `mkdocs.offline.yml`, the hook and the release notes keep the
   bundle.
+- Job `sign` ("sign", needs `build`; `contents: read`, `id-token: write`, `attestations: write`;
+  10 min): the only job with a GitHub environment, `release` (set in the main public repository
+  only; other repositories run the job without one), which holds the release signing key
+  (an unencrypted minisign secret key) and which only `main` may use; it checks nothing out and
+  runs no build code. It downloads `dist`, installs minisign (`MINISIGN_VERSION` `0.12`, the
+  official `minisign-<version>-linux.tar.gz` from `github.com/jedisct1/minisign` releases,
+  checked against the pinned `MINISIGN_SHA256`), writes the key to a `0600` file under the
+  runner's temporary directory (removed on exit, never printed) and runs `minisign -S -m
+  dist/checksums.txt -x dist/checksums.txt.minisig -t "opentidemark v<version> checksums.txt"`
+  (prehashed, the default). The trusted comment binds the signature to the release; the updater
+  requires it (§17.7). The signature must then verify with one of the trusted public keys
+  (`RELEASE_SIGNING_KEYS`, equal to `internal/update/keys.go`) and print that comment. Without
+  the key the main public repository fails the run with an error annotation (no unsigned
+  release); elsewhere the draft is signed with a throwaway key generated on the runner. In the
+  main public repository it then attests the build provenance of every archive and the bundle
+  (`actions/attest-build-provenance`, `subject-checksums: dist/checksums.txt`). It uploads the
+  signature as artifact `signature` (7 days).
 - Job `image` ("container image", needs `build`; `contents: read`, `packages: write`,
   `id-token: write`, `attestations: write`; concurrency `release-image-<version>`, no cancel):
   `docker/build-push-action` with the Dockerfile, build argument `VERSION=<version>`, the
@@ -2873,8 +3032,9 @@ the workflow env `PUBLIC`):
   annotation and a job-summary line saying the package is private and how an owner makes it
   public; it does not fail the job, so the release still goes out. Elsewhere: Buildx only,
   `linux/amd64`, no push, no login.
-- Job `release` ("GitHub release", needs `build` and `image`; `contents: write`; concurrency
-  `release-<version>`, no cancel): downloads `dist`, writes the notes (passed through an environment
+- Job `release` ("GitHub release", needs `build`, `sign` and `image`; `contents: write`; concurrency
+  `release-<version>`, no cancel): downloads `dist` and `signature` (into `dist/`, so
+  `checksums.txt.minisig` is a release asset next to `checksums.txt`), writes the notes (passed through an environment
   variable, never inlined into the script). In the main public repository it checks the tag again (a
   parallel run may have released meanwhile, then it ends with a notice) and runs `gh release create
   v<version> dist/* --target <sha> --title "OpenTidemark v<version>" --notes-file …
@@ -2886,10 +3046,229 @@ the workflow env `PUBLIC`):
 - Because the release job runs last, a failed build or image push leaves no tag behind, so the
   next successful ci run of `main` (or a manual run) retries the same version.
 
-**Verifying a release (users).** `sha256sum -c checksums.txt` (PowerShell: `Get-FileHash`);
+**Verifying a release (users).** `minisign -Vm checksums.txt -P RWTzWC1xqWTY457VdX92WvxpPeXXOUhpiGzch3af0NEoe9ENK8bEbiDE` (the CI key; the
+offline backup key is `RWSeiFy+aYECqVbvFDNIW//gdsHLox72jDPcY3swGgJm/WQTA+0s9nwP`), which must print
+`Trusted comment: opentidemark v<version> checksums.txt`; then `sha256sum -c checksums.txt`
+(PowerShell: `Get-FileHash`);
 `gh attestation verify <archive> --repo ZeraOrg/opentidemark`; `gh attestation verify
 oci://ghcr.io/zeraorg/tidemark:<version> --repo ZeraOrg/opentidemark`. Releases 0.2.0 and earlier
-were attested under the former repository name (§1) and verify with `--repo ZeraOrg/tidemark`.
+were attested under the former repository name (§1) and verify with `--repo ZeraOrg/tidemark`. Releases 0.4.0 and earlier are not signed. `SECURITY.md`
+lists both keys with their key ids (`E3D864A9712D58F3`, `A9028169BE5C889E`); key rotation signs the
+next release with the backup key and ships the new key in the binary and the documents.
+
+### 17.7 Updates
+
+**Release check** (`internal/update`, wired in `internal/app/wire_update.go`).
+- **Build kinds.** `cmd/tidemark` passes `app.BuildInfo{Version, Distribution, WindowsService}`
+  to `app.New`. A **release build** has `Distribution` `archive` or `container` (§17.6) and a
+  `Version` matching the §17.6 pattern; every other build (plain `go build`, `make build`,
+  `make dev`, a local Docker build with `VERSION=dev`, …) is a **development build**: install kind
+  `dev`, no outbound request ever.
+- **Install kind** (`update.DetectInstallKind`, OS-specific files only): `dev` for development
+  builds; `container` when stamped `container` or, on Linux, when `/.dockerenv` or
+  `/run/.containerenv` exists; `systemd` on Linux when `INVOCATION_ID` is set; `windows-service`
+  when running under the Service Control Manager (detected by `cmd/tidemark`); else `manual`.
+- **Request.** Only through the update client (§15.6) with the host allow-list `api.github.com`,
+  `github.com`, `release-assets.githubusercontent.com`, `objects.githubusercontent.com` and the
+  optional `TIDEMARK_UPDATE_PROXY`; 30 s per request. A stable node asks
+  `GET https://api.github.com/repos/ZeraOrg/opentidemark/releases/latest`, a node running a
+  pre-release `GET …/releases?per_page=30`. Headers: `Accept: application/vnd.github+json`,
+  `X-GitHub-Api-Version: 2022-11-28`, `User-Agent: OpenTidemark-update-check`; nothing else
+  identifies the installation (no version, node id or install data). The `ETag` of each answer is
+  sent back as `If-None-Match`; `304` reuses the previous answer. The body is read up to 1 MiB.
+  Only `tag_name`, `draft`, `prerelease` and `published_at` are used.
+- **Errors** (`error` in the status): `unreachable` (network error, timeout, `5xx`),
+  `rate_limited` (`429`, or `403` with `Retry-After` or `X-RateLimit-Remaining: 0`; the next
+  scheduled attempt waits for `Retry-After` seconds or `X-RateLimit-Reset`, at most 25 h),
+  `not_found` (`404`), `invalid_response` (other status, `304` without a cached answer, invalid
+  JSON, a body over 1 MiB, an object without `tag_name`). A failure keeps the last known
+  `latest`.
+- **Selection** (`update.Select`): drafts are ignored, and so are tags other than `v<version>`
+  with `<version>` matching the §17.6 pattern and valid SemVer 2.0 pre-release identifiers, and
+  versions whose precedence is not above the running one (never a downgrade). A stable node only
+  considers stable releases (no pre-release suffix and not flagged `prerelease`); a pre-release
+  node considers every non-draft release. The highest SemVer 2.0 precedence (pre-release
+  identifiers compared numerically or in ASCII order, a release above its pre-releases) wins. The
+  notes URL is built by the server as
+  `https://github.com/ZeraOrg/opentidemark/releases/tag/v<version>`; URLs from the response are
+  never used.
+- **Schedule** (background job; on HA nodes each node checks for itself): first check a random
+  1–15 min after start, then every 24 h ± 1 h (random). A failed check is retried after 1 h (or
+  when the rate limit ends); after six failed attempts in a row the daily rhythm resumes.
+  `POST /system/update/check` (§11.5) checks immediately, at most once per 60 s since the
+  previous check of either kind. The status lives in memory only; after a restart it has no
+  `latest` until the first check.
+- **Status** (`update.Status`, §11.5): `enabled` (= `TIDEMARK_UPDATE_CHECK`), `current` (running
+  version), `nodeId`, `installKind` (`systemd` | `windows-service` | `container` | `manual` |
+  `dev`), `apply {supported, reason}`, `latest {version, prerelease, publishedAt (UTC),
+  notesUrl}` (only while a newer release is known), `available` (`latest` present), `checkedAt`
+  (time of the last attempt, successful or not), `error` (code of the last attempt, omitted after
+  a success), `state` (`idle`, or the step of the update being applied: `downloading`,
+  `verifying`, `staged`, `installing`, `restarting`), `progress {bytes, total}` (archive download,
+  while applying) and `lastResult {phase, from, to, at, message}` (the last attempt: what this
+  process saw, else the helper's `state.json`; phase `installed`, `rolled_back` or `failed`).
+  `apply.supported` (`Install.Apply`) is `true` unless a `reason` applies; the first that applies
+  of `disabled` (check off), `dev`, `container` (update by pulling the new image), `ha`
+  (PostgreSQL metadata, §17.5), `unsupported-platform` (no release archive for this GOOS/GOARCH;
+  archives exist for `linux/amd64`, `linux/arm64`, `windows/amd64`), `not-a-service` (install
+  kind `manual`) and `helper-missing` (no helper for this binary, `update.HelperInstalled`:
+  Linux needs install kind `systemd`, the executable `/usr/local/bin/tidemark` and
+  `/etc/systemd/system/tidemark-update.path`; Windows install kind `windows-service`, the
+  executable `%ProgramFiles%\Tidemark\tidemark.exe` (case-insensitive) and the `TidemarkUpdate`
+  service, opened with `SC_MANAGER_CONNECT` and `SERVICE_QUERY_STATUS` only). A newly found release is logged once at `info`, a failed check at
+  `warn` with its code.
+- **Trusted signing keys** (`internal/update/keys.go`): the CI and backup minisign public keys of
+  §17.6 (`TrustedSigningKeys`) and the required trusted comment `opentidemark v<version>
+  checksums.txt` (`ChecksumsTrustedComment`); a signature by either key is valid. `internal/repotest`
+  keeps them equal to the keys in `SECURITY.md`, the INSTALL guides, `docs/installation.md`, the
+  release notes and the workflow.
+- **Opt-out and privacy:** `TIDEMARK_UPDATE_CHECK=false` makes no update request at all (the API
+  still answers, with `enabled:false`); §15.9 describes what GitHub sees.
+
+**One-click update** (`update.Manager` for the API, `update.Applier`, wired only where
+`apply.supported`). `POST /system/update/apply` (§11.5) hands the version to the applier, which
+works in the background, one update at a time: `downloading` (the staging steps below through
+the update client with a 15 min timeout per request; before the archive is written the staging
+directory's file system must have 3 × its announced size free, else `failed` with "not enough
+free disk space"), `verifying` (archive complete), `staged` (`request.json` written), then it
+starts the helper (Windows: `StartService` on `TidemarkUpdate` with `SC_MANAGER_CONNECT` and
+`SERVICE_START`; Linux: the path unit reacts to `request.json`), `installing` (polls `state.json`
+every second, up to 5 min, for the request id) and `restarting` once the helper recorded
+`installed` (the restart follows as below). A helper `failed` or `rolled_back`, a failed step or
+no pickup within 5 min ends in `idle` with `lastResult` `failed` and the audit event
+`update.failed` (§15.5; stage `download`, `verify` for signature or checksum errors, or
+`install`). Request ids are UUIDs. The outcome events: the new version records
+`update.installed` when it confirms, the version after a rollback records `update.rolled_back`
+at its start, and a helper failure is recorded once (`reported.json` in the staging directory
+remembers the last outcome reported, so restarts do not repeat it).
+
+**Staging and installing** (`internal/update`). The unprivileged service *stages* a release; a
+privileged *helper* (the installed binary, run by the OS service manager) installs it. The
+service account never gets write access to its binary.
+Only Linux and Windows on the release platforms (§17.6) are supported; elsewhere every step fails
+with an unsupported-platform error.
+- **Signature verification** (`verify.go`, from the minisign format): a public key is base64 of
+  `Ed` ‖ 8-byte key id ‖ 32-byte Ed25519 key; a signature file has exactly four lines (LF or CRLF):
+  `untrusted comment: …`, base64 of algorithm ‖ key id ‖ 64-byte signature, `trusted comment: …`,
+  base64 of the 64-byte global signature. Checked in this order: format; algorithm `ED`
+  (Ed25519 over BLAKE2b-512 of the file, `golang.org/x/crypto/blake2b`; the legacy non-prehashed
+  `Ed` is refused); key id equal to one of the trusted keys (§17.6, `TrustedSigningKeys`); the
+  signature over the BLAKE2b-512 digest of `checksums.txt`; the global signature over signature ‖
+  trusted comment; trusted comment exactly `opentidemark v<version> checksums.txt` for the
+  version being staged or installed. Every failure wraps one error (`ErrSignature`).
+- **`checksums.txt`** (`checksums.go`): exactly the sha256sum text format of `make checksums`:
+  LF-terminated lines `<64 lower-case hex>  <name>` with a plain file name
+  (`[A-Za-z0-9][A-Za-z0-9._-]*`), at least one line, no blank, duplicate or other lines; the
+  archive is looked up by its asset name.
+- **Staging** (`stage.go`, `Stager` with an injected HTTP client — the update client — and an
+  injected staging directory): request `{id, version}` with `id` matching `^[A-Za-z0-9-]{1,64}$`
+  and a §17.6 version. The asset is `tidemark_<version>_linux_<arch>.tar.gz` or
+  `tidemark_<version>_windows_amd64.zip`; URLs are always
+  `https://github.com/ZeraOrg/opentidemark/releases/download/v<version>/<file>` (never taken
+  from a response; `User-Agent: OpenTidemark-update-check`). Steps:
+  download `checksums.txt.minisig` (at most 4 KiB) and `checksums.txt` (64 KiB) into memory and
+  verify the signature, then the listed asset (200 MiB) into a temporary file whose SHA-256 must
+  match before anything is kept; a non-`200` answer, a larger `Content-Length` or body fails.
+  Then `checksums.txt`, `checksums.txt.minisig` and the archive are put in place by rename,
+  archives of earlier stagings (`tidemark_*`) are removed, and `request.json` is written last
+  (temporary file, sync, rename). A rejected download leaves nothing behind. An earlier
+  `request.json` is not deleted first (only replaced at the end): deleting it would touch the
+  file the Linux path unit watches and could lose the trigger of the new request, and an old
+  request paired with newer files only fails verification, because the helper binds the trusted
+  comment and the archive name to the request's version.
+- **Helper protocol files:** in the staging directory `request.json` `{id, version}` (service →
+  helper) and `confirmed.json` `{id, version}` (new version → helper); in the helper's private
+  work directory `install.lock`, `state.json` `{id, phase, from, to, at, message}` with phase
+  `installed` | `rolled_back` | `failed` (`at` UTC, `message` the error or rollback reason) and
+  temporary `install-*` copies. Files the service writes for the helper (`request.json`, the
+  release files, `confirmed.json`) get mode `0640`, `state.json` mode `0644` (the service reads
+  it); other files `0600`. Protocol files are read up to 4 KiB; every file the helper reads
+  from the staging directory must be a regular file (Linux: opened with `O_NOFOLLOW` and checked
+  on the descriptor; Windows: symlinks, junctions and other reparse points refused before opening
+  and the opened handle must be the same file).
+- **Install** (`install.go`, `Installer` with injected directories, binary path, its own version,
+  platform, trusted keys and clock): take the lock (exclusive create; a lock older than 30 min is
+  stale and taken over once; otherwise "locked"); read the request (none ⇒ nothing staged); a
+  request whose id `state.json` already records returns that state without doing anything
+  (idempotent, also after a failure or rollback). Otherwise, refuse a version not above the
+  installed one (no downgrade or reinstall), read `checksums.txt` and its signature and copy the
+  archive into a private temporary directory (size caps as above), re-verify the signature with
+  the embedded keys and the archive's SHA-256, extract the binary to `<bin>.new` (mode `0755`,
+  synced) and swap: Linux hard-links `<bin>` to `<bin>.previous` and renames `<bin>.new` over
+  `<bin>` (atomic; a running process keeps its inode); Windows renames the possibly running
+  `<bin>` aside to `<bin>.previous` and `<bin>.new` to `<bin>`, renaming back if that fails.
+  `state.json` (temporary file, sync, rename) then records `installed`; any failure after the
+  request was read records `failed` with the binary unchanged and no `<bin>.new` left.
+- **Extraction** (`archive.go`): the archive must contain the binary
+  `tidemark_<version>_<os>_<arch>/tidemark` (Windows `tidemark.exe`) exactly once, compared after
+  cleaning the path. Every entry is checked: names must be relative, without `..`, backslash,
+  colon or NUL; only regular files and directories are allowed (symlinks, hard links and other
+  types fail the archive); the binary may be at most 256 MiB (`MaxBinaryBytes`) and must have the
+  declared size.
+- **Confirmation and rollback:** the new version writes `confirmed.json` naming the request id and
+  its version after being ready for 30 s (`ConfirmReadyAfter`); `WaitConfirmed` polls for it
+  (every second) up to 10 min (`ConfirmTimeout`). `Rollback(reason)` (under the lock, only after
+  `installed`) restores the previous binary — Linux renames `<bin>.previous` over `<bin>`; Windows
+  renames the possibly running `<bin>` aside to `<bin>.old` and `<bin>.previous` back to `<bin>`
+  (`.old` is deleted when Windows allows, else at the next install) — and records `rolled_back`.
+- **Fixed locations** (`update.DefaultPaths`, independent of the configuration so service and
+  helper agree): Linux binary `/usr/local/bin/tidemark`, staging directory
+  `/var/lib/tidemark/update`, helper work directory `/var/lib/tidemark-update`; Windows (known
+  folders, not environment variables) binary `%ProgramFiles%\Tidemark\tidemark.exe`, staging
+  directory `%ProgramData%\Tidemark\update` (inside the service's data directory), work directory
+  `%ProgramFiles%\Tidemark\state`; other systems have no helper. The helper creates its work
+  directory (0755) when missing.
+- **Helper flow** (`update.RunHelper`, built by `app.RunUpdateHelper`): install the staged request
+  (nothing staged ⇒ exit 0; a request already recorded as `failed` or `rolled_back` ⇒ nothing
+  happens); after a fresh install the helper restarts the service if it does that itself
+  (Windows; on Linux the service restarts itself, below), then waits for the confirmation; when
+  it does not come, or the restart fails, it rolls back (restarting again where it restarts) and
+  exits non-zero. A request already `installed` but unconfirmed (the helper was stopped while
+  waiting) is waited for again without a restart. Before it exits, the helper checks whether
+  `request.json` now holds a valid request that `state.json` does not record (staged while it
+  was busy, its trigger lost) and handles it as well, at most 3 requests per run (each round is
+  logged); a further one is left in place. Within a run the installer compares each request
+  with the version it last installed (or restored).
+- **Service-side watcher** (`update.Watcher`, a background job of the server on install kinds
+  `systemd` (with restarts) and `windows-service` (confirmation only)): polls every 5 s. If `state.json` at start records `installed` for the running
+  version and `confirmed.json` does not yet name that id, it writes `confirmed.json` once the
+  server has been ready without interruption for `ConfirmReadyAfter` (metadata and ClickHouse
+  answer within 5 s, no drain started, no failed WAL). With restarts enabled (Linux) a
+  `state.json` whose id or phase changed since the start and that records `installed` of another
+  version, or `rolled_back` of the running version, makes the server stop with
+  `app.ErrRestartForUpdate` through the normal drain (readiness 503 for `TIDEMARK_DRAIN_SECONDS`,
+  WAL flush); `tidemark` then exits with status 3 and systemd starts the binary now in place.
+  Only changes seen after the start count, so an old state never causes a restart loop.
+- **Linux helper units** (`deploy/`): `tidemark-update.path` (`PathModified=` on
+  `/var/lib/tidemark/update/request.json`, not `PathExists=`, because the helper never deletes the
+  request; enabled, `WantedBy=multi-user.target`) starts `tidemark-update.service`: `Type=oneshot`,
+  `User=root`, `SupplementaryGroups=tidemark` (reads the group-readable staged files),
+  `ExecStart=/usr/local/bin/tidemark update install`, `TimeoutStartSec=15min`,
+  `StateDirectory=tidemark-update` (mode 0755, the work directory), `UMask=0022`,
+  `ProtectSystem=strict` with only `/usr/local/bin` (and the state directory) writable,
+  `PrivateNetwork`, `PrivateTmp`, `PrivateDevices`, `ProtectHome`, `NoNewPrivileges`, the
+  `ProtectKernel*`/`Protect*` options, `RestrictAddressFamilies=AF_UNIX`,
+  `SystemCallFilter=@system-service`, `LockPersonality` and an empty capability bounding set
+  (root owns both writable directories, so no capability is needed). It never writes inside
+  `/var/lib/tidemark`. Logs: `journalctl -u tidemark-update`.
+- **`tidemark update check [--json]`** runs one release check with the server's configuration
+  (proxy, `TIDEMARK_UPDATE_CHECK`) and prints the result (`--json`: the §11.5 status object);
+  it exits non-zero when the check is disabled, this is a development build or the check failed.
+  `tidemark update install` is the Linux helper entry point.
+- **Windows update service:** `TidemarkUpdate` ("OpenTidemark update helper", LocalSystem,
+  `SERVICE_DEMAND_START`) runs `"<install dir>\tidemark.exe" update-service`; its DACL is
+  `D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)(A;;LCRP;;;<SID of NT SERVICE\Tidemark>)`
+  (set with `SetSecurityInfo` on `SE_SERVICE`), so the server may start it and query its status
+  and nothing else. The service accepts no stop control (stopping it while waiting would roll
+  back) and ends after the helper flow. It installs as above (the Installer's private copy in the
+  admin-only work directory is the copy the staged files are verified from; symlinks, junctions
+  and reparse points are refused) and restarts `Tidemark` through the SCM: stop (the server drains
+  as on any stop; "not active" counts as stopped), wait up to 2 min for `Stopped`, start
+  ("already running" is fine). Renames of the binary are retried 10 times 500 ms apart on a
+  sharing violation or access denied (a scanner holding the file), then the attempt fails with the
+  binary unchanged. Its log (JSON lines, last run only) is `<work dir>\update.log`; a failed run
+  is also written to the Application event log (source `Tidemark`). No exit-status restart is used
+  on Windows.
 
 ## 18. Testing & quality gates
 
@@ -2899,11 +3278,12 @@ were attested under the former repository name (§1) and verify with `--repo Zer
 | TQL | Golden tests: queries in `internal/tql/testdata/*.tql` (`%cursor`/`%streams a,b|none`/`%where` directives) ⇒ `*.golden` (canonical form, SQL + args + columns, or error with position and caret); regenerate with `go test ./internal/tql -run TestGolden -update`. Every §10.1 example is read from `docs/query-language.md` (`TestDocExamplesParseAndCompile`) and must parse and compile, and so must every query line of the reference's `tql` code blocks (`TestDocQueriesParseAndCompile`, at least 150 queries; queries meant to fail use `text` blocks); `internal/repotest` (`TestTQLDocExamplesMatchSpec`) asserts that block equals the §10.1 block of this file. Fuzz test `FuzzParse` (no panics, positioned errors, stable canonical round trip, no user text in SQL); found inputs are kept in `testdata/fuzz`. SQL-injection table (quotes, backticks, `--`, `;`, unicode, keys with `'`) and a max-size pathological-input timing test. |
 | Ingestion | Fixture bodies in `testdata/` captured from real clients: Serilog Seq sink (CLEF), NLog Seq target (legacy JSON), Filebeat/Fluent Bit/Vector/Logstash `_bulk`, OTLP JSON + protobuf logs/traces/metrics. |
 | Integration | Build tag `integration`; needs `TIDEMARK_TEST_CLICKHOUSE_ADDR` (+ `TIDEMARK_TEST_CLICKHOUSE_{DATABASE,WRITER_USER,WRITER_PASSWORD,READER_USER,READER_PASSWORD}`). `scripts/with-clickhouse.sh <cmd>` starts a throw-away local server (binary from `$CLICKHOUSE_BIN`, `/opt/clickhouse/clickhouse` or `PATH`; temp dir; free loopback port; users from `deploy/clickhouse/users.d` with random passwords; a `backups` disk in the temp dir), exports those variables, runs the command and stops the server; with the variable already set it just runs the command. Packages run with `-p 1` because they share the `tidemark` database. Covers migrations, the reader against real data (`internal/store/clickhouse`), and end to end (`internal/app`): connection keys created via the API, rejection without a key / with a wrong-protocol key, Seq, ES `_bulk`, OTLP HTTP (JSON + protobuf) and native fixtures, then `POST /query` (events + cursor paging, table, timeseries), histogram, facets, fields, event by id + context, trace + trace search, metric names, export and live tail; stream access (`TestIntegrationStreamAccess`: logs, spans and metrics in two streams; a team member of one stream sees none of the other on every §15.10 path — queries incl. `stats count() by stream`, histogram, facets, fields, completion, event by id and context, CSV and NDJSON export, tail, trace search, a cross-stream trace, metric names and queries, streams list and fields; the selection never widens the scope; environments filter logs only; alert rules must name streams within the editor's scope, are hidden outside it and keep their streams after the author leaves the team; a team-less user sees every stream until deny-by-default is on and then sees nothing, without errors; an event naming a stream outside its connection's allowed streams lands in the default stream); retention TTL DDL. CI uses a ClickHouse service container (Linux job). Also covers insert deduplication of a replayed WAL batch and of a replayed import job (`tidemark import clef` of 12,345 lines, then the whole job re-run from an empty checkpoint: the row count is unchanged), address failover, operator commands (backup/restore/doctor) and the importers against fake sources. The replicated-schema test additionally needs `TIDEMARK_TEST_CLICKHOUSE_CLUSTER` and `TIDEMARK_TEST_CLICKHOUSE_CLUSTER_ADDRS` (a 1-shard, 3-replica cluster with Keeper, e.g. `deploy/ha/clickhouse/`); `scripts/with-clickhouse-cluster.sh <cmd>` starts such a cluster on loopback (three servers, each embedding Keeper with IPv6 disabled, free ports, users from `deploy/ha/clickhouse/users.d`, cluster `tidemark_cluster`), exports `TIDEMARK_TEST_CLICKHOUSE_{ADDR,CLUSTER,CLUSTER_ADDRS,WRITER_PASSWORD,READER_PASSWORD}` and removes it afterwards; PostgreSQL contract, bus and restore tests need `TIDEMARK_TEST_POSTGRES_DSN`. |
-| Security | Tests for auth on every route (table of routes × roles), CSRF, rate limits, key restrictions (protocol, CIDR, expiry, revoke), SSRF dialer, headers, SQL-injection attempts through TQL (fuzz corpus). |
-| Web | `tsc --noEmit`, ESLint (0 warnings), Prettier, Vitest with coverage ≥ 80 % statements/lines/functions and ≥ 70 % branches for `src/tql/**`, `src/lib/**` and `src/api/client.ts` (TQL highlighter, template renderer, builder↔TQL round-trip, client CSRF/errors/offsets, components; the scope helpers and `useDataScope` URL ↔ state round trip, the scope picker with one, many and no streams and its keyboard flow, the Teams pages and the endpoint parameters of the selection and team routes), production build + static CSP check, `npm audit --audit-level=high`, Playwright smoke against the mock build served with the production CSP (login + default-credentials banner, query, autocomplete, detail, analytics + add to dashboard, signal save, traces, metrics, dashboard create/edit, alerts drawer with the streams field, streams purge dry run, connection create with allowed streams, settings pages, the scope picker, an admin creating a team and granting a stream to a viewer who then sees only that stream with a static chip and an orphaned span, deny by default leading to the empty state without queries, light theme, keyboard, 390 px with the scope sheet); every e2e test fails on a CSP violation or page error and writes design-review screenshots. |
+| Security | Tests for auth on every route (table of routes × roles), CSRF, rate limits, key restrictions (protocol, CIDR, expiry, revoke), SSRF dialer, the update client (off-list and `http` redirects refused, more than 3 hops refused, private destinations blocked without a proxy, CONNECT through an explicit proxy, proxy credentials absent from errors), headers, SQL-injection attempts through TQL (fuzz corpus). |
+| Updates | `internal/update`: SemVer parsing and precedence table, selection table (drafts, tag shapes, stable/pre-release rules, no downgrade, server-built notes URL), the GitHub source against `httptest` (request path and headers, ETag/`304`, `403` with reset, `429` with `Retry-After`, `404`, `5xx`, oversize body, invalid JSON), the checker schedule with a fake clock and fixed jitter (first check, daily, hourly retries, six attempts, rate-limit wait), no request when disabled or a development build, the 60 s gap, apply reasons and install-kind detection per OS; minisign verification against fixtures made by minisign 0.12 with a throwaway test key (`testdata/minisign`: prehashed and legacy, CRLF) and a per-test generated key (valid, either trusted key, wrong key id, tampered file, tampered trusted comment, wrong version, legacy `Ed`, malformed input); the `checksums.txt` grammar; extraction from tar.gz and zip (traversal, absolute, backslash and drive names, symlinks, hard links, missing, duplicate, oversize); staging against a fake HTTP client (request order, fixed URLs, size caps, untrusted or older signature, checksum mismatch, nothing kept on rejection); the install state machine in temporary directories on Linux and Windows (install, idempotent repeat, rollback, second update, no downgrade, tampered or replaced staged files, symlinked or non-regular staged files, held and stale lock, confirmation polling and timeout); the helper flow (confirmed, rollback without confirmation and after a failed restart, resumed wait without restart, nothing staged, failed request not retried, a request staged during the wait installed in the same run against the newly installed version, at most 3 rounds); the applier refusing a second apply while the helper waits for a confirmation; the applier with a fake stager and clock (installed ⇒ `restarting`, failures per stage incl. disk space, helper start, pickup timeout and helper failure, one update at a time, states and progress), the manager's refusal order and `lastResult` from `state.json`, the reporter reporting each outcome once, staging hooks (reserved size, progress, refusal keeps nothing), helper detection per OS; `internal/api` apply handler (`202` with the audit entry, `400` field `version`, `409` reasons, unknown fields); the watcher with a fake clock (confirmation after an uninterrupted 30 s, none when not ready or for another version, restart only on a changed state that installed another version or rolled back the running one); file modes on Linux; `internal/repotest` `TestUpdateHelperUnitHardened` (helper and path unit settings, exit status 3 in the service unit); on Windows the fixed locations, rename retries while a handle is held, the update service DACL (parsed, round-tripped, start and query only for the service SID) and the stop/start sequence against a fake SCM service (running, not active, already running, refused, timeout, failed start); `tidemark update check` output and usage; `internal/config` parsing of both variables; `internal/api` status and check handlers (`409` reasons, `429` with `Retry-After`); `tidemark_update_available` in `internal/selfmetrics`. |
+| Web | `tsc --noEmit`, ESLint (0 warnings), Prettier, Vitest with coverage ≥ 80 % statements/lines/functions and ≥ 70 % branches for `src/tql/**`, `src/lib/**` and `src/api/client.ts` (TQL highlighter, template renderer, builder↔TQL round-trip, client CSRF/errors/offsets, components; the scope helpers and `useDataScope` URL ↔ state round trip, the scope picker with one, many and no streams and its keyboard flow, the Teams pages and the endpoint parameters of the selection and team routes; the update card's one-click flow: typed confirmation for a minor bump and none for a patch, the states and the download progress, the restart tolerated, the success, a rollback, `409 in-progress`, `draining` and `wal-failed`, the `400` refetch, a remembered target resumed, and the helper-missing guide), production build + static CSP check, `npm audit --audit-level=high`, Playwright smoke against the mock build served with the production CSP (login + default-credentials banner, query, autocomplete, detail, analytics + add to dashboard, signal save, traces, metrics, dashboard create/edit, alerts drawer with the streams field, streams purge dry run, connection create with allowed streams, settings pages, the update chip and the System update card for an admin (check now, the 429 answer, the container commands, the helper-missing guide, light theme, 390 px) and their absence without any request for an editor, one-click update against the mock timeline (the dialog with Escape returning focus and the typed confirmation, the progress with the "Updating…" chip, the restart gap, the installed result with its toast, a rollback in the light theme and at 390 px), the scope picker, an admin creating a team and granting a stream to a viewer who then sees only that stream with a static chip and an orphaned span, deny by default leading to the empty state without queries, light theme, keyboard, 390 px with the scope sheet); every e2e test fails on a CSP violation or page error and writes design-review screenshots. |
 | Static | `gofmt`, `go vet`, `golangci-lint` (errcheck, govet, staticcheck, gosec, revive, gocritic, bodyclose, contextcheck, nilerr), `govulncheck`, OSV-Scanner (known vulnerabilities and malicious packages, §15.9). |
 | Docs | `docs/query-language.md`, `docs/ingestion.md` and `docs/configuration.md` are derived from §10, §9 and §7 and updated with them in the same commit. `docs/configuration.md` lists exactly the variables of `internal/config` with their defaults (`TestConfigurationDocMatchesVariables`) and only §7 variables of this file (`internal/repotest`, `TestConfigurationDocMatchesSpec`); the §10.1 examples as above. Every chapter of `docs/manual/` is in the site navigation (`TestManualPagesInNav`, §17.4); `mkdocs build --strict` (both configurations) passes without warnings before a docs change is committed. |
-| Release | `internal/repotest`: `TestVersionAndChangelog` (`VERSION` format, `CHANGELOG.md` shape and a non-empty section for `VERSION`), `TestDistFileListsMatch` (Makefile and build.ps1 archive file lists, Docker bundle list included, equal and existing), `TestDistDockerCompose` (the bundle rewrite of `deploy/docker-compose.yml` leaves no `build:` key, pins the release image and removes only the build block; Makefile and build.ps1 use the same image), `TestInstallDocs` (every `INSTALL-*.md` exists and links only to absolute `https://` URLs), `TestReleaseDocsBundle` (the offline documentation bundle stays in the workflow, the task runners, `mkdocs.offline.yml`, the hook and the release notes) and `TestReleaseScanUsesSecurityTrivy` (§17.6). `make dist` is run and its archives inspected (contents, `tidemark version`) before changing the release tooling. |
+| Release | `internal/repotest`: `TestVersionAndChangelog` (`VERSION` format, `CHANGELOG.md` shape and a non-empty section for `VERSION`), `TestDistFileListsMatch` (Makefile and build.ps1 archive file lists, Docker bundle list included, equal and existing), `TestDistDockerCompose` (the bundle rewrite of `deploy/docker-compose.yml` leaves no `build:` key, pins the release image and removes only the build block; Makefile and build.ps1 use the same image), `TestInstallDocs` (every `INSTALL-*.md` exists and links only to absolute `https://` URLs), `TestReleaseDocsBundle` (the offline documentation bundle stays in the workflow, the task runners, `mkdocs.offline.yml`, the hook and the release notes) `TestReleaseScanUsesSecurityTrivy`, `TestDistributionStamp` (Makefile `dist`, build.ps1 `dist` and the Dockerfile stamp `main.distribution`; §17.6), `TestReleaseSignsChecksums` (only the `sign` job uses an environment, `release`, and the secret; the build job neither signs nor attests; the sign job downloads `dist`, checks the pinned minisign archive, signs with the trusted comment, verifies, attests and uploads the signature in that order and fails without the key in the main public repository; the release job needs it and publishes the signature; the notes show the `minisign -Vm` command) and `TestUpdateSigningKeysDocumented` (every file printing signing keys names both keys of `internal/update/keys.go` and no other; `SECURITY.md` gives both key ids). `internal/update` checks each embedded key decodes to its key id. `make dist` is run and its archives inspected (contents, `tidemark version`) before changing the release tooling. |
 | Regression | Every bug fix adds a failing test first. No test may be deleted or weakened to make CI pass without a spec-recorded reason. |
 
 Definition of done for any change: spec updated · tests added/updated · `make check` (or
@@ -3068,6 +3448,17 @@ items of M0–M3b:
 
 | Version | Date | Change |
 |---|---|---|
+| 0.32.10 | 2026-10-21 | One-click update in the UI (§16.1, §16.4, §16.6, §18): the Updates card offers "Install v<x>" where `apply.supported` — a confirmation dialog (restart pause, automatic rollback, release notes, typed version for a major bump or a minor bump before 1.0), the progress view polling every 2 s through the states and the restart (network and gateway errors read as restarting, a warning after 15 min, a 401 prompts a new sign-in and the view resumes from `tm.update.target`), the success toast and the "Last update" fact, a danger notice for `rolled_back` / `failed`, the `409` / `400` answers in words; `helper-missing` explains that the installer adds the helper; the top-bar chip reads "Updating…" while applying. The mock build gains the `apply`, `apply-rollback` and `helper-missing` states and an apply timeline with a restart gap. |
+| 0.32.9 | 2026-10-21 | Update helper triggers (§11.5, §17.7, §18): staging no longer deletes an earlier `request.json` first (a deletion could fire the path unit and lose the new request's trigger; a stale request only fails verification); the helper handles a request staged while it was busy before exiting (at most 3 per run, compared with the version it just installed); `POST /system/update/apply` answers `409 in-progress` while the helper waits for a confirmation. |
+| 0.32.8 | 2026-10-21 | One-click update (§11.5, §15.5, §17.2, §17.3, §17.5, §17.7, §18): `POST /system/update/apply` `{version}` (admin; `202`, `400` field `version`, `409` reasons incl. `draining`, `wal-failed`, `in-progress`); `apply.supported` is `true` on systemd and Windows-service installs with the helper for this binary; the background applier (download with 15 min timeout and 3 × free space, verify, stage, start the helper, follow `state.json`) with `state`, `progress` and `lastResult` in the status; audit `update.apply`, `update.installed`, `update.rolled_back`, `update.failed`; containers and HA keep updating by image or rolling upgrade. |
+| 0.32.7 | 2026-10-21 | Windows update service (§17.3, §17.7, §18): `TidemarkUpdate` (LocalSystem, demand start, `tidemark.exe update-service`) registered by `service install` unless `--no-self-update`, and by the new `service install-update` (`uninstall-update`, and `uninstall` removes it); DACL lets `NT SERVICE\Tidemark` start and query it only; it installs, restarts `Tidemark` through the SCM, waits for the confirmation and rolls back with a second restart; renames retried on sharing violations; fixed Windows locations from the known folders; the server's watcher confirms on `windows-service` too; `install.ps1 -NoSelfUpdate`, `%ProgramFiles%\Tidemark\state`, `%ProgramData%\Tidemark\update`. |
+| 0.32.6 | 2026-10-21 | Linux update helper (§15.9, §17.3, §17.7, §18): `deploy/tidemark-update.path` and the hardened root `deploy/tidemark-update.service` (`tidemark update install`) installed by `install.sh native` unless `--no-self-update`, `/var/lib/tidemark/update` staging directory; fixed helper locations; the helper flow (install, restart, confirmation, rollback); the server's watcher confirms an installed update after 30 s of readiness and stops with exit status 3 (`SuccessExitStatus=3`, `RestartForceExitStatus=3`) when the helper installed or rolled back; staged files 0640, `state.json` 0644; `tidemark update check [--json]`. |
+| 0.32.5 | 2026-10-21 | Release (§17.6): the `sign` job sets its environment `release` only in the main public repository, so copies of the workflow in repositories without environments still run their draft test build. |
+| 0.32.4 | 2026-10-21 | Update install library (§6, §17.7, §18): `internal/update` verifies minisign signatures of `checksums.txt` (prehashed `ED` only, embedded keys, exact trusted comment), parses the sha256sum format, extracts exactly one binary from a release archive (no traversal or links, 256 MiB cap), stages a release through the update client (signature, then SHA-256, then `request.json` last) and installs it on the helper side (lock, idempotent request id, private re-verified copies, no downgrade, `<bin>.previous` by hard link on Linux or rename-aside on Windows, `state.json`, rollback, confirmation within 10 min). Not wired into the server yet. |
+| 0.32.3 | 2026-10-21 | Release signing (§6, §15.9, §17.6, §17.7, §18): `checksums.txt` of every release is signed with minisign by the new `sign` job of `release.yml` (the only job in the protected environment `release`, after the archives and the documentation bundle, before the provenance attestation, which moved there from `build`; minisign 0.12 pinned by SHA-256); the trusted comment `opentidemark v<version> checksums.txt` binds the signature to its release; `checksums.txt.minisig` is a release asset; no key, no release. The CI and offline backup public keys are embedded in `internal/update/keys.go` and published in `SECURITY.md`, the INSTALL guides, `docs/installation.md` and the release notes with the `minisign -Vm` command. |
+| 0.32.2 | 2026-10-21 | Update UI (§16.1, §16.4, §16.6, §18): admins get the top-bar chip "Update available · v<x>" (icon-only in the mobile bar; the status is requested only for admins, at most every 15 min) linking to the new full-width Updates card of the System page: headline state (available / up to date / check failed / not checked yet / disabled / development build), facts with the release notes link, "Check now" with the 429 wait and the 409 reasons in words, failed-check hints and "How to update" per installation (container commands, HA rolling upgrade, installer guide). The API client carries `Retry-After` as `details.retryAfter`. The mock build serves six update states (`sessionStorage` key `tm.mock.update`). |
+| 0.32.1 | 2026-10-21 | Update check (§6.1, §7, §11.5, §11.6, §15.6, §15.9, §17.2, §17.4, §17.6, new §17.7, §18): release builds are stamped `-X main.distribution=archive` (`dist`) or `container` (Dockerfile); `internal/update` checks the latest GitHub release of `ZeraOrg/opentidemark` 1–15 min after start and then daily (24 h ± 1 h, hourly retries, at most six in a row) through the allow-listed update client, selects by SemVer 2.0 precedence without downgrades and keeps the status in memory; new admin routes `GET /system/update` and `POST /system/update/check` (60 s gap, `409` when disabled or a development build), gauge `tidemark_update_available`, variables `TIDEMARK_UPDATE_CHECK` (default `true`) and `TIDEMARK_UPDATE_PROXY`. Development builds make no request; one-click install is not available yet (`apply.supported=false`). |
+| 0.32.0 | 2026-10-21 | Update client (§6.1, §15.6), first part of in-app updates: `httpx.UpdateClient` follows at most 3 redirects to `https` hosts on a caller-supplied allow-list (also checked for the initial request), never dials private destinations directly and may use an explicit `http`/`https` proxy tunnelled with `CONNECT` whose credentials never appear in errors or logs; environment proxies stay ignored. All other outbound clients still follow no redirects. |
 | 0.31.11 | 2026-10-21 | Go toolchain go1.27.3 (Dockerfile `golang:1.27.3-bookworm`, §5, §17) for the `crypto/x509` advisory GO-2026-6809 (CVE-2026-111943) reported by govulncheck; applied before the 7-day rule (§15.9) because it fixes a vulnerability and the fix is only available by upgrading. |
 | 0.31.10 | 2026-10-17 | Release (§17.6): after pushing the image the `image` job checks an anonymous pull of the new manifest and, when it is refused (package still private), warns in an annotation and the job summary instead of letting the release ship a silently unpullable image. |
 | 0.31.9 | 2026-10-17 | Dead-letter cap (§7, §9.1): new `TIDEMARK_DEADLETTER_MAX_BYTES` (default 1 GiB, `0` = unlimited); the oldest dead-letter files are deleted to make room, a batch larger than the cap is refused (`deadletter_failed`), and rows are encoded before the file is created. Before, the folder grew without bound. |

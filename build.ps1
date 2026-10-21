@@ -32,7 +32,7 @@ $CrossTargets = @('linux/amd64', 'linux/arm64', 'windows/amd64')
 $DistDir = 'dist'
 $SemVerPattern = '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$'
 $DistFiles = @('LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.md', 'README.md', 'CHANGELOG.md', 'deploy/.env.example', 'deploy/clickhouse/config.d/tidemark.xml', 'deploy/clickhouse/users.d/tidemark.xml')
-$DistFilesLinux = @('deploy/install.sh', 'deploy/tidemark.service')
+$DistFilesLinux = @('deploy/install.sh', 'deploy/tidemark.service', 'deploy/tidemark-update.service', 'deploy/tidemark-update.path')
 $DistFilesWindows = @('deploy/install.ps1')
 # Docker bundle tidemark_<version>_docker: these files with a leading deploy/ removed, INSTALL.md,
 # and docker-compose.yml rewritten to run the published image (no build: block).
@@ -87,8 +87,10 @@ function Target-Web {
 }
 
 function Build-Binary {
-    param([string]$Os, [string]$Arch, [string]$Out, [string]$Version = (Get-Version))
+    param([string]$Os, [string]$Arch, [string]$Out, [string]$Version = (Get-Version), [string]$Distribution = '')
+    # Only dist stamps a distribution (archive); every other build here is a development build (SPEC §17.6, §17.7).
     $ldflags = "-s -w -X main.version=$Version"
+    if ($Distribution) { $ldflags += " -X main.distribution=$Distribution" }
     WithEnv @{ CGO_ENABLED = '0'; GOOS = $Os; GOARCH = $Arch } {
         Invoke go @('build', '-trimpath', '-ldflags', $ldflags, '-o', $Out, './cmd/tidemark')
     }
@@ -170,7 +172,7 @@ function Target-Dist {
         $ext = if ($os -eq 'windows') { '.exe' } else { '' }
         $extra = if ($os -eq 'windows') { $DistFilesWindows } else { $DistFilesLinux }
         Write-Host "dist $name"
-        Build-Binary -Os $os -Arch $arch -Out (Join-Path $stage "tidemark$ext") -Version $version
+        Build-Binary -Os $os -Arch $arch -Out (Join-Path $stage "tidemark$ext") -Version $version -Distribution 'archive'
         foreach ($f in @($DistFiles) + @($extra)) {
             $dest = Join-Path $stage $f
             New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dest) | Out-Null

@@ -64,16 +64,19 @@ Logs, metrics and traces are how you find out what your software is really doing
 should be available to everyone, not only to companies that can pay per-gigabyte SaaS prices.
 { .tm-lede }
 
-- **Your telemetry stays with you.** OpenTidemark makes no outbound connections of its own: no
-  telemetry, no update checks, no phoning home. It only connects where you configure it to.
+- **Your telemetry stays with you.** OpenTidemark sends no telemetry and never phones home with
+  your data. Its only connection of its own is a daily check for a newer release on
+  `api.github.com`, without installation data, which `TIDEMARK_UPDATE_CHECK=false` turns off.
+  Otherwise it only connects where you configure it to.
 - **Nothing loaded from third parties.** The web UI's Content Security Policy is
   `default-src 'self'` and its fonts are bundled.
 - **Secrets protected at rest.** Passwords are hashed with argon2id; API tokens, connection keys
   and sessions are stored only as SHA-256 hashes; channel secrets are encrypted with AES-GCM.
 - **Open, with nothing held back.** Apache-2.0, every feature included, no editions, licence
   keys or user limits, and you can read every line of code.
-- **Verifiable releases.** Each release has `checksums.txt` and GitHub build provenance
-  attestations, and is published only after its dependencies pass a supply-chain scan.
+- **Verifiable releases.** Each release has `checksums.txt` (signed with minisign since the
+  release after 0.4.0) and GitHub build provenance attestations, and is published only after its
+  dependencies pass a supply-chain scan.
 - **Durable, optionally highly available.** A write-ahead log keeps acknowledged data, upgrades
   never lose data, and several nodes can run behind a load balancer.
 

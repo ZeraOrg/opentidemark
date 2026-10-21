@@ -26,6 +26,7 @@ import type {
   Stream,
   SystemReport,
   TraceSummary,
+  UpdateStatus,
   User,
 } from '../api/types';
 
@@ -1518,6 +1519,112 @@ export const SYSTEM: SystemReport = {
     disks: [{ name: 'default', freeBytes: 1.62 * 2 ** 40, totalBytes: 3.6 * 2 ** 40 }],
   },
 };
+
+// ---- §11.5 updates (§17.7) ----------------------------------------------------------------------
+/**
+ * Update states the mock can show; `sessionStorage` key `tm.mock.update` selects one.
+ * `available` and `apply` offer one-click install and walk through the states to `installed`
+ * (`apply-rollback` ends in `rolled_back`); `helper-missing` shows the installer how-to instead.
+ */
+export const UPDATE_SCENARIOS = [
+  'available',
+  'apply',
+  'apply-rollback',
+  'helper-missing',
+  'up-to-date',
+  'container',
+  'disabled',
+  'dev',
+  'unreachable',
+] as const;
+export type UpdateScenario = (typeof UPDATE_SCENARIOS)[number];
+
+/** How a mock install ends in this scenario, or null where one-click install is not offered. */
+export function applyOutcome(scenario: UpdateScenario): 'installed' | 'rolled_back' | null {
+  switch (scenario) {
+    case 'available':
+    case 'apply':
+      return 'installed';
+    case 'apply-rollback':
+      return 'rolled_back';
+    default:
+      return null;
+  }
+}
+
+export function isUpdateScenario(v: unknown): v is UpdateScenario {
+  return typeof v === 'string' && (UPDATE_SCENARIOS as readonly string[]).includes(v);
+}
+
+/** The next minor release after `current` ("0.4.0" → "0.5.0"; anything else → "0.1.0"). */
+export function nextVersion(current: string): string {
+  const m = /^(\d+)\.(\d+)\.\d+$/.exec(current);
+  if (m === null) return '0.1.0';
+  return `${m[1]}.${Number(m[2]) + 1}.0`;
+}
+
+const UPDATE_LATEST_VERSION = nextVersion(SYSTEM.version);
+const UPDATE_LATEST = {
+  version: UPDATE_LATEST_VERSION,
+  prerelease: false,
+  publishedAt: iso(NOW - 2 * 86_400_000 - 5 * 3_600_000),
+  notesUrl: `https://github.com/ZeraOrg/opentidemark/releases/tag/v${UPDATE_LATEST_VERSION}`,
+};
+const UPDATE_CHECKED_AT = iso(NOW - 3 * 3_600_000);
+
+/** The update status of each scenario, as a release build on Linux under systemd by default. */
+export function updateStatus(scenario: UpdateScenario): UpdateStatus {
+  const base: UpdateStatus = {
+    enabled: true,
+    current: SYSTEM.version,
+    nodeId: 'node-1',
+    installKind: 'systemd',
+    apply: { supported: true },
+    available: false,
+    checkedAt: UPDATE_CHECKED_AT,
+    state: 'idle',
+  };
+  switch (scenario) {
+    case 'available':
+    case 'apply':
+    case 'apply-rollback':
+      return { ...base, latest: UPDATE_LATEST, available: true };
+    case 'helper-missing':
+      return {
+        ...base,
+        apply: { supported: false, reason: 'helper-missing' },
+        latest: UPDATE_LATEST,
+        available: true,
+      };
+    case 'up-to-date':
+      return base;
+    case 'container':
+      return {
+        ...base,
+        installKind: 'container',
+        apply: { supported: false, reason: 'container' },
+        latest: UPDATE_LATEST,
+        available: true,
+      };
+    case 'disabled':
+      return {
+        ...base,
+        enabled: false,
+        apply: { supported: false, reason: 'disabled' },
+        checkedAt: undefined,
+      };
+    case 'dev':
+      return {
+        ...base,
+        current: 'dev',
+        installKind: 'dev',
+        apply: { supported: false, reason: 'dev' },
+        checkedAt: undefined,
+      };
+    case 'unreachable':
+      return { ...base, error: 'unreachable' };
+  }
+}
 
 export const IMPORTS: ImportJob[] = [
   {

@@ -55,6 +55,7 @@ import type {
   TokenScope,
   TraceResponse,
   TraceSummary,
+  UpdateStatus,
   UploadImportRequest,
   User,
   ValidateResponse,
@@ -283,6 +284,13 @@ export const admin = {
     p: { from?: string; to?: string; actor?: string; action?: string; limit?: number },
   ) => api.get<AuditEntry[]>('/audit', { query: { ...p } }),
   system: (api: ApiClient) => api.get<SystemReport>('/system'),
+  /** Update status of this node (§17.7). */
+  update: (api: ApiClient) => api.get<UpdateStatus>('/system/update'),
+  /** Checks for a new release now: 429 within 60 s of the last check, 409 when disabled or dev. */
+  checkUpdate: (api: ApiClient) => api.post<UpdateStatus>('/system/update/check'),
+  /** Installs the latest release: 202 with the status, 400 field `version`, 409 `details.reason`. */
+  applyUpdate: (api: ApiClient, version: string) =>
+    api.post<UpdateStatus>('/system/update/apply', { version }),
   product: (api: ApiClient) => api.get<ProductInfo>('/api', { absolute: true, skipAuthRedirect: true }),
 };
 

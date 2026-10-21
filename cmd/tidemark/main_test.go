@@ -36,7 +36,7 @@ func TestVersionAndUnknown(t *testing.T) {
 
 func TestServeRejectsBadConfig(t *testing.T) {
 	var out bytes.Buffer
-	err := serveContext(context.Background(), []string{"--http-addr", "nope", "--data-dir", t.TempDir()}, &out)
+	err := serveContext(context.Background(), []string{"--http-addr", "nope", "--data-dir", t.TempDir()}, &out, false)
 	if err == nil || !strings.Contains(err.Error(), "TIDEMARK_HTTP_ADDR") {
 		t.Errorf("bad config: %v", err)
 	}

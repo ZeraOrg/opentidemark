@@ -12,16 +12,26 @@ Replace `<version>` below with the version in the bundle name.
 
 ## 1. Verify the download
 
-In the directory with the bundle and `checksums.txt` from the same release:
+In the directory with the bundle, `checksums.txt` and `checksums.txt.minisig` from the same
+release:
 
 ```bash
+minisign -Vm checksums.txt -P RWTzWC1xqWTY457VdX92WvxpPeXXOUhpiGzch3af0NEoe9ENK8bEbiDE
 sha256sum -c checksums.txt --ignore-missing
 gh attestation verify tidemark_<version>_docker.tar.gz --repo ZeraOrg/opentidemark          # optional, needs the GitHub CLI
 gh attestation verify oci://ghcr.io/zeraorg/tidemark:<version> --repo ZeraOrg/opentidemark  # the image
 ```
 
-On Windows, compare `Get-FileHash .\tidemark_<version>_docker.zip -Algorithm SHA256` with
-`checksums.txt`.
+On Windows, run the same `minisign` command, then compare
+`Get-FileHash .\tidemark_<version>_docker.zip -Algorithm SHA256` with `checksums.txt`.
+
+The first command checks the [minisign](https://jedisct1.github.io/minisign/) signature of
+`checksums.txt` (`checksums.txt.minisig`, same release) and must print
+`Trusted comment: opentidemark v<version> checksums.txt`. If the release was signed with the
+offline backup key, use
+`-P RWSeiFy+aYECqVbvFDNIW//gdsHLox72jDPcY3swGgJm/WQTA+0s9nwP` instead. Both keys are listed in
+[SECURITY.md](https://github.com/ZeraOrg/opentidemark/blob/main/SECURITY.md). Releases 0.4.0 and
+earlier are not signed.
 
 ## 2. Install and start
 

@@ -119,7 +119,7 @@ func (a *App) wire(ctx context.Context) error {
 		&api.ConnectionsAPI{Connections: service.NewConnections(r.connections, keyCache, audit, time.Now), PublicURL: a.cfg.PublicURL, ClientIP: ip},
 		&api.SettingsAPI{Settings: service.NewSettings(r.settings, retSync, audit), ClientIP: ip},
 		&api.AuditAPI{Audit: audit, Now: time.Now},
-		&api.SystemAPI{System: service.NewSystem(service.SystemDeps{Version: a.version, Started: a.started, Now: time.Now,
+		&api.SystemAPI{System: service.NewSystem(service.SystemDeps{Version: a.build.Version, Started: a.started, Now: time.Now,
 			Depths: a.pipeline.Depths, Counters: a.metrics.Totals, Streams: registry.Count, Storage: ch.Info{Conn: a.chWriter}})},
 	)
 	ops, jobs, err := a.wireOps(opsDeps{registry: registry, retention: retSync, audit: audit, leader: a.elector,
@@ -127,7 +127,12 @@ func (a *App) wire(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	c.router.Register(ops...)
+	updates, updateJobs, err := a.wireUpdate(audit, ip)
+	if err != nil {
+		return err
+	}
+	c.router.Register(append(ops, updates)...)
+	jobs = append(jobs, updateJobs...)
 	a.jobs = jobs
 	if err := a.buildServers(c); err != nil {
 		return err
@@ -173,6 +178,6 @@ func (a *App) ingestDeps(keys ingest.KeyAuthenticator, realIP *httpx.RealIP, clo
 		Limits:   ingest.Limits{MaxBodyBytes: a.cfg.MaxBodyBytes, MaxDecompressedBytes: a.cfg.MaxDecompressedBytes},
 		Now:      time.Now,
 		ClientIP: func(r *http.Request) netip.Addr { return realIP.ClientIP(r) },
-		Logger:   a.logger, Version: a.version,
+		Logger:   a.logger, Version: a.build.Version,
 	}
 }

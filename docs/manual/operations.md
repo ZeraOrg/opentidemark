@@ -28,7 +28,8 @@ Every command accepts the configuration variables and flags of the server
 | `tidemark admin reset-password --username <name> [--password-stdin]` | Reset a password |
 | `tidemark import …` | Import from Seq, Elasticsearch/OpenSearch, Kibana saved objects, CLEF files |
 | `tidemark healthcheck [--url URL]` | Exit 0 when the URL (default `http://127.0.0.1:8080/healthz`) answers 200 |
-| `tidemark service install\|uninstall\|start\|stop` | Windows service management |
+| `tidemark update check [--json]` | Ask GitHub once for a newer release; non-zero exit when turned off, a development build or failed |
+| `tidemark service install [--no-self-update]\|uninstall\|install-update\|uninstall-update\|start\|stop` | Windows service management (`install-update`/`uninstall-update`: only the update helper `TidemarkUpdate`) |
 
 !!! tip "Git Bash on Windows"
     Git Bash rewrites arguments that look like POSIX paths (`/data/…` becomes `C:/Program
@@ -161,6 +162,65 @@ Upgrades keep data. Rules that make this safe:
 - ClickHouse migrations run at startup with the writer user (in HA under the
   `clickhouse-migrations` lease; other nodes wait).
 
+OpenTidemark checks GitHub once a day for a newer release (no installation data is sent; turn it
+off with `TIDEMARK_UPDATE_CHECK=false`). Admins then see an "Update available" chip in the top bar,
+and **Settings › System › Updates** shows the latest release with its notes, a *Check now* button,
+why a check failed, and the update commands for this installation.
+
+On a native Linux or Windows service install with the update helper (below), an admin can
+install the latest release in one step. The Updates card offers **Install v<version>**: a dialog
+explains the brief restart (ingestion pauses for about 15–30 seconds; accepted events are kept
+and clients retry) and the automatic rollback, asks you to type the version for a minor or major
+bump, and the card then follows the download, verification, install and restart — it reconnects
+on its own and shows the result. The same is available through the API:
+
+```bash
+curl -s -X POST https://tidemark.example.com/api/v1/system/update/apply \
+  -H "Authorization: Bearer $TIDEMARK_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"version": "<latest version>"}'
+```
+
+The answer is `202`; `GET /api/v1/system/update` then shows `state` (`downloading`, `verifying`,
+`staged`, `installing`, `restarting`), the download `progress` and, when it is over, `lastResult`
+(`installed`, `rolled_back` or `failed` with the reason). The server needs three times the archive
+size free in its data directory's file system. It refuses while it is draining, when a
+write-ahead log has failed, or while another update runs (`409`). Containers (pull the new
+image) and HA clusters (rolling upgrade, below) can't update this way. The audit log records
+`update.apply`, `update.installed`, `update.rolled_back` and `update.failed`.
+
+### Update helper (native Linux and Windows) {#update-helper}
+
+`install.sh native` installs an update helper unless you pass `--no-self-update`. The service
+downloads a release into `/var/lib/tidemark/update`, checks its signature and checksum and writes
+`request.json`; `tidemark-update.path` then starts `tidemark-update.service`, which runs the
+installed binary as root (`tidemark update install`) without network access or capabilities:
+
+1. It checks the staged files again against the signing keys built into the binary and refuses
+   a version that isn't newer than the installed one.
+2. It keeps the current binary as `/usr/local/bin/tidemark.previous`, installs the new one and
+   records `installed` in `/var/lib/tidemark-update/state.json`.
+3. The running service sees the new state, drains like on `systemctl stop` and exits with
+   status 3; systemd starts the new binary right away.
+4. Once the new version has been ready (metadata and ClickHouse reachable, write-ahead log
+   healthy) for 30 seconds, it writes `/var/lib/tidemark/update/confirmed.json`.
+5. Without that confirmation within 10 minutes the helper puts the previous binary back and
+   records `rolled_back` with the reason; the service restarts with the old version the same way.
+
+The helper's log is `journalctl -u tidemark-update`; `state.json` holds the last attempt
+(`installed`, `rolled_back` or `failed`, with versions, time and message). A failed attempt leaves
+the installed binary unchanged. Installs made before the helper existed get it the next time you
+run the installer.
+
+On Windows, `install.ps1 -Mode Native` registers the helper as the service `TidemarkUpdate`
+(LocalSystem, manual start; `-NoSelfUpdate` leaves it out). The Tidemark service downloads into
+`%ProgramData%\Tidemark\update` and starts `TidemarkUpdate`, which it may only start and query.
+The helper works as above with these differences: it keeps the old binary as
+`%ProgramFiles%\Tidemark\tidemark.exe.previous`, stops and starts `Tidemark` itself (the service
+drains as on `Stop-Service`) and, without a confirmation, puts the old binary back and restarts
+it again. A virus scanner holding the new binary is waited for up to about five seconds before
+the attempt fails unchanged. `state.json` and the last run's `update.log` are in
+`%ProgramFiles%\Tidemark\state`; a failed run is also written to the Application event log.
+
 Procedure:
 
 1. Read the `CHANGELOG.md` of the target version (before 1.0, minor versions may break APIs or
@@ -254,6 +314,8 @@ Full guides: [Migrating from Seq](../migrate-from-seq.md) and
 |---|---|---|
 | Docker Compose | `docker compose logs -f tidemark` | JSON lines on stderr |
 | Linux native | `journalctl -u tidemark -f` | JSON lines |
+| Linux update helper | `journalctl -u tidemark-update`, `/var/lib/tidemark-update/state.json` | Last install attempt and its outcome |
+| Windows update helper | `%ProgramFiles%\Tidemark\state\update.log` and `state.json` | Last run; failures also in the Application event log |
 | Windows native | Application event log, source `Tidemark` (start/stop reasons) | Full log only in the foreground: `Stop-Service Tidemark; & "$env:ProgramFiles\Tidemark\tidemark.exe" serve` |
 | ClickHouse (Compose) | `docker compose logs clickhouse` | Level `warning` (config.d/tidemark.xml) |
 | Dead letters | `<data>/deadletter/<signal>-<ts>.ndjson` | Rows ClickHouse rejected permanently |

@@ -21,9 +21,12 @@ Logs, metrics and traces are how you find out what your software is really doing
 should be available to everyone, not only to companies that can pay per-gigabyte SaaS prices.
 OpenTidemark is meant to run on your own hardware, and to be something you can trust there:
 
-- **Your telemetry stays with you.** OpenTidemark itself makes no outbound connections of its own:
-  no telemetry, no update checks, no phoning home. It only connects where you configure it to:
-  ClickHouse, PostgreSQL in high-availability mode, your alert channels (webhooks through an
+- **Your telemetry stays with you.** OpenTidemark sends no telemetry and never phones home with
+  your data. Its only connection of its own is a once-a-day check for a newer release on
+  `api.github.com` (and the release download from GitHub when an admin installs an update), which
+  sends no installation data and is turned off with `TIDEMARK_UPDATE_CHECK=false` (development
+  builds never check). Otherwise it only connects
+  where you configure it to: ClickHouse, PostgreSQL in high-availability mode, your alert channels (webhooks through an
   SSRF-safe client, and SMTP), the sources you import from, and the `tidemark healthcheck` probe.
 - **The web UI loads nothing from third parties.** Its Content Security Policy is
   `default-src 'self'` and its fonts are bundled.
@@ -33,8 +36,10 @@ OpenTidemark is meant to run on your own hardware, and to be something you can t
 - **Open, with nothing held back.** Apache-2.0, every feature included, no editions, licence keys
   or user limits, and you can read every line of code.
 - **Verifiable releases.** Each release has `checksums.txt` and GitHub build provenance
-  attestations for the archives and the container image. A release is only published when its Go
-  and npm dependencies pass a supply-chain scan for known vulnerabilities and malicious packages.
+  attestations for the archives and the container image; releases after 0.4.0 also sign
+  `checksums.txt` with minisign (keys in [SECURITY.md](SECURITY.md)). A release is only published
+  when its Go and npm dependencies pass a supply-chain scan for known vulnerabilities and
+  malicious packages.
 - **Your machine, your choice.** It runs on your own Linux or Windows machine, or in Docker.
 
 ## About
@@ -85,6 +90,11 @@ columns in the event list.*
   never lose data, and several nodes can run behind a load balancer.
 - **Easy migration.** `tidemark import` moves data and saved searches from Seq and
   Elasticsearch/OpenSearch.
+- **Update notices and one-click updates.** Admins can see when a newer release is out
+  (`GET /api/v1/system/update`); the daily check can go through an explicit proxy or be turned
+  off. Native Linux and Windows service installs can install it in one step from the Updates card
+  or through `POST /api/v1/system/update/apply`: the release is verified against its signature,
+  installed by a separate privileged helper and rolled back if the new version doesn't come up.
 - **Runs on Linux and Windows** as a single binary or with Docker Compose.
 
 ## Quick start
@@ -115,8 +125,9 @@ it and run `.\install.ps1 -Mode Docker` in PowerShell.
 
 Download the archive for your platform from the
 [releases page](https://github.com/ZeraOrg/opentidemark/releases) and check it against
-`checksums.txt` (`sha256sum -c checksums.txt --ignore-missing`). Each archive contains the
-`tidemark` binary with the web UI built in, an `INSTALL.md` for its platform, the licence files
+`checksums.txt` (`sha256sum -c checksums.txt --ignore-missing`), after checking the signature of
+`checksums.txt` on releases after 0.4.0 (see [SECURITY.md](SECURITY.md#verifying-releases)).
+Each archive contains the `tidemark` binary with the web UI built in, an `INSTALL.md` for its platform, the licence files
 and the installer files in `deploy/`. ClickHouse is set up separately with the users from
 `deploy/clickhouse/users.d`.
 
@@ -199,7 +210,8 @@ breaking changes. Each [release](https://github.com/ZeraOrg/opentidemark/release
   `tidemark_<version>_windows_amd64.zip`: the binary, the native installer and an `INSTALL.md`;
 - `tidemark_<version>_docker.tar.gz` and `.zip`: the ready-to-use Docker Compose bundle;
 - `tidemark_<version>_docs.zip`: the documentation for offline use (open `index.html`);
-- `checksums.txt` and build provenance attestations
+- `checksums.txt`, its minisign signature `checksums.txt.minisig` (releases after 0.4.0; keys in
+  [SECURITY.md](SECURITY.md)) and build provenance attestations
   (`gh attestation verify <file> --repo ZeraOrg/opentidemark`; for 0.2.0 and earlier, published
   before the repository was renamed, `--repo ZeraOrg/tidemark`);
 - the matching image `ghcr.io/zeraorg/tidemark:<version>`, scanned for known vulnerabilities

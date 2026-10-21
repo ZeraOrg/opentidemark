@@ -15,6 +15,9 @@ Environment=TIDEMARK_ENV_FILE=/etc/tidemark/tidemark.env
 ExecStart=/usr/local/bin/tidemark serve
 Restart=on-failure
 RestartSec=5s
+# Exit status 3: stopped to run the binary the update helper installed or restored (SPEC §17.7).
+SuccessExitStatus=3
+RestartForceExitStatus=3
 TimeoutStopSec=60s
 LimitNOFILE=65536
 UMask=0027

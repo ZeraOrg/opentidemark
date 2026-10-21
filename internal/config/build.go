@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/ZeraOrg/opentidemark/internal/httpx"
 )
 
 // Validation bounds.
@@ -123,6 +125,7 @@ func build(vals map[string]string) (Config, error) {
 	c.MaxStreams = int(p.intRange(VarMaxStreams, 1, maxStreamsLimit))
 	c.MetricsEnabled = p.boolean(VarMetricsEnabled)
 	parseHA(p, &c)
+	c.Update = parseUpdate(p)
 	crossChecks(p, &c)
 	if len(p.errs) > 0 {
 		return Config{}, fmt.Errorf("%w: %w", ErrInvalid, errors.Join(p.errs...))
@@ -179,6 +182,19 @@ func parseHA(p *parser, c *Config) {
 
 // HA reports whether the node runs in HA mode (shared PostgreSQL metadata).
 func (c Config) HA() bool { return c.Meta.Driver == "postgres" }
+
+// parseUpdate reads the update check settings; proxy errors never repeat the value, which may
+// contain credentials.
+func parseUpdate(p *parser) Update {
+	u := Update{Check: p.boolean(VarUpdateCheck)}
+	proxy, err := httpx.ParseProxyURL(p.str(VarUpdateProxy))
+	if err != nil {
+		p.fail(VarUpdateProxy, err)
+		return u
+	}
+	u.Proxy = proxy
+	return u
+}
 
 func parsePublicURL(p *parser) *url.URL {
 	u, err := url.Parse(p.str(VarPublicURL))

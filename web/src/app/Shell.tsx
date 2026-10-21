@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Application shell (SPEC §16.1, DESIGN §5.16, §5.20, §8): top bar with the scope picker, the
-// global time picker, refresh, Live toggle, status text, theme toggle and user menu; collapsible
-// left nav; banners (default credentials); mobile top bar and bottom tab bar; global shortcuts;
+// global time picker, refresh, Live toggle, status text, the admin-only update chip, theme toggle
+// and user menu; collapsible left nav; banners (default credentials); mobile top bar and bottom
+// tab bar; global shortcuts;
 // the empty state for users who can see no stream (SPEC §15.10).
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -49,6 +50,7 @@ import { useMe, useSession } from './session';
 import { ShellProvider, useShell } from './shellContext';
 import { useTheme, type ThemePref } from './theme';
 import { TimePicker } from './TimePicker';
+import { UpdateIndicator } from './UpdateIndicator';
 import { patchParams, useTimeRange } from './url';
 import s from './Shell.module.css';
 
@@ -485,6 +487,7 @@ function ShellFrame({ children }: { children: ReactNode }) {
         </div>
         <div className={s.topRight}>
           {status !== null ? <span className={s.status}>{status}</span> : null}
+          <UpdateIndicator />
           <ThemeMenu />
           <UserMenu onHelp={() => setHelp('keys')} />
         </div>
@@ -498,6 +501,7 @@ function ShellFrame({ children }: { children: ReactNode }) {
         <span className={s.mobileSpacer} />
         {timed && !noAccess ? <TimeControls compact /> : null}
         {events && !noAccess ? <LiveToggle compact /> : null}
+        <UpdateIndicator compact />
       </header>
       <Banners />
       <div className={s.body}>

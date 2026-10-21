@@ -45,6 +45,12 @@ export class ApiError extends Error {
     const h = this.details.hint;
     return typeof h === 'string' && h !== '' ? h : undefined;
   }
+
+  /** For `rate_limited`: the `Retry-After` of the response in seconds. */
+  get retryAfter(): number | undefined {
+    const s = this.details.retryAfter;
+    return typeof s === 'number' ? s : undefined;
+  }
 }
 
 export function isApiError(e: unknown): e is ApiError {
@@ -130,6 +136,13 @@ function asRecord(v: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
+/** The `Retry-After` header of a 429 in whole seconds, when it is one (never a date). */
+function retryAfterSeconds(res: Response): number | undefined {
+  const header = res.headers.get('Retry-After');
+  if (header === null || !/^\d+$/.test(header.trim())) return undefined;
+  return Number(header);
+}
+
 async function errorFrom(res: Response): Promise<ApiError> {
   let body: unknown;
   try {
@@ -137,12 +150,14 @@ async function errorFrom(res: Response): Promise<ApiError> {
   } catch {
     body = undefined;
   }
+  const retryAfter = retryAfterSeconds(res);
+  const extra = retryAfter === undefined ? {} : { retryAfter };
   const err = asRecord(asRecord(body)?.error);
   if (err && typeof err.code === 'string') {
     const message = typeof err.message === 'string' ? err.message : res.statusText;
-    return new ApiError(res.status, err.code, message, asRecord(err.details) ?? {});
+    return new ApiError(res.status, err.code, message, { ...extra, ...asRecord(err.details) });
   }
-  return new ApiError(res.status, `http_${res.status}`, res.statusText || `HTTP ${res.status}`);
+  return new ApiError(res.status, `http_${res.status}`, res.statusText || `HTTP ${res.status}`, extra);
 }
 
 /** The /api/v1 client. One instance is created by the composition root (src/main.tsx). */

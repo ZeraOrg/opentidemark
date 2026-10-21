@@ -66,4 +66,5 @@ export const STORAGE_KEYS = {
   nav: 'tm.nav.collapsed',
   passwordPromptDismissed: 'tm.passwordPrompt',
   scope: 'tm.scope',
+  updateTarget: 'tm.update.target',
 } as const;

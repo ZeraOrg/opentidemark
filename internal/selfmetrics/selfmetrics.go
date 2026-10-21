@@ -134,6 +134,19 @@ func (m *Metrics) WALBytes(signal string, size func() int64) {
 		func() float64 { return float64(size()) }))
 }
 
+// UpdateAvailable exposes tidemark_update_available, 1 while the update check (SPEC §17.7) knows
+// a newer release, read at scrape time.
+func (m *Metrics) UpdateAvailable(available func() bool) {
+	m.reg.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{Name: "tidemark_update_available",
+		Help: "1 when a newer OpenTidemark release is available, else 0."},
+		func() float64 {
+			if available() {
+				return 1
+			}
+			return 0
+		}))
+}
+
 // Totals returns a copy of the cumulative counters (for GET /api/v1/system).
 func (m *Metrics) Totals() map[string]float64 {
 	m.mu.Lock()

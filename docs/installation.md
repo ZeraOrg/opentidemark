@@ -111,16 +111,26 @@ Each release has `tidemark_<version>_linux_amd64.tar.gz`, `tidemark_<version>_li
 The native archives don't contain the Docker Compose files; for Compose, use the Docker bundle
 (below) or the source tree. Tar archives record owner and group 0 for every file.
 
-Verify the download before you unpack it:
+Verify the download before you unpack it. `checksums.txt` is signed with
+[minisign](https://jedisct1.github.io/minisign/) (`checksums.txt.minisig`); check the signature
+first, then the archives against `checksums.txt`:
 
 ```bash
+minisign -Vm checksums.txt -P RWTzWC1xqWTY457VdX92WvxpPeXXOUhpiGzch3af0NEoe9ENK8bEbiDE
 sha256sum -c checksums.txt --ignore-missing
 gh attestation verify tidemark_<version>_linux_amd64.tar.gz --repo ZeraOrg/opentidemark   # optional, needs the GitHub CLI
 ```
 
 ```powershell
+minisign -Vm checksums.txt -P RWTzWC1xqWTY457VdX92WvxpPeXXOUhpiGzch3af0NEoe9ENK8bEbiDE
 Get-FileHash .\tidemark_<version>_windows_amd64.zip -Algorithm SHA256   # compare with checksums.txt
 ```
+
+minisign must print `Trusted comment: opentidemark v<version> checksums.txt`. Releases are signed
+with the CI key above; if it is ever replaced, they are signed with the offline backup key
+`RWSeiFy+aYECqVbvFDNIW//gdsHLox72jDPcY3swGgJm/WQTA+0s9nwP` (use it with `-P`).
+[SECURITY.md](https://github.com/ZeraOrg/opentidemark/blob/main/SECURITY.md)
+lists both keys. Releases 0.4.0 and earlier are not signed.
 
 Releases 0.2.0 and earlier were published before the repository was renamed from
 `ZeraOrg/tidemark`; verify their attestations with `--repo ZeraOrg/tidemark`.
@@ -285,7 +295,7 @@ Unpack the release archive for your architecture and run the installer as root:
 ```bash
 tar -xzf tidemark_<version>_linux_amd64.tar.gz
 cd tidemark_<version>_linux_amd64
-sudo ./deploy/install.sh native ./tidemark          # add --start to start it right away
+sudo ./deploy/install.sh native ./tidemark          # add --start to start it right away, --no-self-update to skip the update helper
 ```
 
 `install.sh native` does the following:
@@ -301,6 +311,11 @@ sudo ./deploy/install.sh native ./tidemark          # add --start to start it ri
 5. Installs `deploy/tidemark.service` to `/etc/systemd/system/tidemark.service`, runs
    `systemctl daemon-reload` and enables the service. With `--start` it also starts the service
    (`systemctl enable --now`). Without it the service is only enabled.
+6. Installs the update helper, unless you pass `--no-self-update`: it creates
+   `/var/lib/tidemark/update` (owner `tidemark:tidemark`, mode `0750`), installs
+   `deploy/tidemark-update.service` and `deploy/tidemark-update.path` to `/etc/systemd/system/`
+   and enables the path unit (`systemctl enable --now tidemark-update.path`). With
+   `--no-self-update` an installed helper is disabled and removed.
 
 The unit runs `tidemark serve` as `tidemark:tidemark` with `TIDEMARK_DATA_DIR=/var/lib/tidemark`
 and `TIDEMARK_ENV_FILE=/etc/tidemark/tidemark.env`. It starts after `network-online.target` and
@@ -310,6 +325,18 @@ and `TIDEMARK_ENV_FILE=/etc/tidemark/tidemark.env`. It starts after `network-onl
 - `ProtectHome`, `PrivateTmp`, `PrivateDevices`, `NoNewPrivileges`, the `ProtectKernel*` and
   `Protect*` options and `RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX`;
 - `SystemCallFilter=@system-service`, no capabilities and `UMask=0027`.
+
+When the service stops with exit status 3, systemd counts that as a success and starts it again
+at once: the service does this after the update helper installed a new version (or put the old
+one back).
+
+The update helper runs `/usr/local/bin/tidemark update install` as root when the service writes
+`/var/lib/tidemark/update/request.json`. It has no network access, no capabilities and can write
+only to `/usr/local/bin` and `/var/lib/tidemark-update`. It checks the staged release again
+against the signing keys built into the binary, refuses older versions, keeps the old binary as
+`/usr/local/bin/tidemark.previous`, and puts it back if the new version isn't ready within
+10 minutes. So the service account never needs write access to its own binary. Logs:
+`journalctl -u tidemark-update`.
 
 `MemoryDenyWriteExecute` is deliberately not set, because the SQLite driver compiles WebAssembly
 at run time. Change settings in `/etc/tidemark/tidemark.env` (variables in
@@ -432,7 +459,7 @@ Unpack `tidemark_<version>_windows_amd64.zip` and run the installer in **PowerSh
 Administrator** from the unpacked directory:
 
 ```powershell
-.\deploy\install.ps1 -Mode Native -Binary .\tidemark.exe              # add -OpenFirewall and/or -Start
+.\deploy\install.ps1 -Mode Native -Binary .\tidemark.exe              # add -OpenFirewall and/or -Start, -NoSelfUpdate to skip the update helper
 ```
 
 `install.ps1 -Mode Native` does the following:
@@ -452,7 +479,23 @@ Administrator** from the unpacked directory:
    `NT SERVICE\Tidemark`, with inherited permissions removed.
 5. With `-OpenFirewall`, it adds inbound Windows Firewall rules "Tidemark TCP 8080", 5341, 9200,
    4317 and 4318 for `tidemark.exe`. Without the switch, no ports are opened.
-6. With `-Start`, it starts the service. Otherwise, start it later with `Start-Service Tidemark`.
+6. Unless you pass `-NoSelfUpdate`, it creates `%ProgramFiles%\Tidemark\state` and
+   `%ProgramData%\Tidemark\update` and runs `tidemark.exe service install-update`. This registers
+   the update helper service `TidemarkUpdate` ("OpenTidemark update helper", LocalSystem, manual
+   start) running `tidemark.exe update-service`, and lets `NT SERVICE\Tidemark` start and query
+   it, but not stop, change or delete it. With `-NoSelfUpdate` an installed helper is removed
+   (`service uninstall-update`).
+7. With `-Start`, it starts the service. Otherwise, start it later with `Start-Service Tidemark`.
+
+The update helper installs a release the Tidemark service has downloaded into
+`%ProgramData%\Tidemark\update` and verified: it checks the files again against the signing keys
+built into the binary, refuses older versions, keeps the old binary as `tidemark.exe.previous`,
+installs the new one, restarts `Tidemark` and waits up to 10 minutes for the new version to
+confirm that it is ready. Without the confirmation it puts the old binary back and restarts the
+service again. Only administrators and SYSTEM can write to `%ProgramFiles%\Tidemark`, so the
+service account never gets write access to its own binary. The helper writes its last run to
+`%ProgramFiles%\Tidemark\state\update.log` and the outcome to `state.json` next to it; a failure is
+also written to the Application event log (source `Tidemark`).
 
 ### 6.2 ClickHouse in Docker Desktop
 
@@ -663,7 +706,8 @@ Every command also accepts the configuration variables and flags from
 | `tidemark migrate [--status \| --dry-run]` | Applies pending migrations, or lists them or prints their SQL without changing anything. |
 | `tidemark admin reset-password --username <name> [--password-stdin]` | Resets a password. |
 | `tidemark healthcheck [--url URL]` | Exits 0 when the URL (default `http://127.0.0.1:8080/healthz`) answers `200`. |
-| `tidemark.exe service install \| uninstall \| start \| stop` | Windows service management (Windows only). |
+| `tidemark update check [--json]` | Asks GitHub once whether a newer release exists and prints the answer (`--json`: the status object of `GET /api/v1/system/update`). Exits non-zero when the check is turned off, for development builds and when the check fails. |
+| `tidemark.exe service install [--no-self-update] \| uninstall \| install-update \| uninstall-update \| start \| stop` | Windows service management (Windows only). `install` registers `Tidemark` and, without `--no-self-update`, the update helper `TidemarkUpdate`; `install-update` and `uninstall-update` add or remove only the helper; `uninstall` removes both. |
 
 ### Backups
 
@@ -691,7 +735,11 @@ To restore, stop OpenTidemark, run `tidemark restore --from <backup dir> --force
 
 ### Upgrading
 
-Upgrades keep your data. Database changes are additive. Before migrating the metadata, OpenTidemark
+Upgrades keep your data. Database changes are additive. Native Linux and Windows service installs
+with the update helper can also install the latest release in one step through
+`POST /api/v1/system/update/apply` (see
+[Operations › Upgrades](manual/operations.md#upgrades-and-migrations)); the helper verifies it,
+restarts the service and rolls back if the new version doesn't come up. Before migrating the metadata, OpenTidemark
 copies it to `<data dir>/backups` (the last 10 copies are kept), and it refuses to start if that
 copy fails. A binary that is older than the database requires refuses to start (downgrade
 protection). Read the [changelog](../CHANGELOG.md) first: before 1.0, minor versions may contain
@@ -706,7 +754,8 @@ breaking changes. It is also a good idea to run `tidemark backup` first.
 - **Compose built from source:** update the checkout (for example `git fetch --tags && git checkout
   v<version>`), then run `docker compose up -d --build`.
 - **Native Linux:** stop the service, then run the new archive's installer. It replaces the binary
-  and the unit and keeps `/etc/tidemark/tidemark.env`:
+  and the units and keeps `/etc/tidemark/tidemark.env`. An install made before the update helper
+  existed gets it the first time you run a new installer (unless you pass `--no-self-update`):
 
   ```bash
   sudo systemctl stop tidemark
@@ -715,7 +764,9 @@ breaking changes. It is also a good idea to run `tidemark backup` first.
 
 - **Native Windows:** run the new archive's installer as Administrator. It stops the service,
   replaces the binary, keeps `tidemark.env` and the service registration, and starts it again with
-  `-Start`: `.\deploy\install.ps1 -Mode Native -Binary .\tidemark.exe -Start`.
+  `-Start`: `.\deploy\install.ps1 -Mode Native -Binary .\tidemark.exe -Start`. An install made
+  before the update helper existed gets it the first time you run a new installer (unless you
+  pass `-NoSelfUpdate`).
 - **ClickHouse:** upgrade it with your package manager, or by changing the image tag. Stay on the
   release line documented in [section 2](#software).
 
@@ -730,8 +781,11 @@ For HA clusters, upgrade one node at a time (see `deploy/ha/README.md`).
 
   ```bash
   sudo systemctl disable --now tidemark
-  sudo rm /etc/systemd/system/tidemark.service /usr/local/bin/tidemark
+  sudo systemctl disable --now tidemark-update.path   # when the update helper is installed
+  sudo rm -f /etc/systemd/system/tidemark.service /etc/systemd/system/tidemark-update.service \
+    /etc/systemd/system/tidemark-update.path /usr/local/bin/tidemark /usr/local/bin/tidemark.previous
   sudo systemctl daemon-reload
+  sudo rm -rf /var/lib/tidemark-update
   sudo rm -r /var/lib/tidemark /etc/tidemark      # deletes the metadata, keys and settings
   sudo userdel tidemark
   ```
@@ -743,14 +797,14 @@ For HA clusters, upgrade one node at a time (see `deploy/ha/README.md`).
 
   ```powershell
   Stop-Service Tidemark
-  & "$env:ProgramFiles\Tidemark\tidemark.exe" service uninstall
+  & "$env:ProgramFiles\Tidemark\tidemark.exe" service uninstall   # also removes TidemarkUpdate
   Get-NetFirewallRule -DisplayName 'Tidemark TCP *' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
   Remove-Item -Recurse "$env:ProgramFiles\Tidemark"
   Remove-Item -Recurse "$env:ProgramData\Tidemark"   # deletes the metadata, keys and settings
   docker rm -f tidemark-clickhouse                   # add: docker volume rm tidemark-clickhouse-data to delete the telemetry
   ```
 
-  `service uninstall` also removes the event log source.
+  `service uninstall` also removes the update helper service and the event log source.
 
 ## 11. Troubleshooting
 

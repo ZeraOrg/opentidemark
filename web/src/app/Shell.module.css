@@ -61,6 +61,56 @@
   margin-right: 6px;
 }
 
+/* Admin-only "Update available · v<x>" chip (SPEC §16.1); a chip, never a banner. */
+.updateChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px 0 8px;
+  border: 1px solid var(--tm-color-accent-border);
+  border-radius: var(--tm-radius-pill);
+  background: var(--tm-color-accent-soft);
+  color: var(--tm-color-accent);
+  font-size: var(--tm-text-sm);
+  font-weight: var(--tm-font-weight-medium);
+  white-space: nowrap;
+  flex: none;
+}
+
+.updateChip:hover {
+  border-color: var(--tm-color-accent);
+  color: var(--tm-color-accent);
+  text-decoration: none;
+}
+
+.updateChip:focus-visible {
+  border-radius: var(--tm-radius-pill);
+}
+
+.updateChipCompact {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  justify-content: center;
+}
+
+.updateChipSpinner {
+  animation: updateChipSpin 1s linear infinite;
+}
+
+@keyframes updateChipSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .updateChipSpinner {
+    animation: none;
+  }
+}
+
 .iconButton {
   display: inline-flex;
   align-items: center;

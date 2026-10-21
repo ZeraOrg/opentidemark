@@ -45,6 +45,7 @@ export function Card({
   bodyClassName,
   flush,
   headExtra,
+  id,
 }: {
   title?: ReactNode;
   subtitle?: ReactNode;
@@ -54,10 +55,13 @@ export function Card({
   bodyClassName?: string;
   flush?: boolean;
   headExtra?: ReactNode;
+  /** Anchor for links such as `/settings/system#update`. */
+  id?: string;
 }) {
   const titleId = useId();
   return (
     <section
+      id={id}
       className={cx(s.card, className)}
       aria-labelledby={typeof title === 'string' ? titleId : undefined}
     >

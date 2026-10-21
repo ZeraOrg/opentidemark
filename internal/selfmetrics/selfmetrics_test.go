@@ -28,6 +28,24 @@ func TestWALBytes(t *testing.T) {
 	}
 }
 
+// TestUpdateAvailable: the gauge follows the checker at scrape time.
+func TestUpdateAvailable(t *testing.T) {
+	m := New()
+	available := false
+	m.UpdateAvailable(func() bool { return available })
+	for _, tc := range []struct {
+		set  bool
+		want string
+	}{{false, "tidemark_update_available 0"}, {true, "tidemark_update_available 1"}} {
+		available = tc.set
+		w := httptest.NewRecorder()
+		m.Handler("").ServeHTTP(w, httptest.NewRequest("GET", "/metrics", nil))
+		if !strings.Contains(w.Body.String(), tc.want) {
+			t.Errorf("missing %q", tc.want)
+		}
+	}
+}
+
 func TestMetricsAndHandler(t *testing.T) {
 	m := New()
 	m.Accepted("seq", model.SourceLogs, 5)

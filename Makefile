@@ -40,7 +40,7 @@ DIST := dist
 DIST_VERSION := $(strip $(shell cat VERSION 2>/dev/null))
 SEMVER_RE := ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$$
 DIST_FILES := LICENSE NOTICE THIRD_PARTY_NOTICES.md README.md CHANGELOG.md deploy/.env.example deploy/clickhouse/config.d/tidemark.xml deploy/clickhouse/users.d/tidemark.xml
-DIST_FILES_LINUX := deploy/install.sh deploy/tidemark.service
+DIST_FILES_LINUX := deploy/install.sh deploy/tidemark.service deploy/tidemark-update.service deploy/tidemark-update.path
 DIST_FILES_WINDOWS := deploy/install.ps1
 # Docker bundle tidemark_<version>_docker: these files with a leading deploy/ removed, INSTALL.md,
 # and docker-compose.yml rewritten to run the published image (no build: block).
@@ -100,7 +100,7 @@ dist: web ## release archives + checksums.txt for the cross targets into dist/ (
 		name=tidemark_$(DIST_VERSION)_$${os}_$${arch}; stage=$(DIST)/$$name; \
 		echo "dist $$name"; \
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch $(GO) build -trimpath \
-			-ldflags "-s -w -X main.version=$(DIST_VERSION)" -o $$stage/tidemark$$ext ./cmd/tidemark; \
+			-ldflags "-s -w -X main.version=$(DIST_VERSION) -X main.distribution=archive" -o $$stage/tidemark$$ext ./cmd/tidemark; \
 		for f in $(DIST_FILES) $$extra; do mkdir -p "$$stage/$$(dirname "$$f")"; cp -p "$$f" "$$stage/$$f"; done; \
 		cp -p "deploy/install/INSTALL-$$os.md" "$$stage/INSTALL.md"; \
 		if [ "$$os" = windows ]; then (cd $(DIST) && zip -qrX "$$name.zip" "$$name"); \

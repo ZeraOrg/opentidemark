@@ -25,6 +25,7 @@ import (
 	"github.com/ZeraOrg/opentidemark/internal/service"
 	"github.com/ZeraOrg/opentidemark/internal/store"
 	"github.com/ZeraOrg/opentidemark/internal/testutil"
+	"github.com/ZeraOrg/opentidemark/internal/update"
 )
 
 const testPassword = "Correct-Horse-Battery-9"
@@ -54,6 +55,7 @@ type env struct {
 	sessions map[string]*client
 	querier  *testutil.FakeQuerier
 	admin    *fakeAdmin
+	updates  *fakeUpdater
 }
 
 // client carries one principal's cookies.
@@ -140,10 +142,12 @@ func newEnv(t *testing.T) *env {
 		Signals: importer.Signals{Store: meta.NewSignals(db)}, Streams: registry, Audit: audit,
 		UploadDir: filepath.Join(t.TempDir(), "imports"), NodeID: "node-test", Now: time.Now})
 	rt.Register(&ImportsAPI{Imports: imports, ClientIP: ip})
+	updates := &fakeUpdater{status: update.Status{Enabled: true, Current: "0.4.0", State: update.StateIdle}}
+	rt.Register(&UpdateAPI{Updates: updates, Audit: audit, ClientIP: ip})
 	querier := &testutil.FakeQuerier{}
 	rt.Register(searchModules(db, querier, audit, ip, logger)...)
 	e := &env{t: t, handler: rt, router: rt, db: db, users: users, applier: applier,
-		sessions: map[string]*client{}, querier: querier, admin: admin}
+		sessions: map[string]*client{}, querier: querier, admin: admin, updates: updates}
 	for _, role := range []string{meta.RoleAdmin, meta.RoleEditor, meta.RoleViewer} {
 		if _, err := users.Create(ctx, service.SystemActor, service.NewUser{Username: role + "1", Password: testPassword, Role: role}); err != nil {
 			t.Fatal(err)

@@ -11,8 +11,50 @@ Release archives, checksums and container images are on the
 
 ## [Unreleased]
 
+### Added
+
+- Update notices: once a day OpenTidemark checks GitHub for a newer release and shows the result
+  to admins (`GET /api/v1/system/update`, `POST /api/v1/system/update/check` to check now, and the
+  `tidemark_update_available` metric). The check sends no installation data; turn it off with
+  `TIDEMARK_UPDATE_CHECK=false`, or send it through a proxy with `TIDEMARK_UPDATE_PROXY`.
+  Development builds never check.
+- Update notices in the UI: admins see an "Update available · v<x>" chip in the top bar, and the
+  System settings page has an Updates card with the latest release and its notes, a "Check now"
+  button, what a failed check means, and how to update this installation (Compose commands for
+  containers, the rolling upgrade for HA, the installer otherwise).
+- `tidemark update check [--json]` asks GitHub once whether a newer release exists and prints the
+  answer.
+- One-click update in the UI: where the update helper is installed, the Updates card offers
+  "Install v<x>". A dialog explains the brief restart and the automatic rollback (a minor or major
+  bump asks you to type the version), the card then follows the download, verification, install
+  and restart, reconnects on its own and reports the result; the top-bar chip reads "Updating…"
+  meanwhile.
+- Native Linux installs get an update helper: `install.sh native` now also installs
+  `tidemark-update.path` and `tidemark-update.service`, which install a release the service has
+  downloaded and verified, as root but without network or capabilities, and roll it back when the
+  new version doesn't become ready within 10 minutes. The service never gets write access to its
+  binary. Run the new installer once on an existing install to add it; `--no-self-update` leaves
+  it out. The service unit treats exit status 3 as "restart for an update".
+- One-click updates for native Linux (systemd) and Windows service installs:
+  `POST /api/v1/system/update/apply` with the latest version downloads the release, checks its
+  signature and checksum and hands it to the update helper, which installs it, restarts the
+  service and rolls back if the new version doesn't become ready. `GET /api/v1/system/update`
+  shows the progress and the last result, and the audit log records `update.apply`,
+  `update.installed`, `update.rolled_back` and `update.failed`. Containers update by pulling the
+  new image and HA clusters by a rolling upgrade, as before. Existing native installs need the
+  new installer run once to get the helper.
+- Native Windows installs get the same update helper as the service `TidemarkUpdate`
+  (LocalSystem, started on demand; the Tidemark service may only start and query it).
+  `install.ps1 -Mode Native` registers it unless `-NoSelfUpdate` is given; run the new installer
+  once on an existing install. `tidemark service install-update` and `uninstall-update` add or
+  remove it on their own, and `service uninstall` removes it too.
+
 ### Security
 
+- Releases sign their `checksums.txt` with minisign (`checksums.txt.minisig`), so you can check that
+  a download comes from the OpenTidemark release workflow:
+  `minisign -Vm checksums.txt -P RWTzWC1xqWTY457VdX92WvxpPeXXOUhpiGzch3af0NEoe9ENK8bEbiDE`. Both
+  signing keys (the CI key and an offline backup key) are listed in `SECURITY.md`.
 - Built with Go 1.27.3, which distrusts compromised intermediate certificates in TLS certificate
   verification (CVE-2026-111943).
 

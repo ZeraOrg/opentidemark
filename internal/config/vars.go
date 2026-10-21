@@ -65,6 +65,8 @@ const (
 	VarWALMinFreeBytes      = "TIDEMARK_WAL_MIN_FREE_BYTES"
 	VarBackupDir            = "TIDEMARK_BACKUP_DIR"
 	VarDrainSeconds         = "TIDEMARK_DRAIN_SECONDS"
+	VarUpdateCheck          = "TIDEMARK_UPDATE_CHECK"
+	VarUpdateProxy          = "TIDEMARK_UPDATE_PROXY"
 )
 
 // allVars lists every variable; each also has a kebab-case flag.
@@ -77,13 +79,13 @@ var allVars = []string{
 	VarSMTPPort, VarSMTPUsername, VarSMTPPassword, VarSMTPFrom, VarSMTPStartTLS, VarLogLevel, VarMaxStreams,
 	VarMetricsEnabled, VarMetricsToken, VarSecretKeyFile, VarEnvFile,
 	VarNodeID, VarMetaDriver, VarMetaDSN, VarCHCluster, VarCHInsertQuorum, VarWALEnabled, VarWALDir, VarWALMaxBytes,
-	VarWALSync, VarWALExitOnFailure, VarWALMinFreeBytes, VarBackupDir, VarDrainSeconds,
+	VarWALSync, VarWALExitOnFailure, VarWALMinFreeBytes, VarBackupDir, VarDrainSeconds, VarUpdateCheck, VarUpdateProxy,
 }
 
 // secretVars may be supplied as <VAR>_FILE (Docker/Kubernetes secrets).
 var secretVars = []string{
 	VarCHWriterPassword, VarCHReaderPassword, VarAdminPassword, VarBootstrapIngestKey, VarSMTPPassword,
-	VarMetricsToken, VarMetaDSN,
+	VarMetricsToken, VarMetaDSN, VarUpdateProxy,
 }
 
 // defaults are the values used when a variable is not set (OS-specific ones are added in Load).
@@ -98,7 +100,7 @@ var defaults = map[string]string{
 	VarMaxStreams: "200", VarMetricsEnabled: "false",
 	VarMetaDriver: "sqlite", VarCHInsertQuorum: "auto", VarWALEnabled: "true", VarWALMaxBytes: "10737418240",
 	VarWALSync: "batch", VarWALExitOnFailure: "true", VarWALMinFreeBytes: "1073741824",
-	VarDrainSeconds: "10",
+	VarDrainSeconds: "10", VarUpdateCheck: "true",
 }
 
 // FlagName returns the CLI flag of a variable: TIDEMARK_HTTP_ADDR ⇒ http-addr.

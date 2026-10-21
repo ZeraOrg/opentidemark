@@ -7,12 +7,13 @@
 #       Creates deploy/.env from .env.example on first run (random ClickHouse passwords and a
 #       bootstrap ingest key, mode 0600), then runs `docker compose up -d --build`.
 #
-#   sudo ./install.sh native <path-to-tidemark-binary> [--start]
+#   sudo ./install.sh native <path-to-tidemark-binary> [--start] [--no-self-update]
 #       Creates the system user `tidemark`, /var/lib/tidemark, /etc/tidemark/tidemark.env (random
 #       secrets on first run), installs the binary to /usr/local/bin and the systemd unit
-#       tidemark.service, and enables it. ClickHouse must be set up separately with the users from
-#       deploy/clickhouse/users.d and the passwords written to tidemark.env; --start starts the
-#       service right away.
+#       tidemark.service, and enables it, plus the update helper (tidemark-update.path/.service)
+#       unless --no-self-update is given (which also removes an installed helper). ClickHouse must
+#       be set up separately with the users from deploy/clickhouse/users.d and the passwords
+#       written to tidemark.env; --start starts the service right away.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,7 +22,7 @@ KEY_PREFIX="tmk_"
 KEY_LENGTH=40
 
 usage() {
-  sed -n '4,15p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '4,16p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit 2
 }
 
@@ -79,13 +80,34 @@ install_docker() {
   fi
 }
 
+# install_update_helper installs the units that let admins update from the UI (SPEC §17.7): the
+# service stages releases in /var/lib/tidemark/update, the root helper installs them.
+install_update_helper() {
+  install -d -m 0750 -o tidemark -g tidemark /var/lib/tidemark/update
+  install -m 0644 -o root -g root "${SCRIPT_DIR}/tidemark-update.service" /etc/systemd/system/tidemark-update.service
+  install -m 0644 -o root -g root "${SCRIPT_DIR}/tidemark-update.path" /etc/systemd/system/tidemark-update.path
+  systemctl daemon-reload
+  systemctl enable --now tidemark-update.path
+}
+
+# remove_update_helper removes the helper units of an earlier install (--no-self-update).
+remove_update_helper() {
+  if [[ -f /etc/systemd/system/tidemark-update.path ]]; then
+    systemctl disable --now tidemark-update.path
+    rm -f /etc/systemd/system/tidemark-update.path /etc/systemd/system/tidemark-update.service
+    echo "install: removed the update helper; update with this installer"
+  fi
+  systemctl daemon-reload
+}
+
 install_native() {
   [[ $# -ge 1 ]] || usage
-  local binary="$1" start=0
+  local binary="$1" start=0 self_update=1
   shift
   for arg in "$@"; do
     case "${arg}" in
       --start) start=1 ;;
+      --no-self-update) self_update=0 ;;
       *) usage ;;
     esac
   done
@@ -114,7 +136,11 @@ install_native() {
   fi
 
   install -m 0644 -o root -g root "${SCRIPT_DIR}/tidemark.service" /etc/systemd/system/tidemark.service
-  systemctl daemon-reload
+  if [[ "${self_update}" -eq 1 ]]; then
+    install_update_helper
+  else
+    remove_update_helper
+  fi
   if [[ "${start}" -eq 1 ]]; then
     systemctl enable --now tidemark.service
   else

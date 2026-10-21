@@ -10,6 +10,8 @@
 //	tidemark migrate [--status|--dry-run]         apply or inspect schema migrations
 //	tidemark doctor [--json]                      connectivity, schema, WAL, clock and disk checks
 //	tidemark import clef|elastic|seq|kibana …      import data (SPEC §9.9); list | status | cancel
+//	tidemark update check [--json]                ask GitHub once for a newer release (SPEC §17.7)
+//	tidemark update install                       Linux update helper (run by tidemark-update.service)
 //	tidemark service install|uninstall|start|stop Windows service management
 //	tidemark healthcheck [--url URL]              exit 0 when GET /healthz answers 200 (containers)
 package main
@@ -37,8 +39,15 @@ import (
 // version is set at build time with -ldflags "-X main.version=<v>".
 var version = "dev"
 
+// distribution is set by the release builds with -ldflags "-X main.distribution=<archive|container>"
+// (SPEC §17.6); any other build is a development build without update checks (SPEC §17.7).
+var distribution = ""
+
 func main() {
 	if err := run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr); err != nil {
+		if errors.Is(err, app.ErrRestartForUpdate) {
+			os.Exit(exitRestartForUpdate)
+		}
 		fmt.Fprintln(os.Stderr, "tidemark:", err)
 		os.Exit(1)
 	}
@@ -72,10 +81,12 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		return doctorCommand(args, stdout, stderr)
 	case "import":
 		return importCommand(args, stdout, stderr)
+	case "update":
+		return updateCommand(args, stdout, stderr)
 	case "healthcheck":
 		return healthcheck(context.Background(), args, &http.Client{Timeout: healthTimeout})
 	default:
-		return fmt.Errorf("unknown command %q (use serve, version, admin, backup, restore, migrate, doctor, import, service or healthcheck)", cmd)
+		return fmt.Errorf("unknown command %q (use serve, version, admin, backup, restore, migrate, doctor, import, update, service or healthcheck)", cmd)
 	}
 }
 
@@ -83,17 +94,19 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 func serve(args []string, stderr io.Writer) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	return serveContext(ctx, args, stderr)
+	return serveContext(ctx, args, stderr, false)
 }
 
-// serveContext loads the configuration, builds the app and runs it until ctx ends.
-func serveContext(ctx context.Context, args []string, stderr io.Writer) error {
+// serveContext loads the configuration, builds the app and runs it until ctx ends; asService is
+// true under the Windows Service Control Manager.
+func serveContext(ctx context.Context, args []string, stderr io.Writer, asService bool) error {
 	cfg, err := config.Load(args, config.OSEnv{})
 	if err != nil {
 		return err
 	}
 	logger := logging.New(stderr, cfg.LogLevel)
-	a, err := app.New(ctx, cfg, version, logger)
+	build := app.BuildInfo{Version: version, Distribution: distribution, WindowsService: asService}
+	a, err := app.New(ctx, cfg, build, logger)
 	if err != nil {
 		return err
 	}
