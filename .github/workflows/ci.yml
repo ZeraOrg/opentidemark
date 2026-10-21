@@ -240,3 +240,6 @@ jobs:
       attestations: write
       actions: read # the called workflow reads ci runs on manual starts
     uses: ./.github/workflows/release.yml
+    # A called workflow sees no secrets unless they are passed, environment secrets included: the
+    # sign job needs the signing key of its environment "release".
+    secrets: inherit

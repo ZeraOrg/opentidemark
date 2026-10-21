@@ -8,7 +8,7 @@
 > well. Any change to behaviour, APIs, schema, configuration, layout, UI or tooling **must**
 > update this spec in the same commit. Version history is in §21.
 
-**Spec version:** 0.32.10 · **Last updated:** 2026-10-21
+**Spec version:** 0.32.11 · **Last updated:** 2026-10-21
 
 ---
 
@@ -2964,7 +2964,8 @@ are built on Linux by the workflow below.
 the workflow env `PUBLIC`):
 - Triggers: `workflow_call` (from the `release` job of `ci.yml`, which runs only after the `go`,
   `integration`, `notices` and `web` jobs succeeded for a push to `main` of the main public
-  repository, §17.4) and `workflow_dispatch`. Calling it from ci instead of a `workflow_run`
+  repository, §17.4, and passes its secrets with `secrets: inherit`: a called workflow sees no
+  secret otherwise, not even one of the `sign` job's environment) and `workflow_dispatch`. Calling it from ci instead of a `workflow_run`
   trigger means no release run exists in other repositories unless started by hand, and the
   release waits for the whole gate including the web e2e. Workflow permissions `{}`; every job
   declares its own (the calling job grants `contents: write`, `packages: write`,
@@ -3448,6 +3449,7 @@ items of M0–M3b:
 
 | Version | Date | Change |
 |---|---|---|
+| 0.32.11 | 2026-10-21 | Release (§17.6): ci's `release` job passes its secrets to `release.yml` (`secrets: inherit`); without it the `sign` job got no signing key and the 0.5.0-rc.1 release stopped unpublished. `TestReleaseSignsChecksums` checks it. |
 | 0.32.10 | 2026-10-21 | One-click update in the UI (§16.1, §16.4, §16.6, §18): the Updates card offers "Install v<x>" where `apply.supported` — a confirmation dialog (restart pause, automatic rollback, release notes, typed version for a major bump or a minor bump before 1.0), the progress view polling every 2 s through the states and the restart (network and gateway errors read as restarting, a warning after 15 min, a 401 prompts a new sign-in and the view resumes from `tm.update.target`), the success toast and the "Last update" fact, a danger notice for `rolled_back` / `failed`, the `409` / `400` answers in words; `helper-missing` explains that the installer adds the helper; the top-bar chip reads "Updating…" while applying. The mock build gains the `apply`, `apply-rollback` and `helper-missing` states and an apply timeline with a restart gap. |
 | 0.32.9 | 2026-10-21 | Update helper triggers (§11.5, §17.7, §18): staging no longer deletes an earlier `request.json` first (a deletion could fire the path unit and lose the new request's trigger; a stale request only fails verification); the helper handles a request staged while it was busy before exiting (at most 3 per run, compared with the version it just installed); `POST /system/update/apply` answers `409 in-progress` while the helper waits for a confirmation. |
 | 0.32.8 | 2026-10-21 | One-click update (§11.5, §15.5, §17.2, §17.3, §17.5, §17.7, §18): `POST /system/update/apply` `{version}` (admin; `202`, `400` field `version`, `409` reasons incl. `draining`, `wal-failed`, `in-progress`); `apply.supported` is `true` on systemd and Windows-service installs with the helper for this binary; the background applier (download with 15 min timeout and 3 × free space, verify, stage, start the helper, follow `state.json`) with `state`, `progress` and `lastResult` in the status; audit `update.apply`, `update.installed`, `update.rolled_back`, `update.failed`; containers and HA keep updating by image or rolling upgrade. |

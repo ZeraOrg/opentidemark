@@ -107,6 +107,10 @@ func TestReleaseSignsChecksums(t *testing.T) {
 	if strings.Count(workflow, "environment:") != 1 || !strings.Contains(sign, signEnv) {
 		t.Error("release.yml: only the sign job may use an environment, and it must be \"release\"")
 	}
+	ciJobs := workflowJobs(t, readRepoFile(t, ".github/workflows/ci.yml"))
+	if !strings.Contains(ciJobs["release"], "\n    secrets: inherit\n") {
+		t.Error("ci.yml: the release job must pass its secrets (secrets: inherit), or the sign job gets no key")
+	}
 	if strings.Count(workflow, "secrets.") != 1 || !strings.Contains(sign, "${{ secrets.RELEASE_SIGNING_KEY }}") {
 		t.Error("release.yml: the signing key secret must be used by the sign job only")
 	}
