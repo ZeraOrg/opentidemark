@@ -11,6 +11,8 @@ Release archives, checksums and container images are on the
 
 ## [Unreleased]
 
+## [0.5.0-rc.1] - 2026-10-21
+
 ### Added
 
 - Update notices: once a day OpenTidemark checks GitHub for a newer release and shows the result
