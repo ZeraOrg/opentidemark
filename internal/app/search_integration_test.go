@@ -140,6 +140,7 @@ func TestIntegrationSearchEndToEnd(t *testing.T) {
 	addrs := a.Addrs()
 	base := "http://" + addrs[ListenerHTTP]
 	admin := loginAdmin(t, base)
+	keepFixtures(t, admin)
 	key := admin.createKey("it-all", []string{"seq", "elastic", "otlp", "native"})
 	seqOnly := admin.createKey("it-seq-only", []string{"seq"})
 

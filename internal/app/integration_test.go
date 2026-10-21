@@ -25,6 +25,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/ZeraOrg/opentidemark/internal/config"
+	"github.com/ZeraOrg/opentidemark/internal/service"
 	ch "github.com/ZeraOrg/opentidemark/internal/store/clickhouse"
 	"github.com/ZeraOrg/opentidemark/internal/testutil"
 )
@@ -100,6 +101,8 @@ func TestIntegrationEndToEnd(t *testing.T) {
 	seqKey := map[string]string{"X-Seq-ApiKey": bootstrapKey}
 	bearer := map[string]string{"Authorization": "Bearer " + bootstrapKey}
 	basic := map[string]string{"Authorization": "ApiKey " + bootstrapKey}
+	checkStartupRetention(t, env)
+	keepFixtures(t, loginAdmin(t, base))
 
 	steps := []struct {
 		name, url, ct, file string
@@ -231,6 +234,33 @@ func verifyRows(t *testing.T, env testutil.ClickHouseEnv) {
 			t.Errorf("%s = %d (%v), want %d", c.q, n, err, c.want)
 		}
 	}
+}
+
+// fixtureRetentionDays outlives the fixed timestamps of the ingest fixtures; the default TTLs
+// (spans 7 days, SPEC §12.3) would expire their rows on insert a week after they were recorded.
+// It stays well below retention.MaxDays, whose interval overflows ClickHouse's DateTime range.
+const fixtureRetentionDays = 3650
+
+// keepFixtures sets the retention defaults to fixtureRetentionDays through the settings API,
+// which applies the TTLs before it answers.
+func keepFixtures(t *testing.T, admin *apiClient) {
+	t.Helper()
+	d := fixtureRetentionDays
+	body := map[string]any{service.SettingRetention: service.RetentionSettings{LogsDays: d, SpansDays: d, MetricsDays: d}}
+	if code := admin.do(http.MethodPatch, "/settings", body, nil); code != http.StatusOK {
+		t.Fatalf("PATCH /settings retention: %d", code)
+	}
+}
+
+// checkStartupRetention checks that startup applied the default TTLs (SPEC §12.3).
+func checkStartupRetention(t *testing.T, env testutil.ClickHouseEnv) {
+	t.Helper()
+	ctx := context.Background()
+	conn, err := ch.Open(ctx, ch.Options{Addrs: env.Addrs, Database: env.Database, Username: env.ReaderUser, Password: env.ReaderPassword})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
 	var ddl string
 	if err := conn.QueryRow(ctx, "SELECT create_table_query FROM system.tables WHERE database = ? AND name = 'events'", env.Database).Scan(&ddl); err != nil {
 		t.Fatal(err)
