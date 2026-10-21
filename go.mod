@@ -3,14 +3,14 @@ module github.com/ZeraOrg/opentidemark
 
 go 1.26.0
 
-toolchain go1.27.2
+toolchain go1.27.3
 
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.49.0
 	github.com/go-faster/city v1.0.1
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.11.0
-	github.com/klauspost/compress v1.20.1
+	github.com/klauspost/compress v1.20.3
 	github.com/ncruces/go-sqlite3 v0.35.6
 	github.com/prometheus/client_golang v1.25.0
 	go.opentelemetry.io/proto/otlp v1.11.1

@@ -8,7 +8,7 @@
 > well. Any change to behaviour, APIs, schema, configuration, layout, UI or tooling **must**
 > update this spec in the same commit. Version history is in §21.
 
-**Spec version:** 0.31.10 · **Last updated:** 2026-10-17
+**Spec version:** 0.31.11 · **Last updated:** 2026-10-21
 
 ---
 
@@ -159,7 +159,7 @@ Versions are minimums; lockfiles (`go.sum`, `web/package-lock.json`) pin exact v
 ### Backend
 | Concern | Choice | License |
 |---|---|---|
-| Language | Go **1.27** toolchain (`go 1.26.0` as the minimum language version, required by `ncruces/go-sqlite3`; `toolchain go1.27.2`: the newest patch release, free of the stdlib advisories reported by govulncheck/Trivy) | BSD |
+| Language | Go **1.27** toolchain (`go 1.26.0` as the minimum language version, required by `ncruces/go-sqlite3`; `toolchain go1.27.3`: the newest patch release, free of the stdlib advisories reported by govulncheck/Trivy) | BSD |
 | HTTP | `net/http` (Go 1.22+ pattern routing), no framework | — |
 | Logging | `log/slog` (JSON handler) | — |
 | ClickHouse client | `github.com/ClickHouse/clickhouse-go/v2` (native protocol) | Apache-2.0 |
@@ -2469,7 +2469,7 @@ Normative details:
 - `deploy/docker-compose.dev.yml` (used only by `make dev`) publishes ClickHouse on
   `127.0.0.1:${TIDEMARK_DEV_CLICKHOUSE_PORT:-19000}`.
 - Dockerfile: `node:24-bookworm-slim` builds `web/` (skipped without `package.json`),
-  `golang:1.27.2-bookworm` (same Go release as the `toolchain` directive, §5) builds with `CGO_ENABLED=0` and copies `LICENSE`, `NOTICE`,
+  `golang:1.27.3-bookworm` (same Go release as the `toolchain` directive, §5) builds with `CGO_ENABLED=0` and copies `LICENSE`, `NOTICE`,
   `THIRD_PARTY_NOTICES.md` to `/licenses/`, runtime `gcr.io/distroless/static-debian12:nonroot`
   (UID 65532, `/data` volume, `TIDEMARK_DATA_DIR=/data`, entrypoint `tidemark`, cmd `serve`).
   Both build stages run on the build platform (`FROM --platform=$BUILDPLATFORM`) and the Go
@@ -3068,6 +3068,7 @@ items of M0–M3b:
 
 | Version | Date | Change |
 |---|---|---|
+| 0.31.11 | 2026-10-21 | Go toolchain go1.27.3 (Dockerfile `golang:1.27.3-bookworm`, §5, §17) for the `crypto/x509` advisory GO-2026-6809 (CVE-2026-111943) reported by govulncheck; applied before the 7-day rule (§15.9) because it fixes a vulnerability and the fix is only available by upgrading. |
 | 0.31.10 | 2026-10-17 | Release (§17.6): after pushing the image the `image` job checks an anonymous pull of the new manifest and, when it is refused (package still private), warns in an annotation and the job summary instead of letting the release ship a silently unpullable image. |
 | 0.31.9 | 2026-10-17 | Dead-letter cap (§7, §9.1): new `TIDEMARK_DEADLETTER_MAX_BYTES` (default 1 GiB, `0` = unlimited); the oldest dead-letter files are deleted to make room, a batch larger than the cap is refused (`deadletter_failed`), and rows are encoded before the file is created. Before, the folder grew without bound. |
 | 0.31.8 | 2026-10-17 | WAL free-space floor (§7, §9.8): new `TIDEMARK_WAL_MIN_FREE_BYTES` (default 1 GiB, `0` = off); below it appends fail with `wal.ErrLowDisk` and ingestion answers with backpressure until space is freed, so the WAL never fills the disk it shares with the metadata database, dead letters and backups. Before, only the WAL's own size cap applied, regardless of free space. |

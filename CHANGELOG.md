@@ -11,6 +11,11 @@ Release archives, checksums and container images are on the
 
 ## [Unreleased]
 
+### Security
+
+- Built with Go 1.27.3, which distrusts compromised intermediate certificates in TLS certificate
+  verification (CVE-2026-111943).
+
 ## [0.4.0] - 2026-10-17
 
 ### Added

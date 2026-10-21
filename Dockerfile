@@ -11,7 +11,7 @@ WORKDIR /src/web
 COPY web/ ./
 RUN if [ -f package.json ]; then npm ci && npm run build; else mkdir -p dist; fi
 
-FROM --platform=$BUILDPLATFORM golang:1.27.2-bookworm AS build
+FROM --platform=$BUILDPLATFORM golang:1.27.3-bookworm AS build
 ARG VERSION=dev
 ARG TARGETOS
 ARG TARGETARCH
