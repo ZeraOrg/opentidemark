@@ -13,40 +13,46 @@ columns: @bucket:time, service:string, avg_value:number
 === source metrics | name:http.server.request.count | stats rate(value) by service span 1m
 kind: timeseries  source: metrics  limit: 10000  span: 1m0s
 canonical: source metrics | name:"http.server.request.count" | stats rate(value) by service span 1m
-sql: SELECT bucket, g0, sum(r) / ? AS a0 FROM (SELECT toStartOfInterval(timestamp, toIntervalSecond(?)) AS bucket, service AS g0, series_id, if(any(temporality) = 'delta', sum(value), deltaSumTimestamp(value, toUnixTimestamp64Milli(timestamp))) AS r FROM tidemark.metric_points WHERE timestamp >= ? AND timestamp < ? AND (lower(name) = lower(?)) GROUP BY bucket, g0, series_id) GROUP BY bucket, g0 ORDER BY bucket ASC, g0 ASC LIMIT ?
+sql: SELECT bucket, g0, sum(r_d) / ? AS a0 FROM (SELECT toStartOfInterval(timestamp, toIntervalSecond(?)) AS bucket, service AS g0, timestamp, row_number() OVER w = 1 AS r_first, toUnixTimestamp64Nano(start_time) AS r_st, lagInFrame(toUnixTimestamp64Nano(start_time)) OVER w AS r_pst, lagInFrame(value) OVER w AS r_pv, multiIf(temporality = 'delta' OR (NOT r_first AND ((r_st != 0 AND r_pst != 0 AND r_st != r_pst) OR value < r_pv)) OR (r_first AND r_st != 0 AND start_time >= ?), value, r_first, 0, value - r_pv) AS r_d FROM tidemark.metric_points WHERE timestamp >= ? AND timestamp < ? AND (lower(name) = lower(?)) WINDOW w AS (PARTITION BY stream, series_id ORDER BY timestamp ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)) WHERE timestamp >= ? GROUP BY bucket, g0 ORDER BY bucket ASC, g0 ASC LIMIT ?
 args:
   0: float64 60
   1: int64 60
-  2: time 2026-10-13T11:00:00Z
-  3: time 2026-10-13T12:00:00Z
-  4: string "http.server.request.count"
-  5: int 10000
+  2: time 2026-10-13T10:59:00Z
+  3: time 2026-10-13T10:59:00Z
+  4: time 2026-10-13T12:00:00Z
+  5: string "http.server.request.count"
+  6: time 2026-10-13T11:00:00Z
+  7: int 10000
 columns: @bucket:time, service:string, rate_value:number
 
 === source metrics | name:http.server.request.count | stats rate(value)
 kind: table  source: metrics  limit: 10000
 canonical: source metrics | name:"http.server.request.count" | stats rate(value)
-sql: SELECT sum(r) / ? AS a0 FROM (SELECT series_id, if(any(temporality) = 'delta', sum(value), deltaSumTimestamp(value, toUnixTimestamp64Milli(timestamp))) AS r FROM tidemark.metric_points WHERE timestamp >= ? AND timestamp < ? AND (lower(name) = lower(?)) GROUP BY series_id) ORDER BY a0 DESC LIMIT ?
+sql: SELECT sum(r_d) / ? AS a0 FROM (SELECT timestamp, row_number() OVER w = 1 AS r_first, toUnixTimestamp64Nano(start_time) AS r_st, lagInFrame(toUnixTimestamp64Nano(start_time)) OVER w AS r_pst, lagInFrame(value) OVER w AS r_pv, multiIf(temporality = 'delta' OR (NOT r_first AND ((r_st != 0 AND r_pst != 0 AND r_st != r_pst) OR value < r_pv)) OR (r_first AND r_st != 0 AND start_time >= ?), value, r_first, 0, value - r_pv) AS r_d FROM tidemark.metric_points WHERE timestamp >= ? AND timestamp < ? AND (lower(name) = lower(?)) WINDOW w AS (PARTITION BY stream, series_id ORDER BY timestamp ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)) WHERE timestamp >= ? ORDER BY a0 DESC LIMIT ?
 args:
   0: float64 3600
-  1: time 2026-10-13T11:00:00Z
-  2: time 2026-10-13T12:00:00Z
-  3: string "http.server.request.count"
-  4: int 10000
+  1: time 2026-10-13T10:50:00Z
+  2: time 2026-10-13T10:50:00Z
+  3: time 2026-10-13T12:00:00Z
+  4: string "http.server.request.count"
+  5: time 2026-10-13T11:00:00Z
+  6: int 10000
 columns: rate_value:number
 
 === source metrics | name:x | stats rate(value) as rps by service span 5m | where rps > 1 | sort rps desc
 kind: timeseries  source: metrics  limit: 10000  span: 5m0s
 canonical: source metrics | name:"x" | stats rate(value) as rps by service span 5m | where rps > 1 | sort rps desc
-sql: SELECT bucket, g0, sum(r) / ? AS a0 FROM (SELECT toStartOfInterval(timestamp, toIntervalSecond(?)) AS bucket, service AS g0, series_id, if(any(temporality) = 'delta', sum(value), deltaSumTimestamp(value, toUnixTimestamp64Milli(timestamp))) AS r FROM tidemark.metric_points WHERE timestamp >= ? AND timestamp < ? AND (lower(name) = lower(?)) GROUP BY bucket, g0, series_id) GROUP BY bucket, g0 HAVING (a0 > ?) ORDER BY bucket ASC, a0 DESC, g0 ASC LIMIT ?
+sql: SELECT bucket, g0, sum(r_d) / ? AS a0 FROM (SELECT toStartOfInterval(timestamp, toIntervalSecond(?)) AS bucket, service AS g0, timestamp, row_number() OVER w = 1 AS r_first, toUnixTimestamp64Nano(start_time) AS r_st, lagInFrame(toUnixTimestamp64Nano(start_time)) OVER w AS r_pst, lagInFrame(value) OVER w AS r_pv, multiIf(temporality = 'delta' OR (NOT r_first AND ((r_st != 0 AND r_pst != 0 AND r_st != r_pst) OR value < r_pv)) OR (r_first AND r_st != 0 AND start_time >= ?), value, r_first, 0, value - r_pv) AS r_d FROM tidemark.metric_points WHERE timestamp >= ? AND timestamp < ? AND (lower(name) = lower(?)) WINDOW w AS (PARTITION BY stream, series_id ORDER BY timestamp ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)) WHERE timestamp >= ? GROUP BY bucket, g0 HAVING (a0 > ?) ORDER BY bucket ASC, a0 DESC, g0 ASC LIMIT ?
 args:
   0: float64 300
   1: int64 300
-  2: time 2026-10-13T11:00:00Z
-  3: time 2026-10-13T12:00:00Z
-  4: string "x"
-  5: float64 1
-  6: int 10000
+  2: time 2026-10-13T10:55:00Z
+  3: time 2026-10-13T10:55:00Z
+  4: time 2026-10-13T12:00:00Z
+  5: string "x"
+  6: time 2026-10-13T11:00:00Z
+  7: float64 1
+  8: int 10000
 columns: @bucket:time, service:string, rps:number
 
 === source metrics | value > 10 and route:/a and count >= 0 | stats max(value), last(value) by name span 30m
@@ -115,14 +121,16 @@ columns: timestamp:time, stream:string, service:string, name:string, description
 === %streams team-a source metrics | name:http_requests_total | stats rate(value) by service
 kind: table  source: metrics  limit: 10000
 canonical: source metrics | name:"http_requests_total" | stats rate(value) by service
-sql: SELECT g0, sum(r) / ? AS a0 FROM (SELECT service AS g0, series_id, if(any(temporality) = 'delta', sum(value), deltaSumTimestamp(value, toUnixTimestamp64Milli(timestamp))) AS r FROM tidemark.metric_points WHERE timestamp >= ? AND timestamp < ? AND stream IN (?) AND (lower(name) = lower(?)) GROUP BY g0, series_id) GROUP BY g0 ORDER BY a0 DESC, g0 ASC LIMIT ?
+sql: SELECT g0, sum(r_d) / ? AS a0 FROM (SELECT service AS g0, timestamp, row_number() OVER w = 1 AS r_first, toUnixTimestamp64Nano(start_time) AS r_st, lagInFrame(toUnixTimestamp64Nano(start_time)) OVER w AS r_pst, lagInFrame(value) OVER w AS r_pv, multiIf(temporality = 'delta' OR (NOT r_first AND ((r_st != 0 AND r_pst != 0 AND r_st != r_pst) OR value < r_pv)) OR (r_first AND r_st != 0 AND start_time >= ?), value, r_first, 0, value - r_pv) AS r_d FROM tidemark.metric_points WHERE timestamp >= ? AND timestamp < ? AND stream IN (?) AND (lower(name) = lower(?)) WINDOW w AS (PARTITION BY stream, series_id ORDER BY timestamp ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)) WHERE timestamp >= ? GROUP BY g0 ORDER BY a0 DESC, g0 ASC LIMIT ?
 args:
   0: float64 3600
-  1: time 2026-10-13T11:00:00Z
-  2: time 2026-10-13T12:00:00Z
-  3: string "team-a"
-  4: string "http_requests_total"
-  5: int 10000
+  1: time 2026-10-13T10:50:00Z
+  2: time 2026-10-13T10:50:00Z
+  3: time 2026-10-13T12:00:00Z
+  4: string "team-a"
+  5: string "http_requests_total"
+  6: time 2026-10-13T11:00:00Z
+  7: int 10000
 columns: service:string, rate_value:number
 
 === source metrics | connection_id:abc
@@ -135,4 +143,128 @@ args:
   2: string "abc"
   3: int 200
 columns: timestamp:time, stream:string, service:string, name:string, description:string, unit:string, kind:string, temporality:string, is_monotonic:bool, value:number, count:number, sum:number, min:number, max:number, bucket_bounds:array, bucket_counts:array, attrs:map, series_id:number
+
+=== source metrics | name:http.server.request.duration | stats hist_mean() by service span 5m
+kind: timeseries  source: metrics  limit: 10000  span: 5m0s
+canonical: source metrics | name:"http.server.request.duration" | stats hist_mean() by service span 5m
+sql: SELECT bucket, g0, if(h_n = 0, NULL, h_s / h_n) AS a0 FROM (SELECT bucket, g0, sum(h_ds) AS h_s, sum(h_dn) AS h_n FROM (SELECT toStartOfInterval(timestamp, toIntervalSecond(?)) AS bucket, service AS g0, timestamp, row_number() OVER w = 1 AS h_first, toUnixTimestamp64Nano(start_time) AS h_st, lagInFrame(toUnixTimestamp64Nano(start_time)) OVER w AS h_pst, lagInFrame(`count`) OVER w AS h_pn, lagInFrame(bucket_counts) OVER w AS h_pc, bucket_bounds = lagInFrame(bucket_bounds) OVER w AS h_same, temporality = 'delta' OR (NOT h_first AND ((h_st != 0 AND h_pst != 0 AND h_st != h_pst) OR `count` < h_pn OR (h_same AND arrayExists((x, y) -> x < y, bucket_counts, arrayResize(h_pc, length(bucket_counts)))))) OR (h_first AND h_st != 0 AND start_time >= ?) AS h_whole, multiIf(h_whole, toInt64(`count`), h_first, 0, toInt64(`count`) - toInt64(h_pn)) AS h_dn, multiIf(h_whole, `sum`, h_first, 0, `sum` - lagInFrame(`sum`) OVER w) AS h_ds FROM tidemark.metric_points WHERE timestamp >= ? AND timestamp < ? AND (lower(name) = lower(?)) AND (kind IN ('histogram', 'exp_histogram') OR (kind = 'summary' AND temporality != '')) WINDOW w AS (PARTITION BY stream, series_id ORDER BY timestamp ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)) WHERE timestamp >= ? GROUP BY bucket, g0 HAVING count() > 0) ORDER BY bucket ASC, g0 ASC LIMIT ?
+args:
+  0: int64 300
+  1: time 2026-10-13T10:55:00Z
+  2: time 2026-10-13T10:55:00Z
+  3: time 2026-10-13T12:00:00Z
+  4: string "http.server.request.duration"
+  5: time 2026-10-13T11:00:00Z
+  6: int 10000
+columns: @bucket:time, service:string, hist_mean:number
+
+=== source metrics | name:x and route:/a | stats hist_mean() as mean_ms by route | where mean_ms > 100 | sort mean_ms desc | limit 5
+kind: table  source: metrics  limit: 5
+canonical: source metrics | name:"x" and route:"/a" | stats hist_mean() as mean_ms by route | where mean_ms > 100 | sort mean_ms desc | limit 5
+sql: SELECT g0, if(h_n = 0, NULL, h_s / h_n) AS a0 FROM (SELECT g0, sum(h_ds) AS h_s, sum(h_dn) AS h_n FROM (SELECT attrs[?] AS g0, timestamp, row_number() OVER w = 1 AS h_first, toUnixTimestamp64Nano(start_time) AS h_st, lagInFrame(toUnixTimestamp64Nano(start_time)) OVER w AS h_pst, lagInFrame(`count`) OVER w AS h_pn, lagInFrame(bucket_counts) OVER w AS h_pc, bucket_bounds = lagInFrame(bucket_bounds) OVER w AS h_same, temporality = 'delta' OR (NOT h_first AND ((h_st != 0 AND h_pst != 0 AND h_st != h_pst) OR `count` < h_pn OR (h_same AND arrayExists((x, y) -> x < y, bucket_counts, arrayResize(h_pc, length(bucket_counts)))))) OR (h_first AND h_st != 0 AND start_time >= ?) AS h_whole, multiIf(h_whole, toInt64(`count`), h_first, 0, toInt64(`count`) - toInt64(h_pn)) AS h_dn, multiIf(h_whole, `sum`, h_first, 0, `sum` - lagInFrame(`sum`) OVER w) AS h_ds FROM tidemark.metric_points WHERE timestamp >= ? AND timestamp < ? AND (lower(name) = lower(?) AND lower(attrs[?]) = lower(?)) AND (kind IN ('histogram', 'exp_histogram') OR (kind = 'summary' AND temporality != '')) WINDOW w AS (PARTITION BY stream, series_id ORDER BY timestamp ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)) WHERE timestamp >= ? GROUP BY g0 HAVING count() > 0) WHERE (a0 > ?) ORDER BY a0 DESC, g0 ASC LIMIT ?
+args:
+  0: string "route"
+  1: time 2026-10-13T10:50:00Z
+  2: time 2026-10-13T10:50:00Z
+  3: time 2026-10-13T12:00:00Z
+  4: string "x"
+  5: string "route"
+  6: string "/a"
+  7: time 2026-10-13T11:00:00Z
+  8: float64 100
+  9: int 5
+columns: route:string, mean_ms:number
+
+=== source metrics | name:x | stats hist_mean()
+kind: table  source: metrics  limit: 10000
+canonical: source metrics | name:"x" | stats hist_mean()
+sql: SELECT if(h_n = 0, NULL, h_s / h_n) AS a0 FROM (SELECT sum(h_ds) AS h_s, sum(h_dn) AS h_n FROM (SELECT timestamp, row_number() OVER w = 1 AS h_first, toUnixTimestamp64Nano(start_time) AS h_st, lagInFrame(toUnixTimestamp64Nano(start_time)) OVER w AS h_pst, lagInFrame(`count`) OVER w AS h_pn, lagInFrame(bucket_counts) OVER w AS h_pc, bucket_bounds = lagInFrame(bucket_bounds) OVER w AS h_same, temporality = 'delta' OR (NOT h_first AND ((h_st != 0 AND h_pst != 0 AND h_st != h_pst) OR `count` < h_pn OR (h_same AND arrayExists((x, y) -> x < y, bucket_counts, arrayResize(h_pc, length(bucket_counts)))))) OR (h_first AND h_st != 0 AND start_time >= ?) AS h_whole, multiIf(h_whole, toInt64(`count`), h_first, 0, toInt64(`count`) - toInt64(h_pn)) AS h_dn, multiIf(h_whole, `sum`, h_first, 0, `sum` - lagInFrame(`sum`) OVER w) AS h_ds FROM tidemark.metric_points WHERE timestamp >= ? AND timestamp < ? AND (lower(name) = lower(?)) AND (kind IN ('histogram', 'exp_histogram') OR (kind = 'summary' AND temporality != '')) WINDOW w AS (PARTITION BY stream, series_id ORDER BY timestamp ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)) WHERE timestamp >= ? HAVING count() > 0) ORDER BY a0 DESC LIMIT ?
+args:
+  0: time 2026-10-13T10:50:00Z
+  1: time 2026-10-13T10:50:00Z
+  2: time 2026-10-13T12:00:00Z
+  3: string "x"
+  4: time 2026-10-13T11:00:00Z
+  5: int 10000
+columns: hist_mean:number
+
+=== source metrics | name:http.server.request.duration | stats histogram_quantile(0.95) by service span auto
+kind: timeseries  source: metrics  limit: 10000  span: 1m0s
+canonical: source metrics | name:"http.server.request.duration" | stats histogram_quantile(0.95) by service span auto
+sql: SELECT bucket, g0, multiIf(h_c[-1] <= 0, NULL, isInfinite(h_k[h_i0]), if(h_i0 = 1, NULL, h_k[h_i0 - 1]), h_i0 = 1, if(h_k[1] <= 0, h_k[1], h_k[1] * h_r0 / h_c[1]), h_k[h_i0 - 1] + (h_k[h_i0] - h_k[h_i0 - 1]) * (h_r0 - h_c[h_i0 - 1]) / (h_c[h_i0] - h_c[h_i0 - 1])) AS a0 FROM (SELECT bucket, g0, sum(h_ds) AS h_s, sum(h_dn) AS h_n, sumMap(h_qk, h_qv, h_qn) AS h_b, h_b.1 AS h_k, arrayCumSum(h_b.2) AS h_c, ? * h_c[-1] AS h_r0, arrayFirstIndex(x -> x >= h_r0, h_c) AS h_i0 FROM (SELECT toStartOfInterval(timestamp, toIntervalSecond(?)) AS bucket, service AS g0, timestamp, row_number() OVER w = 1 AS h_first, toUnixTimestamp64Nano(start_time) AS h_st, lagInFrame(toUnixTimestamp64Nano(start_time)) OVER w AS h_pst, lagInFrame(`count`) OVER w AS h_pn, lagInFrame(bucket_counts) OVER w AS h_pc, bucket_bounds = lagInFrame(bucket_bounds) OVER w AS h_same, temporality = 'delta' OR (NOT h_first AND ((h_st != 0 AND h_pst != 0 AND h_st != h_pst) OR `count` < h_pn OR (h_same AND arrayExists((x, y) -> x < y, bucket_counts, arrayResize(h_pc, length(bucket_counts)))))) OR (h_first AND h_st != 0 AND start_time >= ?) AS h_whole, multiIf(h_whole, toInt64(`count`), h_first, 0, toInt64(`count`) - toInt64(h_pn)) AS h_dn, multiIf(h_whole, `sum`, h_first, 0, `sum` - lagInFrame(`sum`) OVER w) AS h_ds, multiIf(h_whole, arrayMap(x -> toInt64(x), bucket_counts), h_first OR NOT h_same, emptyArrayInt64(), arrayMap((x, y) -> toInt64(x) - toInt64(y), bucket_counts, arrayResize(h_pc, length(bucket_counts)))) AS h_dc, length(h_dc) > 0 AND length(h_dc) = length(bucket_bounds) + 1 AS h_hasb, if(h_hasb, arrayPushBack(bucket_bounds, inf), []) AS h_qk, if(h_hasb, h_dc, []) AS h_qv, arrayMap(x -> toUInt8(1), h_qk) AS h_qn FROM tidemark.metric_points WHERE timestamp >= ? AND timestamp < ? AND (lower(name) = lower(?)) AND (kind IN ('histogram', 'exp_histogram')) WINDOW w AS (PARTITION BY stream, series_id ORDER BY timestamp ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)) WHERE timestamp >= ? GROUP BY bucket, g0 HAVING count() > 0) ORDER BY bucket ASC, g0 ASC LIMIT ?
+args:
+  0: float64 0.95
+  1: int64 60
+  2: time 2026-10-13T10:59:00Z
+  3: time 2026-10-13T10:59:00Z
+  4: time 2026-10-13T12:00:00Z
+  5: string "http.server.request.duration"
+  6: time 2026-10-13T11:00:00Z
+  7: int 10000
+columns: @bucket:time, service:string, histogram_quantile_0_95:number
+
+=== source metrics | name:x | stats histogram_quantile(0.5) as p50, histogram_quantile(0.99), hist_mean() by route | where p50 > 10
+kind: table  source: metrics  limit: 10000
+canonical: source metrics | name:"x" | stats histogram_quantile(0.5) as p50, histogram_quantile(0.99), hist_mean() by route | where p50 > 10
+sql: SELECT g0, multiIf(h_c[-1] <= 0, NULL, isInfinite(h_k[h_i0]), if(h_i0 = 1, NULL, h_k[h_i0 - 1]), h_i0 = 1, if(h_k[1] <= 0, h_k[1], h_k[1] * h_r0 / h_c[1]), h_k[h_i0 - 1] + (h_k[h_i0] - h_k[h_i0 - 1]) * (h_r0 - h_c[h_i0 - 1]) / (h_c[h_i0] - h_c[h_i0 - 1])) AS a0, multiIf(h_c[-1] <= 0, NULL, isInfinite(h_k[h_i1]), if(h_i1 = 1, NULL, h_k[h_i1 - 1]), h_i1 = 1, if(h_k[1] <= 0, h_k[1], h_k[1] * h_r1 / h_c[1]), h_k[h_i1 - 1] + (h_k[h_i1] - h_k[h_i1 - 1]) * (h_r1 - h_c[h_i1 - 1]) / (h_c[h_i1] - h_c[h_i1 - 1])) AS a1, if(h_n = 0, NULL, h_s / h_n) AS a2 FROM (SELECT g0, sum(h_ds) AS h_s, sum(h_dn) AS h_n, sumMap(h_qk, h_qv, h_qn) AS h_b, h_b.1 AS h_k, arrayCumSum(h_b.2) AS h_c, ? * h_c[-1] AS h_r0, arrayFirstIndex(x -> x >= h_r0, h_c) AS h_i0, ? * h_c[-1] AS h_r1, arrayFirstIndex(x -> x >= h_r1, h_c) AS h_i1 FROM (SELECT attrs[?] AS g0, timestamp, row_number() OVER w = 1 AS h_first, toUnixTimestamp64Nano(start_time) AS h_st, lagInFrame(toUnixTimestamp64Nano(start_time)) OVER w AS h_pst, lagInFrame(`count`) OVER w AS h_pn, lagInFrame(bucket_counts) OVER w AS h_pc, bucket_bounds = lagInFrame(bucket_bounds) OVER w AS h_same, temporality = 'delta' OR (NOT h_first AND ((h_st != 0 AND h_pst != 0 AND h_st != h_pst) OR `count` < h_pn OR (h_same AND arrayExists((x, y) -> x < y, bucket_counts, arrayResize(h_pc, length(bucket_counts)))))) OR (h_first AND h_st != 0 AND start_time >= ?) AS h_whole, multiIf(h_whole, toInt64(`count`), h_first, 0, toInt64(`count`) - toInt64(h_pn)) AS h_dn, multiIf(h_whole, `sum`, h_first, 0, `sum` - lagInFrame(`sum`) OVER w) AS h_ds, multiIf(h_whole, arrayMap(x -> toInt64(x), bucket_counts), h_first OR NOT h_same, emptyArrayInt64(), arrayMap((x, y) -> toInt64(x) - toInt64(y), bucket_counts, arrayResize(h_pc, length(bucket_counts)))) AS h_dc, length(h_dc) > 0 AND length(h_dc) = length(bucket_bounds) + 1 AS h_hasb, if(h_hasb, arrayPushBack(bucket_bounds, inf), []) AS h_qk, if(h_hasb, h_dc, []) AS h_qv, arrayMap(x -> toUInt8(1), h_qk) AS h_qn FROM tidemark.metric_points WHERE timestamp >= ? AND timestamp < ? AND (lower(name) = lower(?)) AND (kind IN ('histogram', 'exp_histogram') OR (kind = 'summary' AND temporality != '')) WINDOW w AS (PARTITION BY stream, series_id ORDER BY timestamp ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)) WHERE timestamp >= ? GROUP BY g0 HAVING count() > 0) WHERE (a0 > ?) ORDER BY a0 DESC, g0 ASC LIMIT ?
+args:
+  0: float64 0.5
+  1: float64 0.99
+  2: string "route"
+  3: time 2026-10-13T10:50:00Z
+  4: time 2026-10-13T10:50:00Z
+  5: time 2026-10-13T12:00:00Z
+  6: string "x"
+  7: time 2026-10-13T11:00:00Z
+  8: float64 10
+  9: int 10000
+columns: route:string, p50:number, histogram_quantile_0_99:number, hist_mean:number
+
+=== source metrics | name:x | stats rate(value) * 60 as per_minute by service span 1m
+kind: timeseries  source: metrics  limit: 10000  span: 1m0s
+canonical: source metrics | name:"x" | stats rate(value) * 60 as per_minute by service span 1m
+sql: SELECT bucket, g0, (sum(r_d) / ? * ?) AS a0 FROM (SELECT toStartOfInterval(timestamp, toIntervalSecond(?)) AS bucket, service AS g0, timestamp, row_number() OVER w = 1 AS r_first, toUnixTimestamp64Nano(start_time) AS r_st, lagInFrame(toUnixTimestamp64Nano(start_time)) OVER w AS r_pst, lagInFrame(value) OVER w AS r_pv, multiIf(temporality = 'delta' OR (NOT r_first AND ((r_st != 0 AND r_pst != 0 AND r_st != r_pst) OR value < r_pv)) OR (r_first AND r_st != 0 AND start_time >= ?), value, r_first, 0, value - r_pv) AS r_d FROM tidemark.metric_points WHERE timestamp >= ? AND timestamp < ? AND (lower(name) = lower(?)) WINDOW w AS (PARTITION BY stream, series_id ORDER BY timestamp ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)) WHERE timestamp >= ? GROUP BY bucket, g0 ORDER BY bucket ASC, g0 ASC LIMIT ?
+args:
+  0: float64 60
+  1: float64 60
+  2: int64 60
+  3: time 2026-10-13T10:59:00Z
+  4: time 2026-10-13T10:59:00Z
+  5: time 2026-10-13T12:00:00Z
+  6: string "x"
+  7: time 2026-10-13T11:00:00Z
+  8: int 10000
+columns: @bucket:time, service:string, per_minute:number
+
+=== source metrics | name:x | stats 1 / rate(value) as interval
+kind: table  source: metrics  limit: 10000
+canonical: source metrics | name:"x" | stats 1 / rate(value) as interval
+sql: SELECT (? / nullIf(sum(r_d) / ?, 0)) AS a0 FROM (SELECT timestamp, row_number() OVER w = 1 AS r_first, toUnixTimestamp64Nano(start_time) AS r_st, lagInFrame(toUnixTimestamp64Nano(start_time)) OVER w AS r_pst, lagInFrame(value) OVER w AS r_pv, multiIf(temporality = 'delta' OR (NOT r_first AND ((r_st != 0 AND r_pst != 0 AND r_st != r_pst) OR value < r_pv)) OR (r_first AND r_st != 0 AND start_time >= ?), value, r_first, 0, value - r_pv) AS r_d FROM tidemark.metric_points WHERE timestamp >= ? AND timestamp < ? AND (lower(name) = lower(?)) WINDOW w AS (PARTITION BY stream, series_id ORDER BY timestamp ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)) WHERE timestamp >= ? ORDER BY a0 DESC LIMIT ?
+args:
+  0: float64 1
+  1: float64 3600
+  2: time 2026-10-13T10:50:00Z
+  3: time 2026-10-13T10:50:00Z
+  4: time 2026-10-13T12:00:00Z
+  5: string "x"
+  6: time 2026-10-13T11:00:00Z
+  7: int 10000
+columns: interval:number
+
+=== source metrics | name:x | stats histogram_quantile(0.99) / histogram_quantile(0.5) as tail, hist_mean() * 1000 as mean_us by route
+kind: table  source: metrics  limit: 10000
+canonical: source metrics | name:"x" | stats histogram_quantile(0.99) / histogram_quantile(0.5) as tail, hist_mean() * 1000 as mean_us by route
+sql: SELECT g0, (multiIf(h_c[-1] <= 0, NULL, isInfinite(h_k[h_i0]), if(h_i0 = 1, NULL, h_k[h_i0 - 1]), h_i0 = 1, if(h_k[1] <= 0, h_k[1], h_k[1] * h_r0 / h_c[1]), h_k[h_i0 - 1] + (h_k[h_i0] - h_k[h_i0 - 1]) * (h_r0 - h_c[h_i0 - 1]) / (h_c[h_i0] - h_c[h_i0 - 1])) / nullIf(multiIf(h_c[-1] <= 0, NULL, isInfinite(h_k[h_i1]), if(h_i1 = 1, NULL, h_k[h_i1 - 1]), h_i1 = 1, if(h_k[1] <= 0, h_k[1], h_k[1] * h_r1 / h_c[1]), h_k[h_i1 - 1] + (h_k[h_i1] - h_k[h_i1 - 1]) * (h_r1 - h_c[h_i1 - 1]) / (h_c[h_i1] - h_c[h_i1 - 1])), 0)) AS a0, (if(h_n = 0, NULL, h_s / h_n) * ?) AS a1 FROM (SELECT g0, sum(h_ds) AS h_s, sum(h_dn) AS h_n, sumMap(h_qk, h_qv, h_qn) AS h_b, h_b.1 AS h_k, arrayCumSum(h_b.2) AS h_c, ? * h_c[-1] AS h_r0, arrayFirstIndex(x -> x >= h_r0, h_c) AS h_i0, ? * h_c[-1] AS h_r1, arrayFirstIndex(x -> x >= h_r1, h_c) AS h_i1 FROM (SELECT attrs[?] AS g0, timestamp, row_number() OVER w = 1 AS h_first, toUnixTimestamp64Nano(start_time) AS h_st, lagInFrame(toUnixTimestamp64Nano(start_time)) OVER w AS h_pst, lagInFrame(`count`) OVER w AS h_pn, lagInFrame(bucket_counts) OVER w AS h_pc, bucket_bounds = lagInFrame(bucket_bounds) OVER w AS h_same, temporality = 'delta' OR (NOT h_first AND ((h_st != 0 AND h_pst != 0 AND h_st != h_pst) OR `count` < h_pn OR (h_same AND arrayExists((x, y) -> x < y, bucket_counts, arrayResize(h_pc, length(bucket_counts)))))) OR (h_first AND h_st != 0 AND start_time >= ?) AS h_whole, multiIf(h_whole, toInt64(`count`), h_first, 0, toInt64(`count`) - toInt64(h_pn)) AS h_dn, multiIf(h_whole, `sum`, h_first, 0, `sum` - lagInFrame(`sum`) OVER w) AS h_ds, multiIf(h_whole, arrayMap(x -> toInt64(x), bucket_counts), h_first OR NOT h_same, emptyArrayInt64(), arrayMap((x, y) -> toInt64(x) - toInt64(y), bucket_counts, arrayResize(h_pc, length(bucket_counts)))) AS h_dc, length(h_dc) > 0 AND length(h_dc) = length(bucket_bounds) + 1 AS h_hasb, if(h_hasb, arrayPushBack(bucket_bounds, inf), []) AS h_qk, if(h_hasb, h_dc, []) AS h_qv, arrayMap(x -> toUInt8(1), h_qk) AS h_qn FROM tidemark.metric_points WHERE timestamp >= ? AND timestamp < ? AND (lower(name) = lower(?)) AND (kind IN ('histogram', 'exp_histogram') OR (kind = 'summary' AND temporality != '')) WINDOW w AS (PARTITION BY stream, series_id ORDER BY timestamp ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)) WHERE timestamp >= ? GROUP BY g0 HAVING count() > 0) ORDER BY a0 DESC, g0 ASC LIMIT ?
+args:
+  0: float64 1000
+  1: float64 0.99
+  2: float64 0.5
+  3: string "route"
+  4: time 2026-10-13T10:50:00Z
+  5: time 2026-10-13T10:50:00Z
+  6: time 2026-10-13T12:00:00Z
+  7: string "x"
+  8: time 2026-10-13T11:00:00Z
+  9: int 10000
+columns: route:string, tail:number, mean_us:number
 

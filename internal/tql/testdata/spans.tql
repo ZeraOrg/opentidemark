@@ -14,3 +14,5 @@ source spans | @timestamp > now-1h
 %streams team-a source spans | duration > 250ms
 # connection id built-in
 source spans | connection_id:abc
+# arithmetic between aggregates: duration aggregates are in milliseconds
+source spans | * | stats avg(duration) / 1000 as seconds, max(duration) - first(duration) as d by service

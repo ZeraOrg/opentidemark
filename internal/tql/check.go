@@ -45,6 +45,7 @@ type statsPlan struct {
 	topN       int  // > 0 for a top stage
 	topBy      int  // index into by for `top … by`, or -1
 	metricRate bool // metrics rate(value): per-series deltas
+	histogram  bool // histogram aggregates: per-series deltas of histogram points
 	pos        Position
 }
 
@@ -192,8 +193,11 @@ func (c *checker) checkStats(sp *statsPlan) error {
 		}
 		names[low] = true
 	}
+	if err := c.checkHistMix(sp); err != nil {
+		return err
+	}
 	for i := range sp.aggs {
-		if err := c.checkAgg(sp, &sp.aggs[i]); err != nil {
+		if err := c.checkColumn(sp, &sp.aggs[i]); err != nil {
 			return err
 		}
 		low := strings.ToLower(sp.aggs[i].Alias)
@@ -225,7 +229,106 @@ func isNumericAgg(fn string) bool {
 	return false
 }
 
+// checkHistMix sets sp.histogram when the stage has histogram aggregates, which may share a
+// stage only with each other (SPEC §10.5).
+func (c *checker) checkHistMix(sp *statsPlan) error {
+	for _, a := range sp.calls() {
+		sp.histogram = sp.histogram || isHistAgg(a.Fn)
+	}
+	if !sp.histogram {
+		return nil
+	}
+	for _, a := range sp.calls() {
+		if !isHistAgg(a.Fn) {
+			return nodeErr(a, "%s() cannot be combined with histogram aggregates in one stats stage", a.Fn).
+				withHint("use a separate query or panel")
+		}
+	}
+	return nil
+}
+
+// checkHist validates a histogram aggregate: metrics only, no field; histogram_quantile takes
+// a number literal 0 < q < 1.
+func (c *checker) checkHist(a *Agg) error {
+	if c.schema.src != model.SourceMetrics {
+		return nodeErr(a, "%s() needs source metrics", a.Fn).withHint("source metrics | name:… | stats " + histCall(a.Fn))
+	}
+	if a.Fn == aggHistQuantile {
+		if a.Field != nil || a.Arg == nil || a.Arg.Unit != "" || a.Arg.Num <= 0 || a.Arg.Num >= 1 {
+			return nodeErr(a, "histogram_quantile() needs a quantile between 0 and 1").withHint("histogram_quantile(0.95)")
+		}
+		return nil
+	}
+	if a.Field != nil || a.Arg != nil {
+		return nodeErr(a, "%s() takes no argument", a.Fn).withHint(a.Fn + "()")
+	}
+	return nil
+}
+
+// calls returns the aggregate calls of all columns in order, including those inside
+// arithmetic.
+func (sp *statsPlan) calls() []*Agg {
+	var out []*Agg
+	for i := range sp.aggs {
+		out = append(out, sp.aggs[i].Calls()...)
+	}
+	return out
+}
+
+// checkColumn validates a stats column: each aggregate call, and for arithmetic that every
+// operand is numeric (SPEC §10.5).
+func (c *checker) checkColumn(sp *statsPlan, a *Agg) error {
+	for _, call := range a.Calls() {
+		if err := c.checkAgg(sp, call); err != nil {
+			return err
+		}
+		if a.Expr != nil && !c.numericCall(*call) {
+			return nodeErr(call, "%s() of %s is not a number and cannot be used in arithmetic", call.Fn, call.Field.Name).
+				withHint("arithmetic needs numeric aggregates such as count, sum, avg, min or max")
+		}
+	}
+	if a.Expr != nil {
+		return checkAggNumbers(a.Expr)
+	}
+	return nil
+}
+
+// numericCall reports whether an aggregate call yields a number: all aggregates except
+// first/last of a field that is not a number or duration.
+func (c *checker) numericCall(a Agg) bool {
+	if (a.Fn != "first" && a.Fn != "last") || a.Field == nil {
+		return true
+	}
+	r, err := c.schema.resolve(*a.Field)
+	return err == nil && (r.typ() == typeNumber || r.typ() == typeDuration)
+}
+
+// checkAggNumbers rejects number literals with a unit in arithmetic.
+func checkAggNumbers(e *AggExpr) error {
+	switch {
+	case e.Num != nil && e.Num.Unit != "":
+		return nodeErr(*e.Num, "a number in arithmetic takes no unit").
+			withHint("durations are in milliseconds: write 1000, not 1s")
+	case e.Op != "":
+		if err := checkAggNumbers(e.Left); err != nil {
+			return err
+		}
+		return checkAggNumbers(e.Right)
+	}
+	return nil
+}
+
 func (c *checker) checkAgg(sp *statsPlan, a *Agg) error {
+	if isHistAgg(a.Fn) {
+		return c.checkHist(a)
+	}
+	if a.Arg != nil {
+		hint := a.Fn + "()"
+		if needsField(a.Fn) {
+			hint = a.Fn + "(field)"
+		}
+		return nodeErr(*a.Arg, "%s() takes no number", a.Fn).withHint(hint)
+	}
 	if a.Field == nil {
 		if needsField(a.Fn) {
 			return nodeErr(a, "%s() needs a field", a.Fn).withHint(a.Fn + "(field)")
@@ -249,7 +352,7 @@ func (c *checker) checkRate(sp *statsPlan, a *Agg, r resolvedField) error {
 	if c.schema.src != model.SourceMetrics || r.bi == nil || r.bi.name != "value" {
 		return nodeErr(a, "rate() takes a field only as rate(value) on source metrics").withHint("use rate() for events per second")
 	}
-	if len(sp.aggs) != 1 {
+	if len(sp.calls()) != 1 {
 		return nodeErr(a, "rate(value) must be the only aggregate in its stats stage")
 	}
 	sp.metricRate = true

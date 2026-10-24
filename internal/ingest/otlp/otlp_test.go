@@ -127,6 +127,9 @@ func TestMetricsJSONMapping(t *testing.T) {
 	if s.Kind != model.MetricSum || s.Temporality != model.TemporalityCumulative || !s.IsMonotonic || s.Value != 1234 {
 		t.Errorf("sum %+v", s)
 	}
+	if want := time.Unix(0, 1791892600000000000).UTC(); !s.StartTime.Equal(want) || !g.StartTime.IsZero() {
+		t.Errorf("start times: sum %v (want %v), gauge %v (want zero)", s.StartTime, want, g.StartTime)
+	}
 	h := byName["http.server.request.duration"]
 	if h.Kind != model.MetricHistogram || h.Temporality != model.TemporalityDelta || h.Count != 4 || h.Sum != 2 ||
 		h.Value != 0.5 || h.Min != 0.1 || h.Max != 1.2 || len(h.BucketBounds) != 3 || len(h.BucketCounts) != 4 {
@@ -139,7 +142,7 @@ func TestMetricsJSONMapping(t *testing.T) {
 		t.Errorf("exp histogram %+v", e)
 	}
 	sm := byName["gc.pause"]
-	if sm.Kind != model.MetricSummary || sm.Value != 5 || sm.Attributes["quantile.0.99"] != 12.0 || sm.Attributes["quantile.0.5"] != 4.0 {
+	if sm.Kind != model.MetricSummary || sm.Temporality != model.TemporalityCumulative || sm.Value != 5 || sm.Attributes["quantile.0.99"] != 12.0 || sm.Attributes["quantile.0.5"] != 4.0 {
 		t.Errorf("summary %+v", sm)
 	}
 }

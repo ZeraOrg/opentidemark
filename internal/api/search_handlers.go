@@ -337,7 +337,7 @@ func (a *SearchAPI) metricNames(w http.ResponseWriter, r *http.Request) error {
 	}
 	out := make([]metricNameView, 0, len(names))
 	for _, n := range names {
-		out = append(out, metricNameView{Name: n.Name, Kind: n.Kind, Unit: n.Unit, Description: n.Description})
+		out = append(out, metricNameView{Name: n.Name, Kind: n.Kind, Unit: n.Unit, Description: n.Description, Monotonic: n.Monotonic})
 	}
 	writeJSON(w, http.StatusOK, out)
 	return nil

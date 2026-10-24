@@ -25,6 +25,7 @@ import {
   singleLine,
   tqlCompletionSource,
   tqlHighlight,
+  typeOverSelection,
 } from '../tql/codemirror';
 import s from './QueryEditor.module.css';
 
@@ -112,6 +113,7 @@ export function QueryEditor(props: QueryEditorProps) {
     () => [
       history(),
       singleLine,
+      typeOverSelection,
       tqlHighlight,
       queryErrorField,
       EditorView.lineWrapping,

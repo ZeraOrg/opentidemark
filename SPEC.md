@@ -8,7 +8,7 @@
 > well. Any change to behaviour, APIs, schema, configuration, layout, UI or tooling **must**
 > update this spec in the same commit. Version history is in §21.
 
-**Spec version:** 0.32.11 · **Last updated:** 2026-10-21
+**Spec version:** 0.34.4 · **Last updated:** 2026-10-25
 
 ---
 
@@ -466,6 +466,7 @@ type Span struct {
 
 type MetricPoint struct {
     Timestamp time.Time; Stream, Service, Name, Description, Unit string
+    StartTime time.Time // start of the aggregation period (OTLP StartTimeUnixNano); zero = unknown
     Kind string        // gauge|sum|histogram|exp_histogram|summary
     Temporality string // cumulative|delta|"" ; IsMonotonic bool
     Value float64      // gauge/sum value; for histograms = sum/count (mean)
@@ -583,7 +584,8 @@ CREATE TABLE IF NOT EXISTS {db}.metric_points (
   bucket_bounds Array(Float64),
   bucket_counts Array(UInt64),
   attrs         Map(LowCardinality(String), String),
-  series_id     UInt64,  -- cityHash64 of name + sorted attrs + service (computed by writer)
+  series_id     UInt64,  -- cityHash64 of name + sorted attrs + service (computed by writer;
+                         -- summary quantile attrs `quantile.*` excluded)
   connection_id LowCardinality(String)
 ) ENGINE = MergeTree
 PARTITION BY toYYYYMMDD(timestamp)
@@ -612,7 +614,17 @@ FROM {db}.spans ARRAY JOIN mapKeys(attrs) AS k GROUP BY hour, stream, key, numer
 ALTER TABLE {db}.events        MODIFY SETTING non_replicated_deduplication_window = 10000;
 ALTER TABLE {db}.spans         MODIFY SETTING non_replicated_deduplication_window = 10000;
 ALTER TABLE {db}.metric_points MODIFY SETTING non_replicated_deduplication_window = 10000;
+
+-- 0007_metric_start_time.sql : start of the aggregation period of cumulative points (§9.4);
+-- rows stored before read 0 (unknown); histogram aggregates use it to detect restarts (§10.5)
+ALTER TABLE {db}.metric_points ADD COLUMN IF NOT EXISTS start_time DateTime64(9, 'UTC') DEFAULT 0
+  CODEC(Delta, ZSTD(1)) AFTER timestamp;
 ```
+
+The writer inserts `start_time` with every metric point (the epoch when the start time is
+unknown). An integration test (`TestIntegrationMetricStartTimeUpgrade`) migrates a database at the
+0006 schema that holds a metric point and checks that the old row reads 0 and new rows keep their
+start time.
 
 **Cluster rendering** (`TIDEMARK_CLICKHOUSE_CLUSTER`, §17.5; `clickhouse.RenderForCluster`): every
 `CREATE DATABASE|TABLE|MATERIALIZED VIEW … IF NOT EXISTS` gets `ON CLUSTER '<cluster>'` after the
@@ -701,7 +713,10 @@ Dialect details (normative):
    `MODIFY TTL`, `MODIFY SETTING`; a unit test scans `migrations/*.sql` and fails on `DROP`,
    `RENAME`, `MODIFY COLUMN`, `TRUNCATE`, `DELETE` (also `DETACH`, `EXCHANGE`, `REPLACE
    PARTITION`, `CLEAR COLUMN`) and on any statement that is not one of the allowed forms
-   (`internal/store/clickhouse/migrations_lint_test.go`).
+   (`internal/store/clickhouse/migrations_lint_test.go`). Stored telemetry is never rewritten by
+   a migration: when the writer changes how it derives a value (e.g. `series_id` of summary points,
+   §9.4), rows written before keep the old value and age out with retention. `series_id` leads the
+   `metric_points` sort key, which ClickHouse cannot update in place.
 2. **Transactional metadata migrations.** Each SQLite/PostgreSQL migration runs in one
    transaction together with its `schema_migrations` row and the `schema_info` update; failure ⇒
    rollback and refusal to start with a clear message. Migrations are guarded by a lock
@@ -917,10 +932,17 @@ exception.stacktrace`. `service.name` ⇒ service, `deployment.environment.name`
 **Traces:** one `model.Span` per span; kind/status mapped to lowercase names; durations
 `end-start`; events/links JSON. Service from resource `service.name`.
 
-**Metrics:** gauge & sum data points ⇒ `value` (int or double); histogram ⇒ count/sum/min/max/
+**Metrics:** every data point keeps `startTimeUnixNano` as `start_time` (0 when absent); gauge &
+sum data points ⇒ `value` (int or double); histogram ⇒ count/sum/min/max/
 buckets, `value = sum/count`; exponential histogram ⇒ count/sum/min/max (buckets converted to
-explicit bounds `base^i`); summary ⇒ count/sum and `value = sum/count`, quantiles stored as attrs
-`quantile.<q>`. Temporality and monotonicity preserved.
+explicit bounds `base^i`); summary ⇒ count/sum and `value = sum/count`, temporality `cumulative`
+(OTLP summaries are cumulative), quantiles stored as attrs `quantile.<q>`
+(`model.SummaryQuantilePrefix`). The quantile values are not part of the series identity: for
+`kind = summary` the writer leaves the `quantile.*` attrs out of `series_id`, so all points of one
+summary share one series. Summary points stored before spec 0.32.13 have no temporality and a
+`series_id` that includes the quantile values (in effect one series per point); they are not
+rewritten (§8.5 item 1) and age out with retention. Temporality and monotonicity of the other
+kinds are preserved.
 
 ### 9.5 Native JSON (`internal/ingest/native`)
 
@@ -1231,9 +1253,13 @@ func_call  = ( "contains" | "startswith" | "endswith" | "has" | "match" ) "(" fi
 free_text  = string | bare ;                     (* a bare word not followed by ':' or op *)
 stage      = stats | sort | limit | fields | where | top ;
 stats      = "stats" agg { "," agg } [ "by" field { "," field } ] [ "span" duration ] ;
-agg        = agg_fn "(" [ field ] ")" [ "as" ident ] ;
+agg        = agg_expr [ "as" ident ] ;
+agg_expr   = agg_term { ( "+" | "-" ) agg_term } ;
+agg_term   = agg_atom { ( "*" | "/" ) agg_atom } ;
+agg_atom   = agg_call | number | "(" agg_expr ")" ;
+agg_call   = agg_fn "(" [ field | number ] ")" ;
 agg_fn     = "count" | "count_distinct" | "sum" | "avg" | "min" | "max" | "p50" | "p75" | "p90"
-           | "p95" | "p99" | "rate" | "first" | "last" ;
+           | "p95" | "p99" | "rate" | "first" | "last" | "hist_mean" | "histogram_quantile" ;
 sort       = "sort" ident [ "asc" | "desc" ] { "," ident [ "asc" | "desc" ] } ;
 limit      = "limit" integer ;
 fields     = "fields" field { "," field } ;   (* projection for event results *)
@@ -1241,13 +1267,30 @@ where      = "where" or_expr ;                (* after stats: filters on aggrega
 top        = "top" integer field [ "by" field ] ;  (* = stats count() by field | sort count desc | limit n *)
 ```
 
-Precedence: `not` > `and` (incl. adjacency) > `or`. Max query length 8 KiB; max nesting 32;
+Precedence: `not` > `and` (incl. adjacency) > `or`; in `agg_expr`, `*` `/` > `+` `-`, both
+left-associative. Max query length 8 KiB, for the canonical form (`String()`) too, so every
+accepted query round-trips (*"query is too long in canonical form"*, positioned on the whole
+query); max nesting 32 (parentheses of `agg_expr` included);
 max 1,000 values in `in`/value groups; max 5 stages; max 10 `by` fields; max 20 aggregates per
-stats; max 50 `fields`; max 10,000 time buckets per timeseries. Input must be valid UTF-8.
+stats (`MaxAggregates`, counting the calls inside arithmetic); max 50 aggregates and numbers per
+stats (`MaxAggTerms`, *"too many terms in stats"*); max 50 `fields`; max 10,000 time buckets per
+timeseries. Input must be valid UTF-8.
 
 - `span` also accepts `auto` (dashboards, §13.1); explicit spans must be whole seconds ≥ 1 s.
 - A value group desugars to field terms: `f:(a or b and c)` ≡ `f:a or (f:b and f:c)`.
 - `has()` takes only a field; the other functions need a field and a string/number literal.
+- An aggregate argument is a field or a number literal (kept as written by `String()`; its
+  default alias is `fn_<number>` with `_` for `.`, §10.5); only the
+  aggregates that §10.5 lists with a number accept one, any other gives *"fn() takes no number"*.
+- **Arithmetic between aggregates** (`agg_expr`, AST `Agg.Expr` of `AggExpr` nodes: `Op` with
+  `Left`/`Right`, a `Call` or a `Num`; `Agg.Calls()` lists the calls in written order): in a stats
+  column, the lexer reads `+ - * /` as word characters, so the parser takes an operator from the
+  source text after an operand and continues lexing behind it, and cuts a number operand before
+  an operator (`2*count()`, `sum(a)-1`, `sum(sum)/sum(count)` need no spaces); a lone parenthesized
+  call (`(count())`) is a plain aggregate. A column of numbers only is an error (*"arithmetic needs
+  an aggregate"*). Without `as` the column's alias is its canonical text (`String()` form: single
+  spaces around operators, minimal parentheses, numbers as written), e.g. `sum(a) / count()`;
+  `where`/`sort` reference it in backticks.
 - **Stage order:** `where`* → at most one `stats`/`top` → `where`/`sort`/`limit` (each of `sort`,
   `limit`, `fields` at most once). `where` before stats is ANDed with the filter; after stats it
   becomes HAVING. `sort` requires stats/top (events are always newest first) and is not allowed
@@ -1301,9 +1344,16 @@ property. `@`-prefixed names are always built-ins; `props.<key>` / `attrs.<key>`
   request time range.
 - **Stats:** `count()` ⇒ `count()`; `count_distinct(f)` ⇒ `uniq`; `sum/avg/min/max(f)` on numeric
   value; `pNN(f)` ⇒ `quantileTDigest(0.NN)`; `rate()` ⇒ count per second over the bucket (or whole
-  range); for metrics, `rate(value)` on cumulative monotonic sums ⇒ per-series
-  `deltaSum(value)/bucket_seconds` summed across series; `first/last(f)` ⇒ `argMin/argMax` by time.
-  Default alias = `fn` or `fn_field` (`p95_elapsed`). `span <dur>` ⇒
+  range); for metrics, `rate(value)` on cumulative monotonic sums ⇒ the per-series increase
+  from point to point, summed across series per bucket and divided by the bucket seconds
+  (details below); `first/last(f)` ⇒ `argMin/argMax` by time;
+  `hist_mean()` (metrics) ⇒ mean of the observations recorded in the bucket (or range) by
+  histogram and summary series, from per-series deltas of `sum` and `count`;
+  `histogram_quantile(q)` (metrics, `0 < q < 1`) ⇒ quantile `q` of those observations,
+  interpolated from the per-series bucket deltas (details below).
+  Default alias = `fn`, `fn_field` (`p95_elapsed`) or, for a number argument, `fn_number` with
+  the number in shortest decimal form and `.` replaced by `_` (`histogram_quantile_0_95`), so
+  it is a plain identifier (a `.` would read as a field path). `span <dur>` ⇒
   `toStartOfInterval(ts, INTERVAL n SECOND)` as `@bucket`; when `span` is omitted on a chart
   request the server picks `auto` (§11.3).
 - **Result kinds:** no stats ⇒ `events`; stats without span ⇒ `table`; stats with span ⇒
@@ -1328,10 +1378,65 @@ property. `@`-prefixed names are always built-ins; `props.<key>` / `attrs.<key>`
     text built-in or attribute convert with `toFloat64OrNull`; `avg(level)` uses the ordinal.
   - The request range is half-open `[from, to)`.
   - `rate()` is `count()/seconds` (bucket or whole range). Metrics `rate(value)` must be the only
-    aggregate of its stats stage; per series: `deltaSumTimestamp(value, toUnixTimestamp64Milli(timestamp))`
-    for cumulative points or `sum(value)` when `temporality = 'delta'`; summed across series and
-    divided by the seconds. The increase between the last point of one bucket and the first point
-    of the next is not counted (deltaSum is per bucket).
+    aggregate of its stats stage. Like the histogram aggregates (below) it reads the points from
+    `From − lookback` (lookback = the span, or the whole range without span, at most 10 minutes,
+    `maxDeltaLookback`) and gives each point, per series (`stream`, `series_id`, ordered by
+    time), the increase against the previous point: its whole `value` when its temporality is
+    `delta`, when the series **restarted** (both `start_time`s known and different, or `value`
+    decreased — a counter reset, so the increase since the reset is the new value), or when it is
+    the first point read and its `start_time` is known and inside the read range; `0` for any
+    other first point (a baseline); otherwise `value − previous value`. The increases of the
+    points with `timestamp ≥ From` are summed per group and bucket and divided by the seconds, so
+    the increase between the last point of one bucket and the first point of the next counts in
+    the later bucket. Filters apply to the points before the increases (filter on series fields,
+    not on `value`). A group or bucket without points in the range has no row; one whose points
+    did not increase is `0`.
+  - **Histogram aggregates** (`hist_mean()`, `histogram_quantile(q)`): source metrics only;
+    `hist_mean` takes no argument, `histogram_quantile` a number literal `0 < q < 1` without unit
+    (*"histogram_quantile() needs a quantile between 0 and 1"*), bound as a parameter; they may
+    share a stats stage only with each other (*"fn() cannot be combined with histogram aggregates in one
+    stats stage"*). Points of other kinds are skipped: they read `kind IN ('histogram',
+    'exp_histogram')` and, when the stage has `hist_mean` (summaries have no buckets), summaries
+    with a temporality (`kind = 'summary' AND temporality != ''`;
+    summaries stored before spec 0.32.13 have none, §9.4). Filters apply to the points before the
+    deltas, so filter on series fields (name, service, attributes), not on `count`/`sum`/`value`.
+    Per series (`stream`, `series_id`, ordered by time) each point gets a delta against the
+    previous point of the series:
+    - it counts **whole** (its own `count`, `sum`, buckets) when its temporality is `delta`, when
+      the series **restarted** — both `start_time`s known (non-zero) and different, `count`
+      decreased, or a bucket count decreased under unchanged `bucket_bounds` — or when it is the
+      first point of the series read and its `start_time` is known and inside the read range
+      (the process started there);
+    - any other first point is only the **baseline** of the next point (delta 0), so a long-running
+      series contributes nothing before its second point;
+    - otherwise the delta is `count − previous count` and `sum − previous sum`, and per bucket
+      `count − previous count` when `bucket_bounds` are unchanged; after a layout change without
+      restart (e.g. an exponential histogram changing its scale) the point adds no buckets.
+    To give the first bucket a previous point, the points are read from `From − lookback`, with
+    lookback = the span (the whole range without span), at most 10 minutes
+    (`maxDeltaLookback`); only points with `timestamp ≥ From` contribute. `hist_mean()` =
+    Σ delta sum / Σ delta count per group and bucket; a group or bucket without points in the
+    range has no row; when its deltas sum to a count of 0 the value is `NULL` (JSON `null`;
+    alerting reads it as no data, §14.3).
+    `histogram_quantile(q)` merges the bucket deltas of the group by upper bound (each point's
+    bounds plus `+Inf`; points whose `bucket_counts` are not one longer than `bucket_bounds` add
+    no buckets): exact when all series share one layout, an approximation over the union of the
+    bounds otherwise. With cumulative counts `c₁…cₙ` over bounds `b₁ < … < bₙ = +Inf` and total
+    `cₙ`: total 0 ⇒ `NULL`; rank `r = q·cₙ`; `i` = first bucket with `cᵢ ≥ r`; the `+Inf` bucket
+    ⇒ `bₙ₋₁` (`NULL` without finite bound); `i = 1` ⇒ `b₁` if `b₁ ≤ 0`, else `b₁·r/c₁`; otherwise
+    `bᵢ₋₁ + (bᵢ − bᵢ₋₁)·(r − cᵢ₋₁)/(cᵢ − cᵢ₋₁)` (linear interpolation as in PromQL).
+  - **Arithmetic between aggregates:** each operator ⇒ a parenthesized SQL operation over the
+    rendered calls (`(a + b)`, `(a - b)`, `(a * b)`), division ⇒ `(a / nullIf(b, 0))`, so dividing
+    by zero yields `NULL` (JSON `null`; alerting reads it as no data, §14.3), never `inf`/`nan`;
+    number literals are bound as `Float64` parameters. The column type is number. Operands must
+    be numeric: every aggregate except `first`/`last` of a field whose type is not number or
+    duration (*"first() of message is not a number and cannot be used in arithmetic"*); numbers
+    take no unit (*"a number in arithmetic takes no unit"*; durations are milliseconds). The rules
+    for the calls apply to all calls of the stage, including those inside arithmetic: `rate(value)`
+    must be the only call (`rate(value) * 60` is allowed; the call renders as
+    `sum(r) / <seconds>`), histogram aggregates only with each other (each histogram call keeps
+    its own rank and index aliases, numbered in written order across the columns). `where`/`sort`
+    after stats see only the column's alias.
   - `count(f)` ⇒ `countIf(<f exists>)`; numeric aggregates of a property skip events without a
     numeric value; `sum/avg/min/max/pNN` of `@timestamp` or `id` are errors; `first/last(f)` ⇒
     `argMin/argMax(f, <time column>)`.
@@ -1389,8 +1494,25 @@ stages `Stats Sort Limit Fields Where Top`) carries byte positions on every node
     <by> AS g0…, <agg> AS a0… FROM … WHERE … GROUP BY [bucket,] g… [HAVING …] ORDER BY …
     [LIMIT ? BY g_k] LIMIT ?`. Result columns are `@bucket`, the by-fields as written and the
     aggregate aliases. ORDER BY: `bucket ASC` first for timeseries, then `sort` keys, else
-    (table) `a0 DESC`, then group keys ascending. Metrics `rate(value)` wraps an inner query
-    grouped additionally by `series_id`.
+    (table) `a0 DESC`, then group keys ascending. Metrics `rate(value)` reads from a **points**
+    level `SELECT [bucket,] g…, timestamp, row_number() OVER w = 1 AS r_first, … ,
+    multiIf(<whole>, value, r_first, 0, value − r_pv) AS r_d FROM db.metric_points WHERE
+    timestamp >= <From − lookback> AND timestamp < ? … WINDOW w AS (PARTITION BY stream,
+    series_id ORDER BY timestamp ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)` (`lagInFrame` of
+    `start_time` and `value`) and aggregates `sum(r_d) / ?` over it `WHERE timestamp >= ?`,
+    grouped by the keys, with `where` after stats as `HAVING`. A column with arithmetic is one `<expr> AS a<i>` on
+    every path (plain, metrics rate, histogram outer level).
+  - Histogram aggregates use three levels: **points** `SELECT [bucket,] g…, timestamp, <window
+    expressions> AS h_… FROM db.metric_points WHERE timestamp >= <From − lookback> AND timestamp < ?
+    … AND (<kinds>) WINDOW w AS (PARTITION BY stream, series_id ORDER BY timestamp ROWS BETWEEN 1
+    PRECEDING AND CURRENT ROW)` (`row_number()`, `lagInFrame` of `start_time`, `count`, `sum`,
+    `bucket_counts`, `bucket_bounds`; deltas with `multiIf`); **groups** `SELECT [bucket,] g…,
+    sum(h_ds) AS h_s, sum(h_dn) AS h_n[, sumMap(h_qk, h_qv, h_qn) AS h_b, h_b.1 AS h_k,
+    arrayCumSum(h_b.2) AS h_c, ? * h_c[-1] AS h_r<i>, arrayFirstIndex(x -> x >= h_r<i>, h_c) AS
+    h_i<i>] FROM (points) WHERE timestamp >= ? [GROUP BY …] HAVING count() > 0` (the third
+    `sumMap` array of ones keeps buckets whose counts sum to 0, which `sumMap` drops); **outer** `SELECT [bucket,] g…, <aggregate> AS a0… FROM (groups)`, with the
+    conditions of `where` after stats as `WHERE` (the outer level does not aggregate), then the
+    usual ORDER BY and LIMIT.
   - Property access `props[?]` (key as parameter) or the indexed column `f_<slug>` for string
     use; numeric use keeps `props_num`.
 - **Safety:** SQL text contains only constant fragments, built-in column names from the allow-list
@@ -1431,8 +1553,14 @@ syntax cheat-sheet popover (examples from §10.1).
 `[From, To)` is the word to replace and `Field` is set in value position (after `field:` or a
 comparison operator); the API then adds the field's top values (kind `value`). Built-ins come from
 §10.4, properties from the caller's catalog (`FieldInfo{Name, Builtin, Numeric, Hits}`, by hits);
-`level` values are suggested directly; sort keys are taken from the preceding stats stage. At most
-50 suggestions, filtered by the typed prefix (case-insensitive).
+`level` values are suggested directly; sort keys are taken from the preceding stats stage.
+Histogram aggregates are suggested only for source metrics, with the complete call as insert
+text (`hist_mean()`, `histogram_quantile(0.95)`, detail *histogram aggregate*); nothing is suggested inside their
+parentheses. After an aggregate's `)` (before `by`) the arithmetic operators `+ - * /` are
+suggested (kind `operator`) besides `by`, `span`, `as` and `|`; after a lone operator or a `(`
+that is not an aggregate's own, the aggregates. Sort keys insert backtick-quoted names when
+needed (an arithmetic column named by its text). At most 50 suggestions, filtered by the typed
+prefix (case-insensitive).
 
 ---
 
@@ -1479,7 +1607,7 @@ comparison operator); the API then adds the field's top values (kind `value`). B
 | `GET /tail?q&signals` | **Server-Sent Events**: `event: events` with JSON arrays, polling ClickHouse every 1 s on `ingested_at`; heartbeat every 15 s; max 50 events/s per subscriber (excess ⇒ `event: dropped` count). Max 20 concurrent tails per user. |
 | `GET /traces?q&from&to&limit=50` | Trace summaries `{traceId, rootService, rootName, start, durationMs, spanCount, errorCount, services[]}`. |
 | `GET /traces/{traceId}` | `{spans:[…], events:[…]}` (events with matching trace id). |
-| `GET /metrics/names?q` | `[{name, kind, unit, description}]` |
+| `GET /metrics/names?q` | `[{name, kind, unit, description, monotonic}]` |
 | `GET /export?q&from&to&format=ndjson|csv` | Streams up to 100,000 events. editor+. |
 | `GET /tql/complete` | §10.7 |
 
@@ -1537,7 +1665,8 @@ streams of the caller's scope (§15.10). Details (normative):
   parentSpanId, stream, service, name, kind, start, durationMs, statusCode, statusMessage,
   attributes, resourceAttributes, events, links}` (numeric attributes typed again).
 - **`GET /metrics/names`** — `q` case-insensitive substring (≤ 256 bytes), range default last
-  hour, ≤ 1,000 names.
+  hour, ≤ 1,000 names; `monotonic` is true when a point of the metric in the range is a monotonic sum
+  (`is_monotonic`, §8.2).
 - **`GET /export`** — `format` `ndjson` (default) or `csv`, optional `signals`; events-kind queries
   only (stats ⇒ 400). Pages of `QUERY_MAX_ROWS` rows newest first, up to 100,000; audited
   (`export`, details q/from/to/format/signals/streams/environments) before streaming; `Content-Disposition:
@@ -1921,7 +2050,12 @@ Panel editor has two tabs: **Builder** (source → filter (with autocomplete) �
 / p95 … of field) → group by (≤3) → interval → visualization) which generates TQL, and **Query**
 (raw TQL). Switching Builder→Query is lossless; Query→Builder works when the query fits the builder
 shape, otherwise the Builder tab is read-only with a notice. Live preview updates on every change
-(debounced 400 ms).
+(debounced 400 ms). The measure list also offers the histogram aggregates (§10.5): `hist_mean`
+has no field input and `histogram_quantile` a quantile input instead of the field (default
+`0.95`, a number literal `0 < q < 1`, kept as written on the round trip); "+ measure" adds
+`hist_mean` next to a histogram measure. A histogram measure next to another measure, on a
+source other than metrics, or with a quantile outside `0 < q < 1` shows an inline warning under
+the measures and disables *Apply* until fixed.
 
 ### 13.4 Dashboard assistant (planned — M4)
 A "Describe a dashboard" box (dashboard list, and "Ask" in the panel editor) turns plain text such
@@ -2144,7 +2278,11 @@ external URLs, fonts as woff/woff2 files (checked by `web/scripts/check-csp.mjs`
 Libraries that inject CSS at runtime (CodeMirror via style-mod) are routed through a
 constructable stylesheet (`document.adoptedStyleSheets`) in the cascade layer `codemirror`, so
 their rules apply without `'unsafe-inline'` and the design CSS keeps precedence; React `style`
-props are set through the CSSOM and are not affected by `style-src`.
+props are set through the CSSOM and are not affected by `style-src`. Text typed over a selection
+in the query editors is applied by CodeMirror itself (a `beforeinput` handler for `insertText`
+over a non-empty selection; IME composition stays with the browser): Chrome's native editing
+would set a `style` attribute on the line when it replaces a whole selection, which `style-src`
+blocks and reports as `style-src-attr` although the editor re-renders the line anyway.
 
 ### 15.8 Injection
 SQL only via parameters (§10.6) or validated identifiers (allow-list / regex). ClickHouse query
@@ -2254,7 +2392,7 @@ selection is not a security boundary — keep production data in its own stream.
 | `/events` | **Log explorer** (§16.3) |
 | `/events/:id` | Event permalink (explorer with detail open) |
 | `/traces`, `/traces/:traceId` | Trace search, trace waterfall |
-| `/metrics` | Metric browser (name search, quick chart, "add to dashboard") |
+| `/metrics` | Metric browser (name search, quick chart, "add to dashboard"). The quick chart's aggregate buttons depend on the metric kind: histograms and exponential histograms offer *Mean* (`hist_mean()`), *p50*, *p95* and *p99* (`histogram_quantile(0.5 / 0.95 / 0.99)`), a summary only *Mean* (no buckets), every other kind `avg`, `sum`, `max`, `min`, `p95` of `value`; a counter — kind `sum` (or `counter`) with `monotonic` true from `/metrics/names` (§11.3) — also *rate/s* (`rate(value)`, §10.5) first. The default is *Mean* for histograms and summaries, *rate/s* for counters (their values are running totals, so their per-second increase is the useful view; `sum`/`avg` stay a click away), else `avg` — an up-down sum (`monotonic` false) is a level like a gauge, so it is averaged and offers no rate. The chart's unit is the metric's unit (`1` ⇒ none), `<unit>/s` for *rate/s*. Buckets without observations (`null`, §10.5) are gaps in the chart |
 | `/dashboards`, `/dashboards/:id`, `/dashboards/:id/edit` | Dashboards list / view / edit |
 | `/alerts`, `/alerts/:id`, `/alerts/new` | Alert rules, state, history; `:id` / `new` opens the editor drawer |
 | `/streams`, `/streams/:name` | Index management: stats, retention, mappings, purge |
@@ -3278,10 +3416,10 @@ with an unsupported-platform error.
 | Go unit | `go test -race ./...` (Linux), `go test ./...` (Windows). Table-driven. Coverage ≥ 85% for `internal/tql`, `internal/normalize`, `internal/ingest/...`, `internal/auth`, `internal/retention`; ≥ 70% overall. |
 | TQL | Golden tests: queries in `internal/tql/testdata/*.tql` (`%cursor`/`%streams a,b|none`/`%where` directives) ⇒ `*.golden` (canonical form, SQL + args + columns, or error with position and caret); regenerate with `go test ./internal/tql -run TestGolden -update`. Every §10.1 example is read from `docs/query-language.md` (`TestDocExamplesParseAndCompile`) and must parse and compile, and so must every query line of the reference's `tql` code blocks (`TestDocQueriesParseAndCompile`, at least 150 queries; queries meant to fail use `text` blocks); `internal/repotest` (`TestTQLDocExamplesMatchSpec`) asserts that block equals the §10.1 block of this file. Fuzz test `FuzzParse` (no panics, positioned errors, stable canonical round trip, no user text in SQL); found inputs are kept in `testdata/fuzz`. SQL-injection table (quotes, backticks, `--`, `;`, unicode, keys with `'`) and a max-size pathological-input timing test. |
 | Ingestion | Fixture bodies in `testdata/` captured from real clients: Serilog Seq sink (CLEF), NLog Seq target (legacy JSON), Filebeat/Fluent Bit/Vector/Logstash `_bulk`, OTLP JSON + protobuf logs/traces/metrics. |
-| Integration | Build tag `integration`; needs `TIDEMARK_TEST_CLICKHOUSE_ADDR` (+ `TIDEMARK_TEST_CLICKHOUSE_{DATABASE,WRITER_USER,WRITER_PASSWORD,READER_USER,READER_PASSWORD}`). `scripts/with-clickhouse.sh <cmd>` starts a throw-away local server (binary from `$CLICKHOUSE_BIN`, `/opt/clickhouse/clickhouse` or `PATH`; temp dir; free loopback port; users from `deploy/clickhouse/users.d` with random passwords; a `backups` disk in the temp dir), exports those variables, runs the command and stops the server; with the variable already set it just runs the command. Packages run with `-p 1` because they share the `tidemark` database. Covers migrations, the reader against real data (`internal/store/clickhouse`), and end to end (`internal/app`): connection keys created via the API, rejection without a key / with a wrong-protocol key, Seq, ES `_bulk`, OTLP HTTP (JSON + protobuf) and native fixtures, then `POST /query` (events + cursor paging, table, timeseries), histogram, facets, fields, event by id + context, trace + trace search, metric names, export and live tail; stream access (`TestIntegrationStreamAccess`: logs, spans and metrics in two streams; a team member of one stream sees none of the other on every §15.10 path — queries incl. `stats count() by stream`, histogram, facets, fields, completion, event by id and context, CSV and NDJSON export, tail, trace search, a cross-stream trace, metric names and queries, streams list and fields; the selection never widens the scope; environments filter logs only; alert rules must name streams within the editor's scope, are hidden outside it and keep their streams after the author leaves the team; a team-less user sees every stream until deny-by-default is on and then sees nothing, without errors; an event naming a stream outside its connection's allowed streams lands in the default stream); retention TTL DDL. CI uses a ClickHouse service container (Linux job). Also covers insert deduplication of a replayed WAL batch and of a replayed import job (`tidemark import clef` of 12,345 lines, then the whole job re-run from an empty checkpoint: the row count is unchanged), address failover, operator commands (backup/restore/doctor) and the importers against fake sources. The replicated-schema test additionally needs `TIDEMARK_TEST_CLICKHOUSE_CLUSTER` and `TIDEMARK_TEST_CLICKHOUSE_CLUSTER_ADDRS` (a 1-shard, 3-replica cluster with Keeper, e.g. `deploy/ha/clickhouse/`); `scripts/with-clickhouse-cluster.sh <cmd>` starts such a cluster on loopback (three servers, each embedding Keeper with IPv6 disabled, free ports, users from `deploy/ha/clickhouse/users.d`, cluster `tidemark_cluster`), exports `TIDEMARK_TEST_CLICKHOUSE_{ADDR,CLUSTER,CLUSTER_ADDRS,WRITER_PASSWORD,READER_PASSWORD}` and removes it afterwards; PostgreSQL contract, bus and restore tests need `TIDEMARK_TEST_POSTGRES_DSN`. |
+| Integration | Build tag `integration`; needs `TIDEMARK_TEST_CLICKHOUSE_ADDR` (+ `TIDEMARK_TEST_CLICKHOUSE_{DATABASE,WRITER_USER,WRITER_PASSWORD,READER_USER,READER_PASSWORD}`). `scripts/with-clickhouse.sh <cmd>` starts a throw-away local server (binary from `$CLICKHOUSE_BIN`, `/opt/clickhouse/clickhouse` or `PATH`; temp dir; free loopback port; users from `deploy/clickhouse/users.d` with random passwords; a `backups` disk in the temp dir), exports those variables, runs the command and stops the server; with the variable already set it just runs the command. Packages run with `-p 1` because they share the `tidemark` database. Covers migrations (incl. the upgrade of a 0006 database by `TestIntegrationMetricStartTimeUpgrade`), the reader against real data (`internal/store/clickhouse`; histogram aggregates in `TestIntegrationHistogramAggregates`: `hist_mean` and `histogram_quantile` through the read-only user against hand-computed values for a cumulative series with a lookback point and a restart by start time, one without start time written out of order with a restart by decrease, delta temporality, mixed bucket bounds in one group, a bucket without observations (`NULL`), buckets without points (no row), summaries with changing quantile values and a pre-upgrade summary that is skipped, `where` after stats, and arithmetic between aggregates on raw points and histogram aggregates incl. negative results and division by zero (`NULL`); `rate(value)` in `TestIntegrationMetricRate`: increases across bucket boundaries and from a lookback point, restarts by start time and by decrease, delta points, a series started inside the range, `rate(value) * 60` and `where` after stats), and end to end (`internal/app`): connection keys created via the API, rejection without a key / with a wrong-protocol key, Seq, ES `_bulk`, OTLP HTTP (JSON + protobuf) and native fixtures, then `POST /query` (events + cursor paging, table, timeseries), histogram, facets, fields, event by id + context, trace + trace search, metric names, export and live tail; stream access (`TestIntegrationStreamAccess`: logs, spans and metrics in two streams; a team member of one stream sees none of the other on every §15.10 path — queries incl. `stats count() by stream`, histogram, facets, fields, completion, event by id and context, CSV and NDJSON export, tail, trace search, a cross-stream trace, metric names and queries, streams list and fields; the selection never widens the scope; environments filter logs only; alert rules must name streams within the editor's scope, are hidden outside it and keep their streams after the author leaves the team; a team-less user sees every stream until deny-by-default is on and then sees nothing, without errors; an event naming a stream outside its connection's allowed streams lands in the default stream); retention TTL DDL. CI uses a ClickHouse service container (Linux job). Also covers insert deduplication of a replayed WAL batch and of a replayed import job (`tidemark import clef` of 12,345 lines, then the whole job re-run from an empty checkpoint: the row count is unchanged), address failover, operator commands (backup/restore/doctor) and the importers against fake sources. The replicated-schema test additionally needs `TIDEMARK_TEST_CLICKHOUSE_CLUSTER` and `TIDEMARK_TEST_CLICKHOUSE_CLUSTER_ADDRS` (a 1-shard, 3-replica cluster with Keeper, e.g. `deploy/ha/clickhouse/`); `scripts/with-clickhouse-cluster.sh <cmd>` starts such a cluster on loopback (three servers, each embedding Keeper with IPv6 disabled, free ports, users from `deploy/ha/clickhouse/users.d`, cluster `tidemark_cluster`), exports `TIDEMARK_TEST_CLICKHOUSE_{ADDR,CLUSTER,CLUSTER_ADDRS,WRITER_PASSWORD,READER_PASSWORD}` and removes it afterwards; PostgreSQL contract, bus and restore tests need `TIDEMARK_TEST_POSTGRES_DSN`. |
 | Security | Tests for auth on every route (table of routes × roles), CSRF, rate limits, key restrictions (protocol, CIDR, expiry, revoke), SSRF dialer, the update client (off-list and `http` redirects refused, more than 3 hops refused, private destinations blocked without a proxy, CONNECT through an explicit proxy, proxy credentials absent from errors), headers, SQL-injection attempts through TQL (fuzz corpus). |
 | Updates | `internal/update`: SemVer parsing and precedence table, selection table (drafts, tag shapes, stable/pre-release rules, no downgrade, server-built notes URL), the GitHub source against `httptest` (request path and headers, ETag/`304`, `403` with reset, `429` with `Retry-After`, `404`, `5xx`, oversize body, invalid JSON), the checker schedule with a fake clock and fixed jitter (first check, daily, hourly retries, six attempts, rate-limit wait), no request when disabled or a development build, the 60 s gap, apply reasons and install-kind detection per OS; minisign verification against fixtures made by minisign 0.12 with a throwaway test key (`testdata/minisign`: prehashed and legacy, CRLF) and a per-test generated key (valid, either trusted key, wrong key id, tampered file, tampered trusted comment, wrong version, legacy `Ed`, malformed input); the `checksums.txt` grammar; extraction from tar.gz and zip (traversal, absolute, backslash and drive names, symlinks, hard links, missing, duplicate, oversize); staging against a fake HTTP client (request order, fixed URLs, size caps, untrusted or older signature, checksum mismatch, nothing kept on rejection); the install state machine in temporary directories on Linux and Windows (install, idempotent repeat, rollback, second update, no downgrade, tampered or replaced staged files, symlinked or non-regular staged files, held and stale lock, confirmation polling and timeout); the helper flow (confirmed, rollback without confirmation and after a failed restart, resumed wait without restart, nothing staged, failed request not retried, a request staged during the wait installed in the same run against the newly installed version, at most 3 rounds); the applier refusing a second apply while the helper waits for a confirmation; the applier with a fake stager and clock (installed ⇒ `restarting`, failures per stage incl. disk space, helper start, pickup timeout and helper failure, one update at a time, states and progress), the manager's refusal order and `lastResult` from `state.json`, the reporter reporting each outcome once, staging hooks (reserved size, progress, refusal keeps nothing), helper detection per OS; `internal/api` apply handler (`202` with the audit entry, `400` field `version`, `409` reasons, unknown fields); the watcher with a fake clock (confirmation after an uninterrupted 30 s, none when not ready or for another version, restart only on a changed state that installed another version or rolled back the running one); file modes on Linux; `internal/repotest` `TestUpdateHelperUnitHardened` (helper and path unit settings, exit status 3 in the service unit); on Windows the fixed locations, rename retries while a handle is held, the update service DACL (parsed, round-tripped, start and query only for the service SID) and the stop/start sequence against a fake SCM service (running, not active, already running, refused, timeout, failed start); `tidemark update check` output and usage; `internal/config` parsing of both variables; `internal/api` status and check handlers (`409` reasons, `429` with `Retry-After`); `tidemark_update_available` in `internal/selfmetrics`. |
-| Web | `tsc --noEmit`, ESLint (0 warnings), Prettier, Vitest with coverage ≥ 80 % statements/lines/functions and ≥ 70 % branches for `src/tql/**`, `src/lib/**` and `src/api/client.ts` (TQL highlighter, template renderer, builder↔TQL round-trip, client CSRF/errors/offsets, components; the scope helpers and `useDataScope` URL ↔ state round trip, the scope picker with one, many and no streams and its keyboard flow, the Teams pages and the endpoint parameters of the selection and team routes; the update card's one-click flow: typed confirmation for a minor bump and none for a patch, the states and the download progress, the restart tolerated, the success, a rollback, `409 in-progress`, `draining` and `wal-failed`, the `400` refetch, a remembered target resumed, and the helper-missing guide), production build + static CSP check, `npm audit --audit-level=high`, Playwright smoke against the mock build served with the production CSP (login + default-credentials banner, query, autocomplete, detail, analytics + add to dashboard, signal save, traces, metrics, dashboard create/edit, alerts drawer with the streams field, streams purge dry run, connection create with allowed streams, settings pages, the update chip and the System update card for an admin (check now, the 429 answer, the container commands, the helper-missing guide, light theme, 390 px) and their absence without any request for an editor, one-click update against the mock timeline (the dialog with Escape returning focus and the typed confirmation, the progress with the "Updating…" chip, the restart gap, the installed result with its toast, a rollback in the light theme and at 390 px), the scope picker, an admin creating a team and granting a stream to a viewer who then sees only that stream with a static chip and an orphaned span, deny by default leading to the empty state without queries, light theme, keyboard, 390 px with the scope sheet); every e2e test fails on a CSP violation or page error and writes design-review screenshots. |
+| Web | `tsc --noEmit`, ESLint (0 warnings), Prettier, Vitest with coverage ≥ 80 % statements/lines/functions and ≥ 70 % branches for `src/tql/**`, `src/lib/**` and `src/api/client.ts` (TQL highlighter incl. arithmetic between aggregates, template renderer, builder↔TQL round-trip incl. histogram measures (quantile kept as written, the mixing/source/quantile warnings), the metric browser's aggregate options and defaults per kind and the `histogram_quantile(0.95)` query on *p95*, `null` aggregate values as chart gaps and empty table cells, client CSRF/errors/offsets, components; the scope helpers and `useDataScope` URL ↔ state round trip, the scope picker with one, many and no streams and its keyboard flow, the Teams pages and the endpoint parameters of the selection and team routes; the update card's one-click flow: typed confirmation for a minor bump and none for a patch, the states and the download progress, the restart tolerated, the success, a rollback, `409 in-progress`, `draining` and `wal-failed`, the `400` refetch, a remembered target resumed, and the helper-missing guide), production build + static CSP check, `npm audit --audit-level=high`, Playwright smoke against the mock build served with the production CSP (login + default-credentials banner, query, autocomplete, detail, analytics + add to dashboard, signal save, traces, metrics (a histogram charted as *Mean* by default and as `histogram_quantile(0.95)` on *p95*, a summary with only the mean, an up-down sum as `avg` with five aggregates, a counter as *rate/s* with six, light theme, 390 px), the panel builder with histogram measures (quantile input, the mixing and quantile warnings disabling *Apply*, light theme, 390 px), dashboard create/edit, alerts drawer with the streams field, streams purge dry run, connection create with allowed streams, settings pages, the update chip and the System update card for an admin (check now, the 429 answer, the container commands, the helper-missing guide, light theme, 390 px) and their absence without any request for an editor, one-click update against the mock timeline (the dialog with Escape returning focus and the typed confirmation, the progress with the "Updating…" chip, the restart gap, the installed result with its toast, a rollback in the light theme and at 390 px), the scope picker, an admin creating a team and granting a stream to a viewer who then sees only that stream with a static chip and an orphaned span, deny by default leading to the empty state without queries, light theme, keyboard, 390 px with the scope sheet); every e2e test fails on a CSP violation or page error and writes design-review screenshots. |
 | Static | `gofmt`, `go vet`, `golangci-lint` (errcheck, govet, staticcheck, gosec, revive, gocritic, bodyclose, contextcheck, nilerr), `govulncheck`, OSV-Scanner (known vulnerabilities and malicious packages, §15.9). |
 | Docs | `docs/query-language.md`, `docs/ingestion.md` and `docs/configuration.md` are derived from §10, §9 and §7 and updated with them in the same commit. `docs/configuration.md` lists exactly the variables of `internal/config` with their defaults (`TestConfigurationDocMatchesVariables`) and only §7 variables of this file (`internal/repotest`, `TestConfigurationDocMatchesSpec`); the §10.1 examples as above. Every chapter of `docs/manual/` is in the site navigation (`TestManualPagesInNav`, §17.4); `mkdocs build --strict` (both configurations) passes without warnings before a docs change is committed. |
 | Release | `internal/repotest`: `TestVersionAndChangelog` (`VERSION` format, `CHANGELOG.md` shape and a non-empty section for `VERSION`), `TestDistFileListsMatch` (Makefile and build.ps1 archive file lists, Docker bundle list included, equal and existing), `TestDistDockerCompose` (the bundle rewrite of `deploy/docker-compose.yml` leaves no `build:` key, pins the release image and removes only the build block; Makefile and build.ps1 use the same image), `TestInstallDocs` (every `INSTALL-*.md` exists and links only to absolute `https://` URLs), `TestReleaseDocsBundle` (the offline documentation bundle stays in the workflow, the task runners, `mkdocs.offline.yml`, the hook and the release notes) `TestReleaseScanUsesSecurityTrivy`, `TestDistributionStamp` (Makefile `dist`, build.ps1 `dist` and the Dockerfile stamp `main.distribution`; §17.6), `TestReleaseSignsChecksums` (only the `sign` job uses an environment, `release`, and the secret; the build job neither signs nor attests; the sign job downloads `dist`, checks the pinned minisign archive, signs with the trusted comment, verifies, attests and uploads the signature in that order and fails without the key in the main public repository; the release job needs it and publishes the signature; the notes show the `minisign -Vm` command) and `TestUpdateSigningKeysDocumented` (every file printing signing keys names both keys of `internal/update/keys.go` and no other; `SECURITY.md` gives both key ids). `internal/update` checks each embedded key decodes to its key id. `make dist` is run and its archives inspected (contents, `tidemark version`) before changing the release tooling. |
@@ -3449,6 +3587,20 @@ items of M0–M3b:
 
 | Version | Date | Change |
 |---|---|---|
+| 0.34.4 | 2026-10-25 | Monotonic sums (§11.3, §16.1, §18): `GET /metrics/names` reports `monotonic` (true when a point of the metric in the range is a monotonic sum, from `is_monotonic`; `store.MetricName.Monotonic`, `metricNameView`). The metric browser charts *rate/s* by default and offers the button only for counters (`sum`/`counter` with `monotonic` true); an up-down sum is averaged with the plain aggregates like a gauge (0.34.2 defaulted every sum to the rate). The mock's `http.server.active_requests` is an up-down sum; Vitest and the e2e metrics test cover both. |
+| 0.34.3 | 2026-10-25 | TQL limits (§10.3, §18): the 8 KiB query limit also applies to the canonical form, so a query that `String()` writes longer (adjacent `''` become `"" and ""`) is rejected with a positioned error instead of yielding canonical TQL that does not parse (e.g. a resolved dashboard panel query); found by `FuzzParse`, input kept in `testdata/fuzz`. |
+| 0.34.2 | 2026-10-25 | Metric browser (§16.1, §18): sums and counters offer *rate/s* (`rate(value)`) before the plain aggregates and chart it by default instead of `sum(value)`, which added up running totals; the chart unit of a rate is `<unit>/s`. The names endpoint carries no temporality or monotonicity, so the default follows the kind alone. Vitest covers the options, defaults and unit per kind; the e2e metrics test checks a sum. |
+| 0.34.1 | 2026-10-23 | TQL `rate(value)` (§10.5, §10.6, §18): per-point increases per series (window over `stream, series_id`, `lagInFrame` of `value` and `start_time`) instead of `deltaSumTimestamp` per bucket, so the increase between buckets counts; points are read from one span (at most 10 min, `maxDeltaLookback`, shared with the histogram aggregates and renamed from `maxHistLookback`) before the range; restarts (new start time, decrease) count the new value, delta points as they are, the first point of a series is a baseline unless the series started inside the read range. Integration test `TestIntegrationMetricRate`. |
+| 0.34.0 | 2026-10-23 | TQL arithmetic between aggregates (§10.3, §10.5, §10.6, §10.7, §18, issue #7): a stats column may be `agg_expr` — aggregates and numbers with `+ - * /` and parentheses (`stats sum(sum) / sum(count) as mean_ms`); division by zero ⇒ `NULL` (`nullIf`), numbers bound as parameters, operands must be numeric, numbers take no unit; default alias is the canonical text; calls inside arithmetic count towards `MaxAggregates` and the rules of `rate(value)` and the histogram aggregates; new limit `MaxAggTerms` = 50; completion suggests the operators and aggregates after them; `TestIntegrationHistogramAggregates` covers it on real ClickHouse. Web (§13.2, §16.1): the editor highlights `+ - * /` in the aggregate list as operators, the panel builder leaves such queries to the text editor (read-only builder), the cheat sheet shows `sum(elapsed) / count() as mean_ms`, the mock API names and evaluates arithmetic columns. |
+| 0.33.5 | 2026-10-21 | Web hardening (§15.7): typing over a selection in the query editors no longer makes Chrome set a `style` attribute that the CSP reports (`style-src-attr`); the editor applies such edits itself. The e2e builder test types over a select-all and asserts that no `securitypolicyviolation` event fires. |
+| 0.33.4 | 2026-10-21 | Web UI for the histogram aggregates (§13.2, §16.1, §18, issue #7): the metric browser charts histograms, exponential histograms and summaries as *Mean* (`hist_mean()`) by default and histograms also as p50/p95/p99 (`histogram_quantile(q)`); the panel builder offers `hist_mean` (no field) and `histogram_quantile` with a quantile input, round-trips the number argument and warns inline when histogram measures are mixed with other measures, used on logs/spans or given a quantile outside `0 < q < 1`; the editor highlights the new functions and the cheat sheet shows them; `null` aggregate values stay gaps/empty cells. |
+| 0.33.3 | 2026-10-21 | TQL (§10.3, §10.5): the default alias of an aggregate with a number argument replaces `.` by `_` (`histogram_quantile_0_95` instead of `histogram_quantile_0.95`), so `where`/`sort` after stats and chart legends see a plain identifier. |
+| 0.33.2 | 2026-10-21 | Tests (§18): integration test `TestIntegrationHistogramAggregates` for `hist_mean` and `histogram_quantile` on real ClickHouse; the integration row also names the start-time upgrade test. |
+| 0.33.1 | 2026-10-21 | TQL `histogram_quantile(q)` (§10.3, §10.5, §10.6, §10.7, issue #7): quantile `0 < q < 1` (number literal, bound as a parameter) of the observations per bucket, from per-series bucket deltas merged by upper bound with `sumMap` (union of bounds for mixed layouts, approximate) and PromQL-style linear interpolation; histograms only; count 0 ⇒ `NULL`. Bucket deltas need unchanged bounds. Completion inserts `histogram_quantile(0.95)`. |
+| 0.33.0 | 2026-10-21 | TQL `hist_mean()` (§10.3, §10.5, §10.6, §10.7, issue #7): mean of the observations recorded per bucket by histogram, exponential histogram and summary series, from per-series deltas (window over `stream, series_id`; restarts from `start_time`, decreasing `count` or buckets; delta temporality as-is; the first point of a series is a baseline unless it started inside the read range); lookback of one span, at most 10 min, before the range; empty ⇒ no row, count 0 ⇒ `NULL`. Shares a stage only with histogram aggregates. Three-level SQL; `where` after stats becomes the outer `WHERE`. Completion suggests it for metrics only. |
+| 0.32.14 | 2026-10-21 | TQL (§10.3, §10.5): an aggregate argument may be a number literal (`Agg.Arg`, default alias `fn_<number>`); no aggregate takes one yet (*"fn() takes no number"*). Groundwork for `histogram_quantile(q)`. |
+| 0.32.13 | 2026-10-21 | Stable summary series (§8.2, §8.5, §9.4): the writer leaves the `quantile.*` attrs of summary points (`model.SummaryQuantilePrefix`) out of `series_id`, so a summary is one series instead of one per point; summaries get temporality `cumulative`. Existing summary rows are not rewritten (no migration may mutate telemetry and `series_id` is a sort key column); they keep their ids and age out with retention. |
+| 0.32.12 | 2026-10-21 | Metric start time (§8.1, §8.2, §9.4): ClickHouse migration `0007_metric_start_time.sql` adds `metric_points.start_time DateTime64(9)` (default 0 = unknown, so existing rows need no rewrite); OTLP ingestion stores `startTimeUnixNano` in the new `MetricPoint.StartTime`, the writer inserts it (the epoch when unknown). Upgrade integration test `TestIntegrationMetricStartTimeUpgrade`. Groundwork for histogram aggregates (issue #7). |
 | 0.32.11 | 2026-10-21 | Release (§17.6): ci's `release` job passes its secrets to `release.yml` (`secrets: inherit`); without it the `sign` job got no signing key and the 0.5.0-rc.1 release stopped unpublished. `TestReleaseSignsChecksums` checks it. |
 | 0.32.10 | 2026-10-21 | One-click update in the UI (§16.1, §16.4, §16.6, §18): the Updates card offers "Install v<x>" where `apply.supported` — a confirmation dialog (restart pause, automatic rollback, release notes, typed version for a major bump or a minor bump before 1.0), the progress view polling every 2 s through the states and the restart (network and gateway errors read as restarting, a warning after 15 min, a 401 prompts a new sign-in and the view resumes from `tm.update.target`), the success toast and the "Last update" fact, a danger notice for `rolled_back` / `failed`, the `409` / `400` answers in words; `helper-missing` explains that the installer adds the helper; the top-bar chip reads "Updating…" while applying. The mock build gains the `apply`, `apply-rollback` and `helper-missing` states and an apply timeline with a restart gap. |
 | 0.32.9 | 2026-10-21 | Update helper triggers (§11.5, §17.7, §18): staging no longer deletes an earlier `request.json` first (a deletion could fire the path unit and lose the new request's trigger; a stale request only fails verification); the helper handles a request staged while it was busy before exiting (at most 3 per run, compared with the version it just installed); `POST /system/update/apply` answers `409 in-progress` while the helper waits for a confirmation. |

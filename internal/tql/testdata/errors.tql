@@ -12,6 +12,8 @@ a:(
 foo | statz count()
 foo | stats cnt()
 foo | stats sum()
+foo | stats count(5)
+foo | stats avg(0.5)
 foo | stats count() span 5
 foo | stats count() span 500ms
 foo | stats count() by @timestamp
@@ -80,3 +82,22 @@ foo | stats count() as
 foo | stats count(x y)
 foo | stats count
 foo | top 3
+* | stats hist_mean()
+source metrics | x | stats hist_mean(value)
+source metrics | x | stats count(), hist_mean()
+source metrics | x | stats hist_mean(), rate(value)
+source metrics | x | stats histogram_quantile()
+source metrics | x | stats histogram_quantile(1)
+source metrics | x | stats histogram_quantile(95)
+source metrics | x | stats histogram_quantile(0.5s)
+source metrics | x | stats histogram_quantile(value)
+source spans | x | stats histogram_quantile(0.9)
+source metrics | x | stats p95(value), histogram_quantile(0.9)
+foo | stats first(message) / count() as x
+foo | stats last(level) * 2 as x
+foo | stats sum(elapsed) / 2s as x
+foo | stats sum(a) / count(), sum(a) / count()
+foo | stats sum(@timestamp) - 1 as x
+source metrics | x | stats rate(value) * 2 + rate(value) as x
+source metrics | x | stats rate(value) / count() as x
+source metrics | x | stats hist_mean() / count() as x

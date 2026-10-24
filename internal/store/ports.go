@@ -114,6 +114,8 @@ type MetricName struct {
 	Kind        string
 	Unit        string
 	Description string
+	// Monotonic is true when a point of the metric in the range is a monotonic sum.
+	Monotonic bool
 }
 
 // StreamAdmin manages stream data (SPEC §12). It uses the writer connection.

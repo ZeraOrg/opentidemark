@@ -65,7 +65,7 @@ func metricPoints(res resourceInfo, m *metricspb.Metric) []model.MetricPoint {
 			}
 		}
 	case *metricspb.Metric_Summary:
-		c.kind = model.MetricSummary
+		c.kind, c.temporality = model.MetricSummary, model.TemporalityCumulative // OTLP summaries are cumulative
 		for _, p := range d.Summary.GetDataPoints() {
 			if p.GetFlags()&noRecordedValue == 0 {
 				out = append(out, summaryPoint(c, p))
@@ -76,13 +76,13 @@ func metricPoints(res resourceInfo, m *metricspb.Metric) []model.MetricPoint {
 }
 
 // base builds the common fields; resource attributes are merged under point attributes.
-func (c metricCtx) base(ts uint64, pointAttrs []*commonpb.KeyValue) model.MetricPoint {
+func (c metricCtx) base(start, ts uint64, pointAttrs []*commonpb.KeyValue) model.MetricPoint {
 	a := make(map[string]any, len(c.res.attrs)+len(pointAttrs))
 	maps.Copy(a, c.res.attrs)
 	delete(a, attrService)
 	maps.Copy(a, attrs(pointAttrs))
 	return model.MetricPoint{
-		Timestamp: nanos(ts), Stream: c.res.stream, Service: c.res.service, Name: c.m.GetName(),
+		Timestamp: nanos(ts), StartTime: nanos(start), Stream: c.res.stream, Service: c.res.service, Name: c.m.GetName(),
 		Description: c.m.GetDescription(), Unit: c.m.GetUnit(), Kind: c.kind, Temporality: c.temporality,
 		IsMonotonic: c.monotonic, Attributes: a,
 	}
@@ -105,7 +105,7 @@ func numberPoints(c metricCtx, pts []*metricspb.NumberDataPoint) []model.MetricP
 		if p.GetFlags()&noRecordedValue != 0 {
 			continue
 		}
-		mp := c.base(p.GetTimeUnixNano(), p.GetAttributes())
+		mp := c.base(p.GetStartTimeUnixNano(), p.GetTimeUnixNano(), p.GetAttributes())
 		switch v := p.Value.(type) {
 		case *metricspb.NumberDataPoint_AsDouble:
 			mp.Value = v.AsDouble
@@ -118,7 +118,7 @@ func numberPoints(c metricCtx, pts []*metricspb.NumberDataPoint) []model.MetricP
 }
 
 func histogramPoint(c metricCtx, p *metricspb.HistogramDataPoint) model.MetricPoint {
-	mp := c.base(p.GetTimeUnixNano(), p.GetAttributes())
+	mp := c.base(p.GetStartTimeUnixNano(), p.GetTimeUnixNano(), p.GetAttributes())
 	mp.Count, mp.Sum, mp.Min, mp.Max = p.GetCount(), p.GetSum(), p.GetMin(), p.GetMax()
 	mp.BucketBounds, mp.BucketCounts = p.GetExplicitBounds(), p.GetBucketCounts()
 	mp.Value = mean(mp.Sum, mp.Count)
@@ -126,7 +126,7 @@ func histogramPoint(c metricCtx, p *metricspb.HistogramDataPoint) model.MetricPo
 }
 
 func expHistogramPoint(c metricCtx, p *metricspb.ExponentialHistogramDataPoint) model.MetricPoint {
-	mp := c.base(p.GetTimeUnixNano(), p.GetAttributes())
+	mp := c.base(p.GetStartTimeUnixNano(), p.GetTimeUnixNano(), p.GetAttributes())
 	mp.Count, mp.Sum, mp.Min, mp.Max = p.GetCount(), p.GetSum(), p.GetMin(), p.GetMax()
 	mp.BucketBounds, mp.BucketCounts = ExpToExplicit(p.GetScale(), p.GetZeroCount(), p.GetPositive(), p.GetNegative())
 	mp.Value = mean(mp.Sum, mp.Count)
@@ -157,11 +157,11 @@ func ExpToExplicit(scale int32, zeroCount uint64, pos, neg *metricspb.Exponentia
 }
 
 func summaryPoint(c metricCtx, p *metricspb.SummaryDataPoint) model.MetricPoint {
-	mp := c.base(p.GetTimeUnixNano(), p.GetAttributes())
+	mp := c.base(p.GetStartTimeUnixNano(), p.GetTimeUnixNano(), p.GetAttributes())
 	mp.Count, mp.Sum = p.GetCount(), p.GetSum()
 	mp.Value = mean(mp.Sum, mp.Count)
 	for _, q := range p.GetQuantileValues() {
-		mp.Attributes["quantile."+strconv.FormatFloat(q.GetQuantile(), 'f', -1, 64)] = q.GetValue()
+		mp.Attributes[model.SummaryQuantilePrefix+strconv.FormatFloat(q.GetQuantile(), 'f', -1, 64)] = q.GetValue()
 	}
 	return mp
 }

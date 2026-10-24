@@ -58,6 +58,16 @@ error: pos=12 len=5 msg="sum() needs a field" hint="sum(field)"
   | foo | stats sum()
   |             ^^^^^
 
+=== foo | stats count(5)
+error: pos=18 len=1 msg="count() takes no number" hint="count()"
+  | foo | stats count(5)
+  |                   ^
+
+=== foo | stats avg(0.5)
+error: pos=16 len=3 msg="avg() takes no number" hint="avg(field)"
+  | foo | stats avg(0.5)
+  |                 ^^^
+
 === foo | stats count() span 5
 error: pos=25 len=1 msg="invalid span duration '5'" hint="use a positive duration with a unit, e.g. 1m, 5m, 1h"
   | foo | stats count() span 5
@@ -397,4 +407,99 @@ error: pos=17 len=0 msg="expected '(', found end of query"
 error: pos=11 len=0 msg="expected a field name, found end of query"
   | foo | top 3
   |            ^
+
+=== * | stats hist_mean()
+error: pos=10 len=11 msg="hist_mean() needs source metrics" hint="source metrics | name:… | stats hist_mean()"
+  | * | stats hist_mean()
+  |           ^^^^^^^^^^^
+
+=== source metrics | x | stats hist_mean(value)
+error: pos=27 len=16 msg="hist_mean() takes no argument" hint="hist_mean()"
+  | source metrics | x | stats hist_mean(value)
+  |                            ^^^^^^^^^^^^^^^^
+
+=== source metrics | x | stats count(), hist_mean()
+error: pos=27 len=7 msg="count() cannot be combined with histogram aggregates in one stats stage" hint="use a separate query or panel"
+  | source metrics | x | stats count(), hist_mean()
+  |                            ^^^^^^^
+
+=== source metrics | x | stats hist_mean(), rate(value)
+error: pos=40 len=11 msg="rate() cannot be combined with histogram aggregates in one stats stage" hint="use a separate query or panel"
+  | source metrics | x | stats hist_mean(), rate(value)
+  |                                         ^^^^^^^^^^^
+
+=== source metrics | x | stats histogram_quantile()
+error: pos=27 len=20 msg="histogram_quantile() needs a quantile between 0 and 1" hint="histogram_quantile(0.95)"
+  | source metrics | x | stats histogram_quantile()
+  |                            ^^^^^^^^^^^^^^^^^^^^
+
+=== source metrics | x | stats histogram_quantile(1)
+error: pos=27 len=21 msg="histogram_quantile() needs a quantile between 0 and 1" hint="histogram_quantile(0.95)"
+  | source metrics | x | stats histogram_quantile(1)
+  |                            ^^^^^^^^^^^^^^^^^^^^^
+
+=== source metrics | x | stats histogram_quantile(95)
+error: pos=27 len=22 msg="histogram_quantile() needs a quantile between 0 and 1" hint="histogram_quantile(0.95)"
+  | source metrics | x | stats histogram_quantile(95)
+  |                            ^^^^^^^^^^^^^^^^^^^^^^
+
+=== source metrics | x | stats histogram_quantile(0.5s)
+error: pos=27 len=24 msg="histogram_quantile() needs a quantile between 0 and 1" hint="histogram_quantile(0.95)"
+  | source metrics | x | stats histogram_quantile(0.5s)
+  |                            ^^^^^^^^^^^^^^^^^^^^^^^^
+
+=== source metrics | x | stats histogram_quantile(value)
+error: pos=27 len=25 msg="histogram_quantile() needs a quantile between 0 and 1" hint="histogram_quantile(0.95)"
+  | source metrics | x | stats histogram_quantile(value)
+  |                            ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+=== source spans | x | stats histogram_quantile(0.9)
+error: pos=25 len=23 msg="histogram_quantile() needs source metrics" hint="source metrics | name:… | stats histogram_quantile(0.95)"
+  | source spans | x | stats histogram_quantile(0.9)
+  |                          ^^^^^^^^^^^^^^^^^^^^^^^
+
+=== source metrics | x | stats p95(value), histogram_quantile(0.9)
+error: pos=27 len=10 msg="p95() cannot be combined with histogram aggregates in one stats stage" hint="use a separate query or panel"
+  | source metrics | x | stats p95(value), histogram_quantile(0.9)
+  |                            ^^^^^^^^^^
+
+=== foo | stats first(message) / count() as x
+error: pos=12 len=14 msg="first() of message is not a number and cannot be used in arithmetic" hint="arithmetic needs numeric aggregates such as count, sum, avg, min or max"
+  | foo | stats first(message) / count() as x
+  |             ^^^^^^^^^^^^^^
+
+=== foo | stats last(level) * 2 as x
+error: pos=12 len=11 msg="last() of level is not a number and cannot be used in arithmetic" hint="arithmetic needs numeric aggregates such as count, sum, avg, min or max"
+  | foo | stats last(level) * 2 as x
+  |             ^^^^^^^^^^^
+
+=== foo | stats sum(elapsed) / 2s as x
+error: pos=27 len=2 msg="a number in arithmetic takes no unit" hint="durations are in milliseconds: write 1000, not 1s"
+  | foo | stats sum(elapsed) / 2s as x
+  |                            ^^
+
+=== foo | stats sum(a) / count(), sum(a) / count()
+error: pos=30 len=16 msg="duplicate column name 'sum(a) / count()'" hint="give the aggregate a different name with 'as'"
+  | foo | stats sum(a) / count(), sum(a) / count()
+  |                               ^^^^^^^^^^^^^^^^
+
+=== foo | stats sum(@timestamp) - 1 as x
+error: pos=16 len=10 msg="sum() needs a numeric field; @timestamp is not numeric"
+  | foo | stats sum(@timestamp) - 1 as x
+  |                 ^^^^^^^^^^
+
+=== source metrics | x | stats rate(value) * 2 + rate(value) as x
+error: pos=27 len=11 msg="rate(value) must be the only aggregate in its stats stage"
+  | source metrics | x | stats rate(value) * 2 + rate(value) as x
+  |                            ^^^^^^^^^^^
+
+=== source metrics | x | stats rate(value) / count() as x
+error: pos=27 len=11 msg="rate(value) must be the only aggregate in its stats stage"
+  | source metrics | x | stats rate(value) / count() as x
+  |                            ^^^^^^^^^^^
+
+=== source metrics | x | stats hist_mean() / count() as x
+error: pos=41 len=7 msg="count() cannot be combined with histogram aggregates in one stats stage" hint="use a separate query or panel"
+  | source metrics | x | stats hist_mean() / count() as x
+  |                                          ^^^^^^^
 

@@ -2,6 +2,8 @@
 //
 // Panel builder model ↔ TQL (SPEC §13.2). Builder → Query is lossless; Query → Builder succeeds
 // only for queries of the builder shape `[source s |] filter | stats agg(f)… [by g…] [span x]`.
+// The histogram aggregates (SPEC §10.5) take no field: `hist_mean()` has no argument and
+// `histogram_quantile(q)` a quantile `0 < q < 1`, which the model keeps in `Measure.field`.
 
 import type { PanelType, Source } from '../api/types';
 import { splitPipes, tokenize } from './tokenize';
@@ -19,8 +21,17 @@ export const MEASURE_FUNCTIONS = [
   'p95',
   'p99',
   'rate',
+  'hist_mean',
+  'histogram_quantile',
 ] as const;
 export type MeasureFn = (typeof MEASURE_FUNCTIONS)[number];
+
+/** Aggregates over histogram buckets: metrics only, and only combined with each other. */
+export const HISTOGRAM_FUNCTIONS: ReadonlySet<MeasureFn> = new Set<MeasureFn>([
+  'hist_mean',
+  'histogram_quantile',
+]);
+export const DEFAULT_QUANTILE = '0.95';
 
 export const INTERVALS = ['auto', '1m', '5m', '15m', '1h'] as const;
 export type Interval = (typeof INTERVALS)[number];
@@ -30,6 +41,7 @@ export const MAX_GROUP_BY = 3;
 
 export interface Measure {
   fn: MeasureFn;
+  /** The field, or for `histogram_quantile` the quantile as written (`0.95`). */
   field: string;
 }
 
@@ -56,7 +68,53 @@ export function emptyModel(): BuilderModel {
   };
 }
 
+export function isHistogramFn(fn: MeasureFn): boolean {
+  return HISTOGRAM_FUNCTIONS.has(fn);
+}
+
+const QUANTILE = /^\d+(\.\d+)?$/;
+
+/** Whether `s` is a number literal strictly between 0 and 1 (SPEC §10.5). */
+export function isQuantile(s: string): boolean {
+  const t = s.trim();
+  if (!QUANTILE.test(t)) return false;
+  const n = Number(t);
+  return n > 0 && n < 1;
+}
+
+/** The measure after changing its function: histogram measures drop the field, a quantile gets a default. */
+export function withFn(m: Measure, fn: MeasureFn): Measure {
+  if (fn === 'histogram_quantile') return { fn, field: isQuantile(m.field) ? m.field : DEFAULT_QUANTILE };
+  if (fn === 'hist_mean') return { fn, field: '' };
+  return { fn, field: isHistogramFn(m.fn) ? '' : m.field };
+}
+
+/** The measure the "+ measure" button adds: one that can share the stage with the others. */
+export function nextMeasure(measures: readonly Measure[]): Measure {
+  const first = measures[0];
+  if (first !== undefined && isHistogramFn(first.fn)) return { fn: 'hist_mean', field: '' };
+  return { fn: 'count', field: '' };
+}
+
+/**
+ * Why the measures cannot be queried as they are, or null: histogram aggregates need source
+ * metrics, a quantile between 0 and 1, and cannot share a stats stage with other measures.
+ */
+export function builderProblem(m: BuilderModel): string | null {
+  const hist = m.measures.filter((x) => isHistogramFn(x.fn));
+  if (hist.length === 0) return null;
+  if (hist.length !== m.measures.length) {
+    return 'hist_mean() and histogram_quantile() can only be combined with each other, not with other measures.';
+  }
+  if (m.source !== 'metrics') return 'hist_mean() and histogram_quantile() need the source metrics.';
+  if (hist.some((x) => x.fn === 'histogram_quantile' && !isQuantile(x.field))) {
+    return 'histogram_quantile() needs a quantile between 0 and 1, for example 0.95.';
+  }
+  return null;
+}
+
 function measureText(m: Measure): string {
+  if (m.fn === 'hist_mean') return 'hist_mean()';
   return `${m.fn}(${m.field.trim()})`;
 }
 
@@ -85,6 +143,13 @@ function isMeasureFn(s: string): s is MeasureFn {
 
 function isInterval(s: string): s is Interval {
   return (INTERVALS as readonly string[]).includes(s);
+}
+
+/** Whether `arg` is a valid argument of `fn` as the builder writes it. */
+function argumentFits(fn: MeasureFn, arg: string): boolean {
+  if (fn === 'hist_mean') return arg === '';
+  if (fn === 'histogram_quantile') return isQuantile(arg);
+  return arg === '' || IDENT.test(arg);
 }
 
 /** Splits on top-level commas (outside parentheses and quotes). */
@@ -132,7 +197,7 @@ function parseStats(stage: string): ParsedStats | null {
     const a = AGG.exec(part);
     const fn = (a?.[1] ?? '').toLowerCase();
     const field = a?.[2] ?? '';
-    if (!a || !isMeasureFn(fn) || (field !== '' && !IDENT.test(field))) return null;
+    if (!a || !isMeasureFn(fn) || !argumentFits(fn, field)) return null;
     measures.push({ fn, field });
   }
   return { measures, groupBy, span };

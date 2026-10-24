@@ -673,49 +673,77 @@ export const METRIC_NAMES: MetricName[] = [
   {
     name: 'http.server.request.duration',
     kind: 'histogram',
+    monotonic: false,
     unit: 's',
     description: 'Duration of HTTP server requests.',
   },
   {
     name: 'http.server.active_requests',
-    kind: 'gauge',
+    kind: 'sum',
+    monotonic: false,
     unit: '{request}',
     description: 'Number of active HTTP server requests.',
   },
   {
+    name: 'http.client.request.duration',
+    kind: 'exp_histogram',
+    monotonic: false,
+    unit: 's',
+    description: 'Duration of outbound HTTP requests (exponential histogram).',
+  },
+  {
+    name: 'db.client.operation.duration',
+    kind: 'summary',
+    monotonic: false,
+    unit: 'ms',
+    description: 'Duration of database operations (summary: count, sum and quantiles).',
+  },
+  {
     name: 'process.cpu.utilization',
     kind: 'gauge',
+    monotonic: false,
     unit: '1',
     description: 'CPU utilization of the process.',
   },
-  { name: 'process.memory.usage', kind: 'gauge', unit: 'By', description: 'Resident memory of the process.' },
+  {
+    name: 'process.memory.usage',
+    kind: 'gauge',
+    monotonic: false,
+    unit: 'By',
+    description: 'Resident memory of the process.',
+  },
   {
     name: 'db.client.connections.usage',
     kind: 'gauge',
+    monotonic: false,
     unit: '{connection}',
     description: 'Connections in use, by state.',
   },
   {
     name: 'messaging.queue.depth',
     kind: 'gauge',
+    monotonic: false,
     unit: '{message}',
     description: 'Messages waiting in the reservations queue.',
   },
   {
     name: 'tidemark.ingest.events',
     kind: 'sum',
+    monotonic: true,
     unit: '{event}',
     description: 'Events accepted by OpenTidemark.',
   },
   {
     name: 'tidemark.ingest.dropped',
     kind: 'sum',
+    monotonic: true,
     unit: '{event}',
     description: 'Events dropped by OpenTidemark.',
   },
   {
     name: 'runtime.dotnet.gc.collections.count',
     kind: 'sum',
+    monotonic: true,
     unit: '{collection}',
     description: 'Garbage collections since start.',
   },
@@ -1557,8 +1585,9 @@ export function isUpdateScenario(v: unknown): v is UpdateScenario {
 }
 
 /** The next minor release after `current` ("0.4.0" → "0.5.0"; anything else → "0.1.0"). */
+/** The next minor release after `current` (pre-release and build suffixes ignored), so the mock's latest release is always newer than the running build. */
 export function nextVersion(current: string): string {
-  const m = /^(\d+)\.(\d+)\.\d+$/.exec(current);
+  const m = /^(\d+)\.(\d+)\.\d+(?:[-+].*)?$/.exec(current);
   if (m === null) return '0.1.0';
   return `${m[1]}.${Number(m[2]) + 1}.0`;
 }

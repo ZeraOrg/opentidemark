@@ -70,6 +70,20 @@ func TestParseCanonical(t *testing.T) {
 		{`* | where a:1 or b:2`, `* | where a:1 or b:2`},
 		{`* | top 5 a by b`, `* | top 5 a by b`},
 		{"* | stats count() as `my count`", "* | stats count() as `my count`"},
+		{`* | stats p95( 0.50 ) as q`, `* | stats p95(0.50) as q`},
+		{`* | stats p95(5e-1)`, `* | stats p95(5e-1)`},
+		{`* | stats sum(a)/sum(b) as r`, `* | stats sum(a) / sum(b) as r`},
+		{`* | stats sum(a)-1, 2*count()`, `* | stats sum(a) - 1, 2 * count()`},
+		{`* | stats count()-1 as d`, `* | stats count() - 1 as d`},
+		{`* | stats (sum(a) + sum(b)) / 2 as m`, `* | stats (sum(a) + sum(b)) / 2 as m`},
+		{`* | stats sum(a) - (sum(b) - sum(c)) as m`, `* | stats sum(a) - (sum(b) - sum(c)) as m`},
+		{`* | stats (sum(a) - sum(b)) - sum(c) as m`, `* | stats sum(a) - sum(b) - sum(c) as m`},
+		{`* | stats sum(a) * (2 / count()) as m`, `* | stats sum(a) * (2 / count()) as m`},
+		{`* | stats sum(a) * 2 + max(b) / 4 as m`, `* | stats sum(a) * 2 + max(b) / 4 as m`},
+		{`* | stats (count()) as n`, `* | stats count() as n`},
+		{`* | stats count() * -1 as n`, `* | stats count() * -1 as n`},
+		{`* | stats 2.50*count() as n`, `* | stats 2.50 * count() as n`},
+		{`* | stats sum(a)/sum(b)`, `* | stats sum(a) / sum(b)`},
 		{`world!`, `"world!"`},
 		{`a and (b and c)`, `"a" and ("b" and "c")`},
 		{`a or (b or c)`, `"a" or ("b" or "c")`},
@@ -93,6 +107,78 @@ func TestParseCanonical(t *testing.T) {
 		if err != nil || again.String() != q.String() {
 			t.Errorf("round trip of %q: %v %q", q.String(), err, again)
 		}
+	}
+}
+
+func TestParseAggNumberArg(t *testing.T) {
+	tests := []struct {
+		q     string
+		num   float64
+		alias string
+		pos   int
+	}{
+		{`* | stats p95(0.95)`, 0.95, "p95_0_95", 14},
+		{`* | stats p95(5e-1)`, 0.5, "p95_0_5", 14},
+		{`* | stats p95(-2)`, -2, "p95_-2", 14},
+	}
+	for _, tc := range tests {
+		q, err := Parse(tc.q)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.q, err)
+		}
+		a := q.Stages[0].(*Stats).Aggs[0]
+		if a.Field != nil || a.Arg == nil || a.Arg.Kind != ValueNumber || a.Arg.Num != tc.num || a.Alias != tc.alias || a.Arg.Pos != tc.pos {
+			t.Errorf("%s: agg %+v arg %+v", tc.q, a, a.Arg)
+		}
+	}
+}
+
+// TestNumberAliasIsIdentifier checks that the default alias of every allowed quantile, also
+// with many decimals or in exponent form, lexes as one plain identifier without '.'.
+func TestNumberAliasIsIdentifier(t *testing.T) {
+	for _, q := range []string{"0.95", "0.5", "0.999999999999", "0.123456789012345678", "1e-3", "9.5e-1", "0.000001", "5e-324"} {
+		pq, err := Parse("source metrics | x | stats histogram_quantile(" + q + ")")
+		if err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+		alias := pq.Stages[0].(*Stats).Aggs[0].Alias
+		toks := lexer{src: alias}.tokens()
+		if strings.Contains(alias, ".") || len(toks) != 2 || toks[0].Kind != tIdent || toks[0].Text != alias {
+			t.Errorf("q %s: alias %q is not one plain identifier (%+v)", q, alias, toks)
+		}
+	}
+}
+
+func TestQuantileAliasAfterStats(t *testing.T) {
+	q := "source metrics | name:x | stats histogram_quantile(0.95) by service | where histogram_quantile_0_95 > 200 | " +
+		"sort histogram_quantile_0_95 desc"
+	pq, err := Parse(q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := pq.String(); got != `source metrics | name:"x" | stats histogram_quantile(0.95) by service | where histogram_quantile_0_95 > 200 | sort histogram_quantile_0_95 desc` {
+		t.Errorf("canonical %q", got)
+	}
+	again, err := Parse(pq.String())
+	if err != nil || again.String() != pq.String() {
+		t.Fatalf("round trip: %v %q", err, again)
+	}
+	c, err := Compile(pq, goldenOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(c.SQL, " WHERE (a0 > ?) ORDER BY a0 DESC") || c.Columns[1].Name != "histogram_quantile_0_95" {
+		t.Errorf("sql %s columns %v", c.SQL, c.Columns)
+	}
+	if _, err := Parse("source metrics | x | stats histogram_quantile(0.95) | sort -histogram_quantile_0_95"); err == nil {
+		t.Error("sort -name is not TQL syntax (descending is 'desc') but parsed")
+	}
+	explicit, err := Parse("source metrics | x | stats histogram_quantile(0.95) as p95 | where p95 > 200 | sort p95 desc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c, err := Compile(explicit, goldenOptions()); err != nil || c.Columns[0].Name != "p95" {
+		t.Errorf("as p95: %v %v", err, c)
 	}
 }
 
@@ -200,6 +286,11 @@ func TestParseErrorPositions(t *testing.T) {
 		{`* | top 3 'x'`, 10, "expected a field name", ""},
 		{`* | stats count( x`, 18, "expected ')'", ""},
 		{`* | stats count() as 'x'`, 21, "expected an alias", ""},
+		{`* | stats sum(a) /`, 18, "unknown aggregate", ""},
+		{`* | stats sum(a) / -sum(b)`, 19, "unknown aggregate", ""},
+		{`* | stats 1 + 2 as n`, 10, "arithmetic needs an aggregate", "e.g. sum(x) / 2"},
+		{`* | stats (sum(a) / 2 as n`, 22, "expected ')'", ""},
+		{`* | stats sum(a) as x / 2`, 22, "expected '|' or end of query", ""},
 		{`* | top 3 a by 'x'`, 15, "expected a field name", ""},
 		{`* | limit 99999999999`, 10, "positive integer", ""},
 		{`a = )`, 4, "expected a value", ""},
@@ -226,6 +317,13 @@ func TestParseLimits(t *testing.T) {
 	long := strings.Repeat("a ", MaxQueryBytes/2+1)
 	if _, err := Parse(long); err == nil || !strings.Contains(err.Error(), "too long") {
 		t.Errorf("long query: %v", err)
+	}
+	// "''" is written as `"" and ` in canonical form, so this short query would not round-trip.
+	expands := strings.Repeat("'' ", MaxQueryBytes/6)
+	var e *Error
+	if _, err := Parse(expands); !errors.As(err, &e) || !strings.Contains(e.Msg, "too long in canonical form") ||
+		e.Pos != 0 || e.Len != len(expands) {
+		t.Errorf("query too long in canonical form: %v", err)
 	}
 	deep := strings.Repeat("(", MaxDepth+1) + "a" + strings.Repeat(")", MaxDepth+1)
 	if _, err := Parse(deep); err == nil || !strings.Contains(err.Error(), "nested too deeply") {
@@ -265,6 +363,46 @@ func TestParseLimits(t *testing.T) {
 	aggs := strings.TrimSuffix(strings.Repeat("count(), ", MaxAggregates+1), ", ")
 	if _, err := Parse("* | stats " + aggs); err == nil {
 		t.Error("too many aggregates should fail")
+	}
+	inArith := "count() as a, " + strings.TrimSuffix(strings.Repeat("count() + ", MaxAggregates), " + ") + " as b"
+	if _, err := Parse("* | stats " + inArith); err == nil || !strings.Contains(err.Error(), "too many aggregates") {
+		t.Errorf("aggregates inside arithmetic count against the limit: %v", err)
+	}
+	terms := "count()" + strings.Repeat(" + 1", MaxAggTerms) + " as n"
+	if _, err := Parse("* | stats " + terms); err == nil || !strings.Contains(err.Error(), "too many terms") {
+		t.Errorf("terms: %v", err)
+	}
+	parens := strings.Repeat("(", MaxDepth+1) + "count()" + strings.Repeat(")", MaxDepth+1)
+	if _, err := Parse("* | stats " + parens); err == nil || !strings.Contains(err.Error(), "nested too deeply") {
+		t.Errorf("nesting: %v", err)
+	}
+}
+
+func TestParseAggArithmetic(t *testing.T) {
+	q, err := Parse("* | stats sum(a) / (count() - 1), max(b) by c")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := q.Stages[0].(*Stats)
+	a := st.Aggs[0]
+	if a.Expr == nil || a.Fn != "" || a.Explicit || a.Alias != "sum(a) / (count() - 1)" {
+		t.Fatalf("column = %+v", a)
+	}
+	if a.Pos != 10 || a.End != 32 || a.AliasPos != a.Position {
+		t.Errorf("column position = %+v, alias %+v", a.Position, a.AliasPos)
+	}
+	var fns []string
+	for _, c := range a.Calls() {
+		fns = append(fns, c.Fn)
+	}
+	if strings.Join(fns, ",") != "sum,count" {
+		t.Errorf("calls = %v", fns)
+	}
+	if r := a.Expr.Right; r.Op != "-" || r.Right.Num == nil || r.Right.Num.Num != 1 {
+		t.Errorf("right operand = %+v", r)
+	}
+	if b := st.Aggs[1]; b.Expr != nil || b.Alias != "max_b" || len(b.Calls()) != 1 {
+		t.Errorf("plain column = %+v", b)
 	}
 }
 

@@ -154,6 +154,45 @@ func TestSpanAndMetricRows(t *testing.T) {
 	if mrow[17] != SeriesID("m", "svc", map[string]string{"a": "1", "b": "2"}) {
 		t.Error("series id mismatch")
 	}
+	if got := mrow[19].(time.Time); !got.Equal(time.Unix(0, 0)) {
+		t.Errorf("unknown start time = %v, want the epoch", got)
+	}
+	start := time.Date(2026, 10, 1, 8, 0, 0, 123456789, time.UTC)
+	p.StartTime = start
+	if got := MetricRow(p)[19].(time.Time); !got.Equal(start) {
+		t.Errorf("start time = %v, want %v", got, start)
+	}
+}
+
+func TestSummarySeriesIgnoresQuantileValues(t *testing.T) {
+	point := func(kind string, q99 float64) model.MetricPoint {
+		return model.MetricPoint{Name: "gc.pause", Service: "api", Kind: kind,
+			Attributes: map[string]any{"pool": "gen0", "quantile.0.5": q99 / 2, "quantile.0.99": q99}}
+	}
+	want := SeriesID("gc.pause", "api", map[string]string{"pool": "gen0"})
+	tests := []struct {
+		name     string
+		a, b     model.MetricPoint
+		same     bool
+		identity uint64 // 0 = not checked
+	}{
+		{"summary points with different quantile values", point(model.MetricSummary, 12), point(model.MetricSummary, 30), true, want},
+		{"quantile-like attributes of other kinds stay in the identity", point(model.MetricGauge, 12), point(model.MetricGauge, 30), false, 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			a, b := MetricRow(tc.a)[17].(uint64), MetricRow(tc.b)[17].(uint64)
+			if (a == b) != tc.same {
+				t.Errorf("series ids %d and %d: same = %v, want %v", a, b, a == b, tc.same)
+			}
+			if tc.identity != 0 && a != tc.identity {
+				t.Errorf("series id %d, want %d (name, pool, service)", a, tc.identity)
+			}
+			if attrs := MetricRow(tc.a)[16].(map[string]string); attrs["quantile.0.99"] != "12" {
+				t.Errorf("quantile values must stay stored: %v", attrs)
+			}
+		})
+	}
 }
 
 func TestSeriesID(t *testing.T) {
@@ -174,7 +213,7 @@ func TestMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(migs) != 6 || migs[0].Version != 1 || migs[3].Version != 4 || len(migs[3].Statements) != 3 {
+	if len(migs) != 7 || migs[0].Version != 1 || migs[3].Version != 4 || len(migs[3].Statements) != 3 {
 		t.Fatalf("migrations %+v", migs)
 	}
 	for _, m := range migs {

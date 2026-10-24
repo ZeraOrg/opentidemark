@@ -20,6 +20,8 @@ import type {
   QueryResponse,
   Signal,
   Stream,
+  Suggestion,
+  SuggestionKind,
   Team,
   TeamSummary,
   UpdateStatus,
@@ -265,6 +267,94 @@ function aggregates(q: string): string[] {
   return (m[1] ?? 'count()').split(/,\s*(?![^(]*\))/).map((s) => s.trim());
 }
 
+const AGG_CALL = /^(\w+)\(\s*([^()]*?)\s*\)/;
+/** Tokens of a stats column without its alias: aggregate calls, numbers, `+ - * /` and parentheses. */
+function aggTokens(agg: string): string[] {
+  return agg.replace(/\s+as\s+\S+\s*$/i, '').match(/\w+\([^()]*\)|\d+(?:\.\d+)?|[-+*/()]/g) ?? [];
+}
+
+/** Whether the token before an operator makes it binary: a call, a number or a closing parenthesis. */
+const isOperand = (t: string): boolean => /^\d|\)$/.test(t);
+
+/**
+ * Arithmetic between aggregates (SPEC §10.5) as the server names it: one space around each
+ * binary operator, none inside parentheses. Null when the column is a single call.
+ */
+function arithmeticOf(agg: string): string | null {
+  const tokens = aggTokens(agg);
+  let binary = false;
+  const text = tokens
+    .map((t, i) => {
+      if (!'+-*/'.includes(t) || !isOperand(tokens[i - 1] ?? '')) return t;
+      binary = true;
+      return ` ${t} `;
+    })
+    .join('');
+  return binary ? text : null;
+}
+
+/**
+ * Value of arithmetic between aggregates on the mock's bases: each call takes `base`, numbers
+ * stand for themselves, and a division by zero is NaN (null in the response, as on the server).
+ */
+function evalArithmetic(agg: string, base: (call: string) => number): number {
+  const tokens = aggTokens(agg);
+  let i = 0;
+  const atom = (): number => {
+    const t = tokens[i++] ?? '';
+    if (t === '(') {
+      const v = sum();
+      i++;
+      return v;
+    }
+    if (t === '-') return -atom();
+    return /^\d/.test(t) ? Number(t) : base(t);
+  };
+  const product = (): number => {
+    let v = atom();
+    while (tokens[i] === '*' || tokens[i] === '/') {
+      const op = tokens[i++];
+      const r = atom();
+      v = op === '*' ? v * r : r === 0 ? Number.NaN : v / r;
+    }
+    return v;
+  };
+  const sum = (): number => {
+    let v = product();
+    while (tokens[i] === '+' || tokens[i] === '-') {
+      const op = tokens[i++];
+      const r = product();
+      v = op === '+' ? v + r : v - r;
+    }
+    return v;
+  };
+  return sum();
+}
+
+/** Result column of an aggregate: its `as` name, else `fn`, `fn_field`, `fn_<number>` with `_` for `.`, or the arithmetic text (SPEC §10.5). */
+export function aliasOf(agg: string): string {
+  const as = /\s+as\s+`?([^`\s]+)`?\s*$/i.exec(agg);
+  if (as) return as[1] ?? agg;
+  const arithmetic = arithmeticOf(agg);
+  if (arithmetic !== null) return arithmetic;
+  const m = AGG_CALL.exec(agg);
+  if (!m) return agg;
+  const raw = m[2] ?? '';
+  const arg = /^\d/.test(raw) ? raw.replace(/\./g, '_') : raw;
+  return arg === '' ? (m[1] ?? agg) : `${m[1]}_${arg}`;
+}
+
+/** Histogram aggregates (SPEC §10.5) read buckets; a bucket without observations is `null`. */
+const isHistogramAgg = (agg: string): boolean => /^(hist_mean|histogram_quantile)\(/i.test(agg);
+
+/** Width of the gap (buckets without observations) that histogram series show from 55 % of the range. */
+const HIST_GAP_BUCKETS = 2;
+
+function histogramGap(values: readonly (number | null)[], group: string): (number | null)[] {
+  const from = Math.floor(values.length * 0.55) + (D.hashString(group) % 3);
+  return values.map((v, i) => (i >= from && i < from + HIST_GAP_BUCKETS ? null : v));
+}
+
 const GROUP_VALUES: Record<string, string[]> = {
   service: D.SERVICES,
   route: ['POST /orders', 'GET /cart', 'other'],
@@ -286,18 +376,55 @@ function series(seed: string, n: number, base: number, trend: number, spike: boo
     const x = i / Math.max(1, n - 1);
     const wave = Math.sin(i / 2.3) * 0.12 + (r() - 0.5) * 0.18;
     const bump = spike && x > 0.88 && x < 0.95 ? 1.8 : 0;
-    return Math.max(0, Math.round(base * (1 + trend * x + wave + bump) * 100) / 100);
+    const digits = base < 10 ? 10_000 : 100;
+    return Math.max(0, Math.round(base * (1 + trend * x + wave + bump) * digits) / digits);
   });
 }
 
-function baseFor(agg: string, group: string): number {
-  if (/p99/.test(agg)) return 520;
-  if (/p95/.test(agg)) return 380;
-  if (/p50|avg/.test(agg)) return 140;
+/** Latency-like values are generated in milliseconds; a metric recorded in seconds is scaled down. */
+function unitScale(q: string): number {
+  const name = /\bname:("?)([^\s"|]+)\1/.exec(q)?.[2];
+  const unit = D.METRIC_NAMES.find((m) => m.name === name)?.unit;
+  return unit === 's' ? 0.001 : 1;
+}
+
+/** Events per bucket of a group: counts, rates and the like. */
+function countBase(group: string): number {
   const known = GROUP_VALUES.service?.indexOf(group) ?? -1;
   const i = known >= 0 ? known : D.hashString(group) % 5;
   return [12, 18, 24, 12, 4][i] ?? 20;
 }
+
+/** Mean of the latency-like values a sum adds up, so that `sum(x) / count()` is a mean. */
+const MEAN_LATENCY_MS = 140;
+
+function callBase(agg: string, group: string, q: string): number {
+  if (/p99|histogram_quantile\(0\.99/.test(agg)) return 520 * unitScale(q);
+  if (/p95|histogram_quantile\(0\.95/.test(agg)) return 380 * unitScale(q);
+  if (/p50|avg|hist_mean|histogram_quantile|min|max/.test(agg)) return MEAN_LATENCY_MS * unitScale(q);
+  return countBase(group);
+}
+
+/**
+ * Base of a call inside arithmetic: a sum adds up latency-like values (so `sum(x) / count()` is a
+ * mean) and max/min spread apart (so `max(x) - min(x)` is not zero). Plain columns keep
+ * `callBase`, so existing panels such as `sum(value)` of event counts are unchanged.
+ */
+function arithmeticCallBase(call: string, group: string, q: string): number {
+  if (/\bmax\(/.test(call)) return 520 * unitScale(q);
+  if (/\bmin\(/.test(call)) return 12 * unitScale(q);
+  if (/\bsum\(/.test(call)) return countBase(group) * MEAN_LATENCY_MS * unitScale(q);
+  return callBase(call, group, q);
+}
+
+/** Base value of a stats column for a group: a call's own base, or its arithmetic over those. */
+export function baseFor(agg: string, group: string, q = ''): number {
+  if (arithmeticOf(agg) === null) return callBase(agg, group, q);
+  return evalArithmetic(agg, (call) => arithmeticCallBase(call, group, q));
+}
+
+/** A response number: NaN (division by zero) becomes null, as the server reports it. */
+const finite = (v: number): number | null => (Number.isFinite(v) ? v : null);
 
 function timeseries(q: string, from: number, to: number): QueryResponse {
   const span = spanMs(q, from, to);
@@ -313,18 +440,19 @@ function timeseries(q: string, from: number, to: number): QueryResponse {
     columns: [
       { name: '@bucket', type: 'time' },
       ...by.map((b) => ({ name: b, type: 'string' as const })),
-      ...aggs.map((a) => ({ name: a, type: 'number' as const })),
+      ...aggs.map((a) => ({ name: aliasOf(a), type: 'number' as const })),
     ],
-    series: groups.map((g) => {
-      const cols = aggs.map((a) =>
-        series(
+    series: groups.map((g, gi) => {
+      const cols = aggs.map((a) => {
+        const values = series(
           `${q}|${g}|${a}`,
           n,
-          baseFor(a, g),
-          /p\d\d/.test(a) ? 0.5 : 1.4,
+          baseFor(a, g, q),
+          /p\d\d|histogram_quantile/.test(a) ? 0.5 : 1.4,
           g === 'checkout-api' || g === '',
-        ),
-      );
+        ).map(finite);
+        return isHistogramAgg(a) && gi % 2 === 1 ? histogramGap(values, g) : values;
+      });
       return {
         key: by.length === 0 ? {} : { [by[0] ?? 'k']: g },
         points: xs.map((t, i) => [t, ...cols.map((c) => c[i] ?? null)]),
@@ -367,15 +495,19 @@ function table(q: string, from: number, to: number, signals: string[]): QueryRes
   const by = byFields(q);
   const aggs = aggregates(q);
   const groups = by.length === 0 ? [''] : (GROUP_VALUES[by[0] ?? ''] ?? ['a']);
-  const rows = groups.map((g) => [
+  const rows = groups.map((g, gi) => [
     ...(by.length === 0 ? [] : [g]),
-    ...aggs.map((a) => Math.round(baseFor(a, g) * 31 * 100) / 100),
+    ...aggs.map((a) =>
+      isHistogramAgg(a) && gi > 0 && gi === groups.length - 1
+        ? null
+        : finite(Math.round(baseFor(a, g, q) * 31 * 100) / 100),
+    ),
   ]);
   return {
     kind: 'table',
     columns: [
       ...by.map((b) => ({ name: b, type: 'string' as const })),
-      ...aggs.map((a) => ({ name: a, type: 'number' as const })),
+      ...aggs.map((a) => ({ name: aliasOf(a), type: 'number' as const })),
     ],
     rows,
     stats,
@@ -450,6 +582,38 @@ const MISSPELLINGS: Record<string, string> = {
   infromation: 'information',
 };
 
+/** The histogram-aggregate rules of SPEC §10.5: metrics only, `0 < q < 1`, not mixed with other aggregates. */
+function histogramProblem(q: string): { message: string; at: number; len: number } | null {
+  if (!/\|\s*stats\b/i.test(q)) return null;
+  const aggs = aggregates(q);
+  const hist = aggs.filter(isHistogramAgg);
+  if (hist.length === 0) return null;
+  const where = (agg: string): { at: number; len: number } => ({
+    at: Math.max(0, q.indexOf(agg)),
+    len: agg.length,
+  });
+  const fnOf = (agg: string): string => AGG_CALL.exec(agg)?.[1]?.toLowerCase() ?? agg;
+  const other = aggs.find((a) => !isHistogramAgg(a));
+  if (other !== undefined) {
+    return {
+      message: `${fnOf(other)}() cannot be combined with histogram aggregates in one stats stage`,
+      ...where(other),
+    };
+  }
+  const first = hist[0] ?? '';
+  if (!/^\s*source\s+metrics\b/i.test(q))
+    return { message: `${fnOf(first)}() needs source metrics`, ...where(first) };
+  for (const a of hist) {
+    const arg = AGG_CALL.exec(a)?.[2] ?? '';
+    if (fnOf(a) === 'hist_mean' && arg !== '')
+      return { message: 'hist_mean() takes no argument', ...where(a) };
+    if (fnOf(a) === 'histogram_quantile' && !(Number(arg) > 0 && Number(arg) < 1)) {
+      return { message: 'histogram_quantile() needs a quantile between 0 and 1', ...where(a) };
+    }
+  }
+  return null;
+}
+
 function validate(q: string): {
   ok: boolean;
   kind?: string;
@@ -457,6 +621,18 @@ function validate(q: string): {
   error?: { message: string; pos: number; len: number; hint?: string };
 } {
   const enc = new TextEncoder();
+  const histogram = histogramProblem(q);
+  if (histogram !== null) {
+    return {
+      ok: false,
+      interpretedAsText: false,
+      error: {
+        message: histogram.message,
+        pos: enc.encode(q.slice(0, histogram.at)).length,
+        len: histogram.len,
+      },
+    };
+  }
   for (const [bad, good] of Object.entries(MISSPELLINGS)) {
     const i = q.indexOf(bad);
     if (i >= 0) {
@@ -490,13 +666,121 @@ const STAGE_SUGGESTIONS = [
   ['| top 10 exception_type', 'most frequent values'],
 ] as const;
 
-function complete(q: string, pos: number) {
+/** The aggregates the server suggests (SPEC §10.7), histogram aggregates last. */
+const AGG_NAMES = [
+  'count',
+  'count_distinct',
+  'sum',
+  'avg',
+  'min',
+  'max',
+  'p50',
+  'p75',
+  'p90',
+  'p95',
+  'p99',
+  'rate',
+  'first',
+  'last',
+] as const;
+/** Histogram aggregates with their complete call as insert text (source metrics only). */
+const HIST_AGG_CALLS: readonly (readonly [string, string])[] = [
+  ['hist_mean', 'hist_mean()'],
+  ['histogram_quantile', 'histogram_quantile(0.95)'],
+];
+const SPAN_SIZES = ['auto', '1m', '5m', '15m', '1h', '1d'] as const;
+const ARITHMETIC_OPERATORS = ['+', '-', '*', '/'] as const;
+
+/** Prefix-filtered suggestions of one kind from `[label, insertText]` pairs, all with one detail. */
+function suggest(
+  kind: SuggestionKind,
+  items: readonly (readonly [string, string])[],
+  lw: string,
+  detail: string,
+): Suggestion[] {
+  return items
+    .filter(([label]) => label.toLowerCase().startsWith(lw))
+    .map(([label, insertText]) => ({ kind, label, insertText, detail }));
+}
+
+/** Fields by their plain name, as inside an aggregate or after `by`. */
+function fieldSuggestions(lw: string): Suggestion[] {
+  return D.FIELDS.filter((f) => f.name.toLowerCase().startsWith(lw)).map((f) => ({
+    kind: 'field',
+    label: f.name,
+    insertText: f.name,
+    detail: f.builtin ? 'built-in' : 'property',
+  }));
+}
+
+function aggSuggestions(q: string, lw: string): Suggestion[] {
+  const out = suggest(
+    'function',
+    AGG_NAMES.map((a) => [a, `${a}(`] as const),
+    lw,
+    'aggregate',
+  );
+  if (!/^\s*source\s+metrics\b/i.test(q)) return out;
+  return out.concat(suggest('function', HIST_AGG_CALLS, lw, 'histogram aggregate'));
+}
+
+/**
+ * Suggestions inside a `stats` stage as the server makes them (SPEC §10.7): bucket sizes after
+ * `span`, fields inside an aggregate's parentheses and after `by`, aggregates at the start, after
+ * a comma, a lone `(` or an arithmetic operator, and after an aggregate's `)` the keywords `by`,
+ * `span`, `as`, the arithmetic operators `+ - * /` (before `by`) and `|`. Null outside a stats
+ * stage; `head` is the stage text before the typed word.
+ */
+function statsSuggestions(q: string, head: string, lw: string): Suggestion[] | null {
+  const stage = /^\s*stats\b(.*)$/is.exec(head);
+  if (stage === null) return null;
+  const rest = (stage[1] ?? '').trimEnd();
+  const inBy = /\bby\b/i.test(rest);
+  const inSpan = /\bspan\b/i.test(rest);
+  const call = /(\w+)\($/.exec(rest)?.[1]?.toLowerCase();
+  if (inSpan) {
+    if (!/\bspan$/i.test(rest)) return [];
+    return suggest(
+      'keyword',
+      SPAN_SIZES.map((d) => [d, d] as const),
+      lw,
+      'bucket size',
+    );
+  }
+  if (call !== undefined && HIST_AGG_CALLS.some(([name]) => name === call)) return [];
+  const inAgg = call !== undefined && (AGG_NAMES as readonly string[]).includes(call);
+  if (inAgg || (inBy && /(\bby|,)$/i.test(rest))) return fieldSuggestions(lw);
+  if (rest === '' || /[,(]$/.test(rest) || /(^|[^\w.@$])[-+*/]$/.test(rest)) return aggSuggestions(q, lw);
+  if (!/\)$/.test(rest) && !(inBy && /[\w.@]$/.test(rest))) return [];
+  const keywords = ['by', 'span', 'as'].filter((kw) => !inBy || kw !== 'by');
+  const out = suggest(
+    'keyword',
+    keywords.map((kw) => [kw, `${kw} `] as const),
+    lw,
+    'stats',
+  );
+  if (!inBy) {
+    out.push(
+      ...suggest(
+        'operator',
+        ARITHMETIC_OPERATORS.map((op) => [op, `${op} `] as const),
+        lw,
+        'arithmetic between aggregates',
+      ),
+    );
+  }
+  return out.concat(suggest('operator', [['|', '| ']], lw, 'add a stage'));
+}
+
+export function complete(q: string, pos: number) {
   const before = q.slice(0, pos);
   const word = /[\w.@$-]*$/.exec(before)?.[0] ?? '';
   const from = pos - word.length;
   const lw = word.toLowerCase();
+  const stats = statsSuggestions(q, before.slice(before.lastIndexOf('|') + 1, from), lw);
+  if (stats !== null) return { from, to: pos, suggestions: stats.slice(0, 50) };
   const field = /([\w.@]+)\s*(?::|>=|<=|>|<|=)\s*[\w.*-]*$/.exec(before)?.[1];
-  const out: { kind: string; label: string; insertText: string; detail?: string }[] = [];
+  const out: Suggestion[] = [];
   if (field !== undefined && /[:=<>]\s*[\w.*-]*$/.test(before)) {
     const vals =
       field === 'level'

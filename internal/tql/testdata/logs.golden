@@ -907,3 +907,47 @@ args:
   3: int 10000
 columns: connection_id:string, count:number
 
+=== * | stats sum(elapsed) / count() as mean, count() - 1 by service | where mean > 10 | sort mean desc
+kind: table  source: logs  limit: 10000
+canonical: * | stats sum(elapsed) / count() as mean, count() - 1 by service | where mean > 10 | sort mean desc
+sql: SELECT service AS g0, (sum(if(mapContains(props_num, ?), props_num[?], NULL)) / nullIf(count(), 0)) AS a0, (count() - ?) AS a1 FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? GROUP BY g0 HAVING (a0 > ?) ORDER BY a0 DESC, g0 ASC LIMIT ?
+args:
+  0: string "elapsed"
+  1: string "elapsed"
+  2: float64 1
+  3: time 2026-10-13T11:00:00Z
+  4: time 2026-10-13T12:00:00Z
+  5: float64 10
+  6: int 10000
+columns: service:string, mean:number, count() - 1:number
+
+=== * | stats sum(elapsed) / count() by service | where `sum(elapsed) / count()` > 1 | sort `sum(elapsed) / count()` desc
+kind: table  source: logs  limit: 10000
+canonical: * | stats sum(elapsed) / count() by service | where `sum(elapsed) / count()` > 1 | sort `sum(elapsed) / count()` desc
+sql: SELECT service AS g0, (sum(if(mapContains(props_num, ?), props_num[?], NULL)) / nullIf(count(), 0)) AS a0 FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? GROUP BY g0 HAVING (a0 > ?) ORDER BY a0 DESC, g0 ASC LIMIT ?
+args:
+  0: string "elapsed"
+  1: string "elapsed"
+  2: time 2026-10-13T11:00:00Z
+  3: time 2026-10-13T12:00:00Z
+  4: float64 1
+  5: int 10000
+columns: service:string, sum(elapsed) / count():number
+
+=== * | stats (max(elapsed) - min(elapsed)) * 1000 as spread, 2 * count() + count_distinct(host) span 1m
+kind: timeseries  source: logs  limit: 10000  span: 1m0s
+canonical: * | stats (max(elapsed) - min(elapsed)) * 1000 as spread, 2 * count() + count_distinct(host) span 1m
+sql: SELECT toStartOfInterval(timestamp, toIntervalSecond(?)) AS bucket, ((max(if(mapContains(props_num, ?), props_num[?], NULL)) - min(if(mapContains(props_num, ?), props_num[?], NULL))) * ?) AS a0, ((? * count()) + uniq(host)) AS a1 FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? GROUP BY bucket ORDER BY bucket ASC LIMIT ?
+args:
+  0: int64 60
+  1: string "elapsed"
+  2: string "elapsed"
+  3: string "elapsed"
+  4: string "elapsed"
+  5: float64 1000
+  6: float64 2
+  7: time 2026-10-13T11:00:00Z
+  8: time 2026-10-13T12:00:00Z
+  9: int 10000
+columns: @bucket:time, spread:number, 2 * count() + count_distinct(host):number
+

@@ -58,8 +58,20 @@ func TestComplete(t *testing.T) {
 		{q: "x | st", pos: -1, present: []string{"stage:stats"}, absent: []string{"stage:sort"}},
 		{q: "x | stats ", pos: -1, present: []string{"function:count", "function:p95"}},
 		{q: "x | stats count(), ", pos: -1, present: []string{"function:avg"}},
+		{q: "x | stats ", pos: -1, present: []string{"function:count"}, absent: []string{"function:hist_mean"}},
+		{q: "source metrics | x | stats ", pos: -1, present: []string{"function:hist_mean", "function:rate"}},
+		{q: "source metrics | x | stats hist_mean(", pos: -1, exactSize: 0},
 		{q: "x | stats avg(", pos: -1, present: []string{"field:elapsed"}},
 		{q: "x | stats count() ", pos: -1, present: []string{"keyword:by", "keyword:span", "keyword:as"}},
+		{q: "x | stats count() ", pos: -1, present: []string{"operator:/", "operator:*", "operator:+", "operator:-"}},
+		{q: "x | stats sum(a) / ", pos: -1, present: []string{"function:count", "function:sum"}, absent: []string{"field:level"}},
+		{q: "x | stats sum(a) * ", pos: -1, present: []string{"function:avg"}},
+		{q: "x | stats sum(a) - ", pos: -1, present: []string{"function:max"}},
+		{q: "x | stats (", pos: -1, present: []string{"function:sum"}, absent: []string{"field:level"}},
+		{q: "x | stats sum(a) / (", pos: -1, present: []string{"function:count"}},
+		{q: "x | stats sum(a) / count(", pos: -1, present: []string{"field:level"}},
+		{q: "x | stats count() by a ", pos: -1, present: []string{"keyword:span"}, absent: []string{"operator:/"}},
+		{q: "x | stats sum(a) / count() | sort ", pos: -1, present: []string{"field:sum(a) / count()"}},
 		{q: "x | stats count() by ", pos: -1, present: []string{"field:level"}},
 		{q: "x | stats count() by a, ", pos: -1, present: []string{"field:level"}},
 		{q: "x | stats count() by a ", pos: -1, present: []string{"keyword:span"}, absent: []string{"keyword:by"}},
@@ -132,5 +144,39 @@ func TestCompleteFieldDetails(t *testing.T) {
 	}
 	if c := Complete("f", 1, model.SourceLogs, many); len(c.Suggestions) != MaxSuggestions {
 		t.Errorf("cap: %d", len(c.Suggestions))
+	}
+}
+
+func TestCompleteArithmeticSortKey(t *testing.T) {
+	q := "x | stats sum(a) / count(), count() as n | sort "
+	c := Complete(q, len(q), model.SourceLogs, nil)
+	want := map[string]string{"sum(a) / count()": "`sum(a) / count()`", "n": "n"}
+	for _, s := range c.Suggestions {
+		if insert, ok := want[s.Label]; ok {
+			if s.InsertText != insert {
+				t.Errorf("sort key %q inserts %q, want %q", s.Label, s.InsertText, insert)
+			}
+			delete(want, s.Label)
+		}
+	}
+	if len(want) > 0 {
+		t.Errorf("missing %v in %v", want, labels(c))
+	}
+}
+
+func TestCompleteHistogramAggregates(t *testing.T) {
+	q := "source metrics | x | stats "
+	want := map[string]string{"hist_mean": "hist_mean()", "histogram_quantile": "histogram_quantile(0.95)"}
+	c := Complete(q, len(q), model.SourceLogs, nil)
+	for _, s := range c.Suggestions {
+		if insert, ok := want[s.Label]; ok {
+			if s.Kind != SuggestFunction || s.InsertText != insert || s.Detail != "histogram aggregate" {
+				t.Errorf("suggestion %+v, want insert %q", s, insert)
+			}
+			delete(want, s.Label)
+		}
+	}
+	if len(want) > 0 {
+		t.Errorf("missing %v in %v", want, labels(c))
 	}
 }

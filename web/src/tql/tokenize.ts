@@ -66,6 +66,8 @@ export const FUNCTIONS = new Set([
   'rate',
   'first',
   'last',
+  'hist_mean',
+  'histogram_quantile',
   'contains',
   'startswith',
   'endswith',
@@ -74,6 +76,10 @@ export const FUNCTIONS = new Set([
 ]);
 
 const OPERATORS = ['>=', '<=', '!=', '<>', '==', '&&', '||', '=', '<', '>', ':', '!'];
+/** Arithmetic between aggregates in a stats stage (SPEC §10.5): `sum(a) / count()`. */
+const ARITHMETIC = new Set(['+', '-', '*', '/']);
+/** Operators after which a word is not a value: negation, boolean junctions and arithmetic. */
+const NOT_VALUE_OPERATORS = new Set(['!', '&&', '||', ...ARITHMETIC]);
 const WORD_STOP = new Set([
   ' ',
   '\t',
@@ -135,7 +141,11 @@ function readRegex(q: string, i: number): number {
   return -1;
 }
 
-function readWord(q: string, i: number, valuePos: boolean): number {
+/**
+ * End of the word starting at `i`. In an aggregate list (`arith`) an arithmetic operator ends
+ * the word (`2*count()`), except as the sign of a number (`-1`).
+ */
+function readWord(q: string, i: number, valuePos: boolean, arith: boolean): number {
   let j = i;
   while (j < q.length) {
     const c = q.charAt(j);
@@ -146,6 +156,7 @@ function readWord(q: string, i: number, valuePos: boolean): number {
     if (WORD_STOP.has(c) && !(valuePos && (c === ':' || c === '=' || c === '<' || c === '>'))) break;
     if (c === '!' && (q.charAt(j + 1) === '=' || j === i)) break;
     if (c === '&' && q.charAt(j + 1) === '&') break;
+    if (arith && j > i && ARITHMETIC.has(c)) break;
     j++;
   }
   return Math.max(j, i + 1);
@@ -162,18 +173,31 @@ interface State {
   prevWord: string;
   stage: string;
   parenFn: boolean;
+  /** In the aggregate list of a stats stage (before `by` / `span`), where `+ - * /` are arithmetic. */
+  aggList: boolean;
+}
+
+/** Whether `+ - * /` here is arithmetic: in an aggregate list after a call's `)` or a number. */
+function arithmeticHere(st: State): boolean {
+  if (!st.aggList || st.parenFn) return false;
+  return st.prev?.text === ')' || st.prev?.kind === 'number';
+}
+
+/** Whether a word here is an arithmetic operand (not a field in a call or an alias after `as`). */
+function arithmeticOperand(st: State): boolean {
+  return st.aggList && !st.parenFn && st.prevWord !== 'as';
 }
 
 function classifyWord(word: string, q: string, end: number, st: State): TokenKind {
   const lower = word.toLowerCase();
   const prevKind = st.prev?.kind;
   const prevText = st.prev?.text ?? '';
-  const valuePos = prevKind === 'operator' && prevText !== '!' && prevText !== '&&' && prevText !== '||';
+  const valuePos = prevKind === 'operator' && !NOT_VALUE_OPERATORS.has(prevText);
   if (valuePos) return NUMBER.test(word) ? 'number' : 'value';
   if (st.prev?.kind === 'pipe' && STAGES.has(lower)) return 'keyword';
   const ahead = nextNonSpace(q, end);
   if (FUNCTIONS.has(lower) && ahead.startsWith('(')) return 'function';
-  if (st.parenFn) return 'field';
+  if (st.parenFn) return NUMBER.test(word) ? 'number' : 'field';
   if (lower === 'source' && st.prev === undefined && !/^[:=<>!]/.test(ahead)) return 'keyword';
   if (st.prevWord === 'source' && ['logs', 'spans', 'metrics'].includes(lower)) return 'value';
   if (st.prevWord === 'span' || st.prevWord === 'limit' || st.prevWord === 'top') {
@@ -189,13 +213,18 @@ function classifyWord(word: string, q: string, end: number, st: State): TokenKin
 /** Splits `q` into highlight tokens covering every character. */
 export function tokenize(q: string): Token[] {
   const out: Token[] = [];
-  const st: State = { prev: undefined, prevWord: '', stage: '', parenFn: false };
+  const st: State = { prev: undefined, prevWord: '', stage: '', parenFn: false, aggList: false };
   const push = (kind: TokenKind, from: number, to: number): void => {
     const t: Token = { kind, from, to, text: q.slice(from, to) };
     out.push(t);
     if (kind === 'space') return;
     const lower = t.text.toLowerCase();
-    if (kind === 'keyword' && STAGES.has(lower) && st.prev?.kind === 'pipe') st.stage = lower;
+    if (kind === 'keyword' && STAGES.has(lower) && st.prev?.kind === 'pipe') {
+      st.stage = lower;
+      st.aggList = lower === 'stats';
+    } else if (kind === 'keyword' && (lower === 'by' || lower === 'span')) {
+      st.aggList = false;
+    }
     st.prev = t;
     st.prevWord =
       kind === 'keyword' || kind === 'field' || kind === 'value' || kind === 'number' ? lower : '';
@@ -212,6 +241,7 @@ export function tokenize(q: string): Token[] {
     }
     if (c === '|' && q.charAt(i + 1) !== '|') {
       st.stage = '';
+      st.aggList = false;
       push('pipe', i, i + 1);
       i++;
       continue;
@@ -236,6 +266,11 @@ export function tokenize(q: string): Token[] {
         continue;
       }
     }
+    if (ARITHMETIC.has(c) && arithmeticHere(st)) {
+      push('operator', i, i + 1);
+      i++;
+      continue;
+    }
     if (c === '/' && st.prev?.kind === 'operator') {
       const end = readRegex(q, i);
       if (end > 0) {
@@ -258,7 +293,7 @@ export function tokenize(q: string): Token[] {
       continue;
     }
     const valuePos = st.prev?.kind === 'operator';
-    const end = readWord(q, i, valuePos && st.prev?.text === ':');
+    const end = readWord(q, i, valuePos && st.prev?.text === ':', arithmeticOperand(st));
     const word = q.slice(i, end);
     push(classifyWord(word, q, end, st), i, end);
     i = end;

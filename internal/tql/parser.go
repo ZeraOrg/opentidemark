@@ -4,6 +4,8 @@ package tql
 
 import (
 	"math"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -54,10 +56,19 @@ func funcNames() []string {
 	return []string{fnContains, fnStartsWith, fnEndsWith, fnHas, fnMatch}
 }
 
+// Histogram aggregates (SPEC §10.5): per-series deltas of histogram (and summary) points.
+const (
+	aggHistMean     = "hist_mean"
+	aggHistQuantile = "histogram_quantile"
+)
+
 func aggNames() []string {
 	return []string{"count", "count_distinct", "sum", "avg", "min", "max", "p50", "p75", "p90",
-		"p95", "p99", "rate", "first", "last"}
+		"p95", "p99", "rate", "first", "last", aggHistMean, aggHistQuantile}
 }
+
+// isHistAgg reports whether fn is a histogram aggregate.
+func isHistAgg(fn string) bool { return fn == aggHistMean || fn == aggHistQuantile }
 
 func contains(list []string, s string) bool {
 	for _, x := range list {
@@ -70,7 +81,9 @@ func contains(list []string, s string) bool {
 
 // Parse parses a TQL query. If parsing fails and the input contains no TQL
 // operators, quotes or colons, the whole input is taken as one free-text
-// phrase and Query.InterpretedAsText is set (SPEC §10.6). Errors are *Error.
+// phrase and Query.InterpretedAsText is set (SPEC §10.6). A query whose
+// canonical form would exceed MaxQueryBytes is rejected too, so that every
+// accepted query round-trips through String. Errors are *Error.
 func Parse(q string) (*Query, error) {
 	if len(q) > MaxQueryBytes {
 		return nil, errAt(MaxQueryBytes, len(q)-MaxQueryBytes, "query is too long (max %d bytes)", MaxQueryBytes)
@@ -78,6 +91,18 @@ func Parse(q string) (*Query, error) {
 	if !utf8.ValidString(q) {
 		return nil, errAt(invalidUTF8Pos(q), 1, "query is not valid UTF-8")
 	}
+	query, err := parseOrText(q)
+	if err != nil {
+		return nil, err
+	}
+	if n := len(query.String()); n > MaxQueryBytes {
+		return nil, errAt(0, len(q), "query is too long in canonical form (%d bytes, max %d)", n, MaxQueryBytes)
+	}
+	return query, nil
+}
+
+// parseOrText parses q, falling back to one free-text phrase (see Parse).
+func parseOrText(q string) (*Query, error) {
 	query, err := newParser(q).parseQuery()
 	if err == nil {
 		return query, nil
@@ -696,11 +721,9 @@ func (p *parser) fieldList(limit int, what string) ([]Field, error) {
 func (p *parser) parseStats() (Stage, error) {
 	st := &Stats{Position: Position{Pos: p.cur.Pos}}
 	p.advance()
+	var bud aggBudget
 	for {
-		if len(st.Aggs) == MaxAggregates {
-			return nil, errTok(p.cur, "too many aggregates (max %d)", MaxAggregates)
-		}
-		a, err := p.parseAgg()
+		a, err := p.parseAgg(&bud)
 		if err != nil {
 			return nil, err
 		}
@@ -729,7 +752,153 @@ func (p *parser) parseStats() (Stage, error) {
 	return st, nil
 }
 
-func (p *parser) parseAgg() (Agg, error) {
+// aggBudget counts the aggregates and terms of a stats stage against MaxAggregates and
+// MaxAggTerms.
+type aggBudget struct{ calls, terms int }
+
+// parseAgg parses one stats column: an aggregate call or arithmetic between aggregates and
+// numbers, optionally named with `as`.
+func (p *parser) parseAgg(bud *aggBudget) (Agg, error) {
+	start, calls := p.cur, bud.calls
+	e, err := p.parseAggSum(bud)
+	if err != nil {
+		return Agg{}, err
+	}
+	var a Agg
+	switch {
+	case e.Call != nil:
+		a = *e.Call
+	case bud.calls == calls:
+		return Agg{}, errAt(e.Pos, e.End-e.Pos, "arithmetic needs an aggregate").withHint("e.g. sum(x) / 2")
+	default:
+		a = Agg{Position: e.Position, Expr: e, Alias: aggExprText(e)}
+	}
+	if a.Expr != nil || a.Pos != start.Pos {
+		a.Position = Position{start.Pos, p.prevEnd} // a parenthesized column spans its parentheses
+	}
+	a.AliasPos = a.Position
+	if isKw(p.cur, kwAs) {
+		p.advance()
+		if p.cur.Kind != tIdent && p.cur.Kind != tBacktick {
+			return a, p.unexpected("an alias name")
+		}
+		a.Alias, a.Explicit = p.cur.Text, true
+		a.AliasPos = Position{p.cur.Pos, p.cur.End}
+		a.End = p.cur.End
+		p.advance()
+	}
+	return a, nil
+}
+
+// arithOp returns the arithmetic operator after the previous token, if any. The lexer reads
+// + - * / as parts of words, so the operator is taken from the source and the parser
+// continues lexing after it.
+func (p *parser) arithOp(ops string) (string, bool) {
+	pos := p.lx.skipSpace(p.prevEnd)
+	if pos < len(p.src) && strings.IndexByte(ops, p.src[pos]) >= 0 {
+		return p.src[pos : pos+1], true
+	}
+	return "", false
+}
+
+// parseAggSum parses agg_term { ("+" | "-") agg_term }.
+func (p *parser) parseAggSum(bud *aggBudget) (*AggExpr, error) {
+	return p.parseAggBinary(bud, "+-", p.parseAggProduct)
+}
+
+// parseAggProduct parses agg_atom { ("*" | "/") agg_atom }.
+func (p *parser) parseAggProduct(bud *aggBudget) (*AggExpr, error) {
+	return p.parseAggBinary(bud, "*/", p.parseAggAtom)
+}
+
+func (p *parser) parseAggBinary(bud *aggBudget, ops string, operand func(*aggBudget) (*AggExpr, error)) (*AggExpr, error) {
+	left, err := operand(bud)
+	if err != nil {
+		return nil, err
+	}
+	for {
+		op, ok := p.arithOp(ops)
+		if !ok {
+			return left, nil
+		}
+		p.resetAt(p.lx.skipSpace(p.prevEnd) + 1)
+		right, err := operand(bud)
+		if err != nil {
+			return nil, err
+		}
+		left = &AggExpr{Position: Position{left.Pos, right.End}, Op: op, Left: left, Right: right}
+	}
+}
+
+// parseAggAtom parses an aggregate call, a number or a parenthesized agg_expr.
+func (p *parser) parseAggAtom(bud *aggBudget) (*AggExpr, error) {
+	if p.cur.Kind == tLParen {
+		return p.parseAggParen(bud)
+	}
+	if bud.terms == MaxAggTerms {
+		return nil, errTok(p.cur, "too many terms in stats (max %d aggregates and numbers)", MaxAggTerms)
+	}
+	bud.terms++
+	if v, ok := p.aggNumber(); ok {
+		return &AggExpr{Position: v.Position, Num: &v}, nil
+	}
+	if bud.calls == MaxAggregates {
+		return nil, errTok(p.cur, "too many aggregates (max %d)", MaxAggregates)
+	}
+	bud.calls++
+	a, err := p.parseAggCall()
+	if err != nil {
+		return nil, err
+	}
+	return &AggExpr{Position: a.Position, Call: &a}, nil
+}
+
+func (p *parser) parseAggParen(bud *aggBudget) (*AggExpr, error) {
+	if err := p.enter(); err != nil {
+		return nil, err
+	}
+	pos := p.cur.Pos
+	p.advance()
+	e, err := p.parseAggSum(bud)
+	if err != nil {
+		return nil, err
+	}
+	if p.cur.Kind != tRParen {
+		return nil, p.unexpected("')'")
+	}
+	p.depth--
+	p.advance()
+	if e.Op != "" {
+		e.Position = Position{pos, p.prevEnd}
+	}
+	return e, nil
+}
+
+// reNumberPrefix matches a number with optional unit at the start of a word, which in
+// arithmetic may run into an operator (2*sum(x)).
+var reNumberPrefix = regexp.MustCompile(`^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?(?:ns|us|ms|s|m|h|d)?`)
+
+// aggNumber parses a number operand at the current token, cutting it before an operator.
+func (p *parser) aggNumber() (Value, bool) {
+	if p.cur.Kind != tNumber && p.cur.Kind != tWord {
+		return Value{}, false
+	}
+	pos := p.cur.Pos
+	n := len(reNumberPrefix.FindString(p.src[pos:p.cur.End]))
+	if n == 0 || (pos+n < p.cur.End && strings.IndexByte("+-*/", p.src[pos+n]) < 0) {
+		return Value{}, false
+	}
+	raw := p.src[pos : pos+n]
+	num, unit, ok := parseNumber(raw)
+	if !ok {
+		return Value{}, false
+	}
+	p.resetAt(pos + n)
+	return Value{Position: Position{pos, pos + n}, Kind: ValueNumber, Text: raw, Num: num, Unit: unit, Raw: raw}, true
+}
+
+// parseAggCall parses fn([field | number]) with its default alias.
+func (p *parser) parseAggCall() (Agg, error) {
 	t := p.cur
 	name := strings.ToLower(t.Text)
 	if t.Kind != tIdent || !contains(aggNames(), name) {
@@ -742,29 +911,32 @@ func (p *parser) parseAgg() (Agg, error) {
 		return a, p.unexpected("'('")
 	}
 	p.advance()
-	if p.cur.Kind == tIdent || p.cur.Kind == tBacktick {
+	switch p.cur.Kind {
+	case tIdent, tBacktick:
 		f := fieldOf(p.cur)
 		a.Field = &f
 		a.Alias = name + "_" + f.Name
+		p.advance()
+	case tNumber:
+		t := p.cur
+		a.Arg = &Value{Position: Position{t.Pos, t.End}, Kind: ValueNumber, Text: t.Text, Num: t.Num, Unit: t.Unit,
+			Raw: p.src[t.Pos:t.End]}
+		a.Alias = numberAlias(name, t.Num)
 		p.advance()
 	}
 	if p.cur.Kind != tRParen {
 		return a, p.unexpected("')'")
 	}
 	a.End = p.cur.End
-	a.AliasPos = a.Position
 	p.advance()
-	if isKw(p.cur, kwAs) {
-		p.advance()
-		if p.cur.Kind != tIdent && p.cur.Kind != tBacktick {
-			return a, p.unexpected("an alias name")
-		}
-		a.Alias, a.Explicit = p.cur.Text, true
-		a.AliasPos = Position{p.cur.Pos, p.cur.End}
-		a.End = p.cur.End
-		p.advance()
-	}
 	return a, nil
+}
+
+// numberAlias is the default alias of an aggregate with a number argument: fn_ and the number
+// in shortest decimal form with '.' replaced by '_' (histogram_quantile_0_95), a plain
+// identifier because '.' would read as a field path.
+func numberAlias(fn string, num float64) string {
+	return fn + "_" + strings.ReplaceAll(strconv.FormatFloat(num, 'f', -1, 64), ".", "_")
 }
 
 func unitDuration(unit string) time.Duration {

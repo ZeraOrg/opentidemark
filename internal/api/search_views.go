@@ -220,6 +220,7 @@ type metricNameView struct {
 	Kind        string `json:"kind"`
 	Unit        string `json:"unit"`
 	Description string `json:"description"`
+	Monotonic   bool   `json:"monotonic"`
 }
 
 // signalView is the JSON form of a signal; updatedAt is the optimistic-concurrency token.

@@ -42,17 +42,17 @@ func TestIntegrationStore(t *testing.T) {
 	db := env.Database
 
 	m := NewMigrator(conn, db)
-	if st, err := m.Status(ctx); err != nil || len(st) != 6 || st[0].Applied {
+	if st, err := m.Status(ctx); err != nil || len(st) != 7 || st[0].Applied {
 		t.Fatalf("status before migrating: %+v %v", st, err)
 	}
 	applied, err := m.Up(ctx)
 	if err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	if len(applied) != 6 {
+	if len(applied) != 7 {
 		t.Fatalf("applied %v", applied)
 	}
-	if st, err := m.Status(ctx); err != nil || !st[5].Applied {
+	if st, err := m.Status(ctx); err != nil || !st[6].Applied {
 		t.Fatalf("status after migrating: %+v %v", st, err)
 	}
 	if again, err := m.Up(ctx); err != nil || len(again) != 0 {

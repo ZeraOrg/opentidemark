@@ -180,7 +180,7 @@ func (r *Reader) MetricNames(ctx context.Context, scope model.StreamScope, subst
 	if err != nil {
 		return nil, err
 	}
-	sql := "SELECT name, any(kind), any(unit), any(description) FROM " + r.cfg.Database + ".metric_points " +
+	sql := "SELECT name, any(kind), any(unit), any(description), max(is_monotonic) FROM " + r.cfg.Database + ".metric_points " +
 		"WHERE " + cond + " AND timestamp >= toDateTime64(?, 3, 'UTC') AND timestamp < toDateTime64(?, 3, 'UTC') " +
 		"AND positionCaseInsensitiveUTF8(name, ?) > 0 GROUP BY name ORDER BY name LIMIT ?"
 	rows, cancel, err := r.query(ctx, limit, nil, model.SourceMetrics, sql, append(args, rng.From, rng.To, substr, limit))
@@ -192,7 +192,7 @@ func (r *Reader) MetricNames(ctx context.Context, scope model.StreamScope, subst
 	out := []store.MetricName{}
 	for rows.Next() {
 		var m store.MetricName
-		if err := rows.Scan(&m.Name, &m.Kind, &m.Unit, &m.Description); err != nil {
+		if err := rows.Scan(&m.Name, &m.Kind, &m.Unit, &m.Description, &m.Monotonic); err != nil {
 			return nil, fmt.Errorf("scan metric names: %w", err)
 		}
 		out = append(out, m)

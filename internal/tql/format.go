@@ -253,11 +253,11 @@ func writeStats(b *strings.Builder, s *Stats) {
 		if i > 0 {
 			b.WriteString(", ")
 		}
-		b.WriteString(a.Fn + "(")
-		if a.Field != nil {
-			writeField(b, *a.Field)
+		if a.Expr != nil {
+			writeAggExpr(b, a.Expr, 0)
+		} else {
+			writeAggCall(b, a)
 		}
-		b.WriteByte(')')
 		if a.Explicit {
 			b.WriteString(" as ")
 			writeField(b, Field{Name: a.Alias})
@@ -274,4 +274,53 @@ func writeStats(b *strings.Builder, s *Stats) {
 			b.WriteString(" span " + formatDuration(s.Span.Dur))
 		}
 	}
+}
+
+func writeAggCall(b *strings.Builder, a Agg) {
+	b.WriteString(a.Fn + "(")
+	if a.Field != nil {
+		writeField(b, *a.Field)
+	}
+	if a.Arg != nil {
+		b.WriteString(formatNumber(*a.Arg))
+	}
+	b.WriteByte(')')
+}
+
+// aggPrecedence orders arithmetic: + - bind loosest, then * /, then calls and numbers.
+func aggPrecedence(e *AggExpr) int {
+	switch e.Op {
+	case "+", "-":
+		return 1
+	case "*", "/":
+		return 2
+	}
+	return 3
+}
+
+// writeAggExpr renders arithmetic with minimal parentheses: a child binding looser than
+// minPrec is parenthesized; right operands need a strictly tighter binding (left-associative).
+func writeAggExpr(b *strings.Builder, e *AggExpr, minPrec int) {
+	prec := aggPrecedence(e)
+	if prec < minPrec {
+		b.WriteByte('(')
+		defer b.WriteByte(')')
+	}
+	switch {
+	case e.Call != nil:
+		writeAggCall(b, *e.Call)
+	case e.Num != nil:
+		b.WriteString(formatNumber(*e.Num))
+	default:
+		writeAggExpr(b, e.Left, prec)
+		b.WriteString(" " + e.Op + " ")
+		writeAggExpr(b, e.Right, prec+1)
+	}
+}
+
+// aggExprText is the canonical text of arithmetic, its default column name.
+func aggExprText(e *AggExpr) string {
+	var b strings.Builder
+	writeAggExpr(&b, e, 0)
+	return b.String()
 }

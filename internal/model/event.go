@@ -94,6 +94,7 @@ const (
 // MetricPoint is one sample of a metric time series.
 type MetricPoint struct {
 	Timestamp    time.Time
+	StartTime    time.Time // start of the aggregation period of cumulative points (zero = unknown)
 	Stream       string
 	Service      string
 	Name         string
@@ -124,3 +125,7 @@ const (
 	TemporalityCumulative = "cumulative"
 	TemporalityDelta      = "delta"
 )
+
+// SummaryQuantilePrefix starts the attribute keys that hold the quantile values of a summary
+// point ("quantile.0.99"). They are values, not part of the series identity (SPEC §8.2).
+const SummaryQuantilePrefix = "quantile."

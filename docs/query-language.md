@@ -648,7 +648,41 @@ and time bucket (`span`).
 - Name an aggregate with `as` (a field name or a backtick name); otherwise it is named after the
   function, or `function_field` as written: `count`, `count_user.id`, `p95_elapsed`,
   `avg_duration`, `rate`. Column names must be unique (ignoring case), and `@bucket` is reserved.
+- A column can also **calculate with aggregates**, see
+  [Arithmetic between aggregates](#arithmetic-between-aggregates).
 - A query has at most one `stats` or `top` stage.
+
+### Arithmetic between aggregates
+
+A `stats` column can combine aggregates and numbers with `+`, `-`, `*` and `/`, for example a mean
+from a sum and a count, a ratio of two counts, or a change of unit:
+
+```tql
+source metrics | name:http.server.request.duration | stats sum(sum) / sum(count) as mean_ms by service span 1m
+* | stats sum(elapsed) / count() as avg_ms by route
+* | stats count(exception) / count() * 100 as error_pct by service | where error_pct > 5
+source spans | * | stats p95(duration) / 1000 as p95_s by service
+* | stats (max(elapsed) - min(elapsed)) as spread_ms by route | sort spread_ms desc
+source metrics | name:http.server.requests | stats rate(value) * 60 as per_minute by service span 1m
+source metrics | name:http.server.request.duration | stats histogram_quantile(0.99) / histogram_quantile(0.5) as tail_ratio by service
+```
+
+- `*` and `/` bind tighter than `+` and `-`, and operators of the same kind are worked out from
+  left to right; parentheses group: `(sum(a) + sum(b)) / 2`. Spaces around the operators are
+  optional (`sum(sum)/sum(count)`).
+- **Division by zero** gives `null` (an empty cell or chart gap; alerts treat it as no data), never
+  an error or infinity.
+- Operands are aggregates whose result is a number and plain numbers without a unit. `first(f)`
+  and `last(f)` count only when `f` is a number (such as `duration`); durations are in
+  milliseconds, so write `1000`, not `1s`.
+- Without `as`, the column is named by the calculation as the server prints it, with single
+  spaces around the operators: `sum(elapsed) / count()`. Use backticks to refer to it after
+  `stats` (``sort `sum(elapsed) / count()` desc``), or simply name it with `as`.
+- The aggregates inside a calculation count towards the 20 per `stats`, and a `stats` stage can
+  have at most 50 aggregates and numbers in total. The rules of the aggregates still apply:
+  `rate(value)` must be the only aggregate of its stage (`rate(value) * 60` is fine), and
+  histogram aggregates can only be combined with each other.
+- `where` and `sort` after `stats` see the column's name, not the aggregates inside it.
 
 ### `top`
 
@@ -724,6 +758,8 @@ The columns are named as written (`RequestPath`, `props.user`). `level` returns 
 | `rate()` | none | rows per second of the bucket, or of the whole range without `span` | `rate` |
 | `rate(value)` | `value`, metrics only | per-second rate of a counter | `rate_value` |
 | `first(f)`, `last(f)` | any field | value of the earliest / latest row | `first_f`, `last_f` |
+| `hist_mean()` | none, metrics only | mean of the values recorded by histograms and summaries in the bucket (or range) | `hist_mean` |
+| `histogram_quantile(q)` | a number between 0 and 1, metrics only | quantile `q` of the values recorded by histograms in the bucket (or range) | `histogram_quantile_0_95`, … |
 
 - **Numeric aggregates** (`sum`, `avg`, `min`, `max`, percentiles) skip rows where the field is
   missing or not a number. Text fields are converted where possible; `@timestamp` and `id` cannot
@@ -735,9 +771,14 @@ The columns are named as written (`RequestPath`, `props.user`). `level` returns 
   in each minute.
 - **`rate(value)`** is for counters (OpenTelemetry sums such as `http.server.requests`): it turns
   the ever-growing total into a per-second rate for each series and adds the series up. It must be
-  the only aggregate of its `stats` stage. The increase between the last point of one bucket and
-  the first point of the next is not counted.
+  the only aggregate of its `stats` stage (calculations such as `rate(value) * 60` are fine). It
+  follows each series from point to point, so every increase counts, also between buckets; for
+  the first bucket it reads up to one span (at most 10 minutes) before the time range. A counter
+  reset (a new start time, or a value that went down) counts the new value. Filter on the series
+  (name, service, attributes), not on `value`.
 - **`first`/`last`** return the field's value from the earliest / latest row of each group.
+- **Histogram aggregates** (`hist_mean()`, `histogram_quantile(q)`) are described in
+  [Histograms and summaries](#histograms-and-summaries).
 
 ```tql
 * | stats count(), count(exception) as with_exception by service
@@ -746,9 +787,53 @@ The columns are named as written (`RequestPath`, `props.user`). `level` returns 
 source spans | * | stats p95(duration) as p95_ms by service, name | sort p95_ms desc | limit 20
 level:error | stats rate() span 1m
 source metrics | name:http.server.requests | stats rate(value) by service span 1m
-source metrics | kind:histogram name:http.server.request.duration | stats sum(sum), sum(count) by service
+source metrics | name:http.server.request.duration | stats hist_mean() by service span 5m
+source metrics | name:http.server.request.duration | stats histogram_quantile(0.95) by service span auto
 source spans | * | stats first(name), last(name), count() by trace_id
 ```
+
+### Histograms and summaries
+
+OpenTelemetry histograms (and summaries) usually report **cumulative** values: each point holds
+the count and sum of everything recorded since the process started. `avg(value)` therefore
+averages "mean since start" values, which barely move. The histogram aggregates instead take,
+for each series, the **difference** between consecutive points, so a bucket shows what was
+recorded during that bucket.
+
+```tql
+source metrics | name:http.server.request.duration | stats hist_mean() by service span 5m
+source metrics | name:http.server.request.duration | stats hist_mean() as mean_ms by http.route | sort mean_ms desc
+source metrics | name:http.server.request.duration | stats histogram_quantile(0.95) by service span auto
+source metrics | name:x | stats histogram_quantile(0.5) as p50, histogram_quantile(0.99) as p99, hist_mean() by route
+source metrics | name:x | stats histogram_quantile(0.95) by route | where histogram_quantile_0_95 > 200 | sort histogram_quantile_0_95 desc
+```
+
+- **`hist_mean()`** is the mean of the values recorded in the bucket: the sum of the recorded
+  values divided by their number. It reads histograms, exponential histograms and summaries of
+  the matching series and ignores other metric kinds. In the unit of the metric (often `ms`
+  or `s`).
+- **`histogram_quantile(q)`** estimates the quantile `q` (between 0 and 1, e.g. `0.95` for the
+  95th percentile) of the values recorded in the bucket, from the histogram buckets, like
+  PromQL's `histogram_quantile`: it finds the bucket that holds the quantile and interpolates
+  linearly inside it. The result can only be as precise as the bucket bounds. A quantile that
+  falls into the last, open-ended bucket gives the highest finite bound. Series with different
+  bucket bounds are merged over all their bounds, which is an approximation. Summaries have no
+  buckets and are ignored; their own quantiles are attributes such as `quantile.0.99`.
+  The default name is `histogram_quantile_<q>` with `_` for the decimal point, e.g.
+  `histogram_quantile_0_95`, or choose one with `as` (`histogram_quantile(0.95) as p95`).
+- **Restarts** are detected per series: a new start time (OpenTelemetry sends it with every
+  cumulative point), a count or bucket that went down. After a restart the point counts in
+  full. Points with delta temporality are taken as they are. When a series changes its bucket
+  bounds without a restart (exponential histograms rescale), that point adds its count and sum
+  but no buckets.
+- **The first point** of a series in the time range is only the starting value of the next one,
+  unless the series started inside the time range. To give the first bucket a previous point,
+  the query also reads up to one span (at most 10 minutes) before the range.
+- A bucket or group without points has **no row**; one whose points recorded nothing (count 0)
+  has the value **`null`** (an empty chart point; alerts treat it as no data).
+- Histogram aggregates can be combined with each other in one `stats`, but not with other
+  aggregates. Filter on the series (name, service, attributes) rather than on `count`, `sum` or
+  `value`, since the filter applies to the points before the differences are taken.
 
 ## Time series and span
 
@@ -930,8 +1015,16 @@ returns `invalid_query` with the position (`pos`, `len`) and the `hint`.
 | `unknown sort key 'x'` | not an aggregate name or `by` field | sort by a name from the `stats` stage |
 | `duplicate column name 'x'` | two aggregates or fields with one name | rename one with `as` |
 | `x() needs a numeric field; @timestamp is not numeric` | numeric aggregate on a time or id | aggregate a number |
+| `x() takes no number` | a number inside an aggregate that needs a field or nothing | `avg(elapsed)`, `count()` |
 | `rate() takes a field only as rate(value) on source metrics` | `rate(field)` on logs/spans | `rate()` |
 | `rate(value) must be the only aggregate in its stats stage` | `rate(value)` with others | use a separate query or panel |
+| `hist_mean() needs source metrics` | a histogram aggregate on logs or spans | `source metrics | name:… | stats hist_mean()` |
+| `hist_mean() takes no argument` | `hist_mean(value)` | `hist_mean()` |
+| `histogram_quantile() needs a quantile between 0 and 1` | `histogram_quantile(95)`, `histogram_quantile()` | `histogram_quantile(0.95)` |
+| `count() cannot be combined with histogram aggregates in one stats stage` | a histogram aggregate with others | use a separate query or panel |
+| `first() of message is not a number and cannot be used in arithmetic` | `first`/`last` of a text field in a calculation | calculate with `count`, `sum`, `avg`, `min`, `max`, … |
+| `a number in arithmetic takes no unit` | `sum(elapsed) / 1s` | durations are in milliseconds: `sum(elapsed) / 1000` |
+| `arithmetic needs an aggregate` | a calculation of numbers only (`stats 1 + 2`) | include an aggregate: `count() * 2` |
 | `null can only be compared with = or !=` | `field > null` | `field = null` / `field != null` |
 | `null is not allowed in a list` | `null` in `in [ … ]` | `field = null or field in [ … ]` |
 | `like needs a text field` | `like` on a numeric field | use comparisons or the colon form |
@@ -943,6 +1036,7 @@ returns `invalid_query` with the position (`pos`, `len`) and the `hint`.
 | `expression is nested too deeply (max 32)` | too many parentheses | simplify the query |
 | `too many values in group (max 1000)` | huge value group or list | split the query or use a wildcard |
 | `query is too long (max 8192 bytes)` | query over 8 KiB | shorten it |
+| `query is too long in canonical form (… bytes, max 8192)` | the query is under 8 KiB but longer once normalised (`a b` is written `a and b`) | shorten it |
 
 ## Pitfalls
 
@@ -1252,6 +1346,23 @@ source metrics | name:http.server.requests | stats rate(value) by service span 1
 Counters only ever grow; `rate(value)` turns them into "per second". See
 [Aggregates](#aggregates).
 
+**Mean request duration from a histogram.**
+
+```tql
+source metrics | name:http.server.request.duration | stats hist_mean() by service span 5m
+```
+
+Histograms are cumulative; `hist_mean()` uses what was recorded in each bucket. See
+[Histograms and summaries](#histograms-and-summaries).
+
+**95th percentile of request duration per service.**
+
+```tql
+source metrics | name:http.server.request.duration | stats histogram_quantile(0.95) by service span auto
+```
+
+`p95(value)` would be a percentile of the per-point means; `histogram_quantile` uses the buckets.
+
 **Peak memory per host.**
 
 ```tql
@@ -1307,12 +1418,13 @@ More scenarios (signals, live tail, exporting results, performance tips) are in 
 
 | Limit | Value |
 |---|---|
-| query length | 8 KiB (8,192 bytes) of UTF-8 text |
+| query length | 8 KiB (8,192 bytes) of UTF-8 text, also once normalised |
 | nesting of parentheses | 32 levels |
 | values in a value group or `in` list | 1,000 |
 | stages | 5 |
 | `by` fields | 10 |
-| aggregates per `stats` | 20 |
+| aggregates per `stats` (also inside calculations) | 20 |
+| aggregates and numbers per `stats` | 50 |
 | `fields` | 50 |
 | time buckets per time series | 10,000 |
 | events per page (explorer, API default) | 200 |
@@ -1343,9 +1455,13 @@ func_call  = ( "contains" | "startswith" | "endswith" | "has" | "match" ) "(" fi
 free_text  = string | bare ;                     (* a bare word not followed by ':' or op *)
 stage      = stats | sort | limit | fields | where | top ;
 stats      = "stats" agg { "," agg } [ "by" field { "," field } ] [ "span" ( duration | "auto" ) ] ;
-agg        = agg_fn "(" [ field ] ")" [ "as" ident ] ;
+agg        = agg_expr [ "as" ident ] ;
+agg_expr   = agg_term { ( "+" | "-" ) agg_term } ;
+agg_term   = agg_atom { ( "*" | "/" ) agg_atom } ;
+agg_atom   = agg_call | number | "(" agg_expr ")" ;
+agg_call   = agg_fn "(" [ field | number ] ")" ;
 agg_fn     = "count" | "count_distinct" | "sum" | "avg" | "min" | "max" | "p50" | "p75" | "p90"
-           | "p95" | "p99" | "rate" | "first" | "last" ;
+           | "p95" | "p99" | "rate" | "first" | "last" | "hist_mean" | "histogram_quantile" ;
 sort       = "sort" ident [ "asc" | "desc" ] { "," ident [ "asc" | "desc" ] } ;
 limit      = "limit" integer ;
 fields     = "fields" field { "," field } ;
@@ -1353,7 +1469,7 @@ where      = "where" or_expr ;
 top        = "top" integer field [ "by" field ] ;
 ```
 
-Precedence: `not` > `and` (including adjacency) > `or`.
+Precedence: `not` > `and` (including adjacency) > `or`; in `stats` arithmetic, `*` `/` > `+` `-`, left to right.
 
 ## Cheat sheet
 
@@ -1380,3 +1496,5 @@ Precedence: `not` > `and` (including adjacency) > `or`.
 | largest first | `| sort count desc | limit 10` |
 | only some columns | `| fields @timestamp, service, message` |
 | per-second rate of a counter | `source metrics | name:x | stats rate(value) span 1m` |
+| mean latency from a histogram | `source metrics | name:x | stats hist_mean() span 5m` |
+| 95th percentile from a histogram | `source metrics | name:x | stats histogram_quantile(0.95) span 5m` |

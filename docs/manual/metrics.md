@@ -19,10 +19,14 @@ OpenTidemark accepts OpenTelemetry metrics over OTLP/gRPC (`:4317`) and OTLP/HTT
 | Sum | `sum` | the point value | `temporality` (`cumulative`/`delta`), `is_monotonic` |
 | Histogram | `histogram` | `sum / count` (mean) | `count`, `sum`, `min`, `max`, `bucket_bounds`, `bucket_counts`, temporality |
 | Exponential histogram | `exp_histogram` | `sum / count` | `count`, `sum`, `min`, `max`; buckets converted to explicit bounds `base^i` |
-| Summary | `summary` | `sum / count` | `count`, `sum`; quantiles as attributes `quantile.<q>` |
+| Summary | `summary` | `sum / count` | `count`, `sum`, temporality `cumulative`; quantiles as attributes `quantile.<q>` |
 
 Resource `service.name` becomes the `service`; data point attributes become `attrs`; the resource
-attribute `tidemark.stream` selects the stream. Temporality and monotonicity are preserved.
+attribute `tidemark.stream` selects the stream. Temporality and monotonicity are preserved. Every
+point also keeps its start time (`startTimeUnixNano`, the start of a cumulative count) in the
+column `start_time`. The quantile attributes of a summary are values, not part of its series:
+all points of one summary form one series (summary points stored by earlier versions count each point
+as its own series and age out with retention).
 
 ### From an SDK
 
@@ -378,8 +382,11 @@ source metrics | name:node_load1 | stats avg(value) by service span 1m
 # Counter rate (per second) across series; must be the only aggregate of the stage
 source metrics | name:node_cpu_seconds_total and mode:idle | stats rate(value) span 1m
 
-# Histogram: mean latency from sum/count, and request throughput
-source metrics | name:http.server.request.duration | stats sum(sum), sum(count) by service span 5m
+# Histogram: mean latency per bucket from the per-series increase of sum and count
+source metrics | name:http.server.request.duration | stats hist_mean() by service span 5m
+
+# Histogram: 95th percentile per bucket, interpolated from the bucket increases
+source metrics | name:http.server.request.duration | stats histogram_quantile(0.95) by service span auto
 
 # Latest value of each series of a gauge
 source metrics | name:queue.depth | stats last(value) by queue
@@ -390,17 +397,36 @@ source metrics | name:orders.created | top 10 service
 
 Semantics:
 
-- `rate(value)` on cumulative monotonic sums computes the increase per series per bucket
-  (`deltaSumTimestamp`), sums across series and divides by the bucket seconds; delta sums use
-  `sum(value)`. The increase between the last point of one bucket and the first point of the next
-  is not counted.
+- `rate(value)` on cumulative monotonic sums takes, per series, the increase from each point to
+  the next (also across bucket boundaries and from a point up to one span, at most 10 minutes,
+  before the time range), adds the series up and divides by the bucket seconds. A counter reset
+  (a new start time, or a value that went down) counts the new value; delta sums count as they
+  are.
+- `hist_mean()` reads histograms, exponential histograms and summaries. Per series it takes the
+  difference between consecutive points (restarts are detected from the start time and from
+  decreasing counts; delta temporality is used as is), reads up to one span (at most 10 minutes)
+  before the range so the first bucket has a previous point (the first point of a series counts
+  in full only when its start time is known and inside that range; otherwise it is only the
+  starting value), and divides the summed increase of
+  `sum` by that of `count`. A bucket in which nothing was recorded is `null`. It can share a
+  `stats` stage only with other histogram aggregates.
+- `histogram_quantile(q)` (`0 < q < 1`) uses the same per-series differences of the bucket
+  counts (histograms and exponential histograms; summaries have no buckets), merges them per
+  bucket bound and interpolates linearly inside the bucket that holds the quantile, like PromQL.
+  Exact for series with the same bucket bounds, approximate when bounds differ (merged over
+  all bounds). When a series changes its bounds without a restart (an exponential histogram
+  rescaling), that point adds its count and sum but no buckets. The default column name is
+  `histogram_quantile_0_95` for `q = 0.95`; name it with `as p95` instead. A quantile in the open-ended last bucket gives the highest finite bound.
 - Percentiles over metrics (`p95(value)`) are percentiles of the stored values (for histograms the
-  mean per point), not histogram quantiles. Bucket arrays are stored but TQL does not interpolate
-  quantiles from them.
+  mean since the process started, per point), not histogram quantiles.
 - Attributes are text: `status_code >= 500` converts with `toFloat64OrNull`.
 
 ### Metrics browser
 
 **Metrics** (`/metrics` in the UI): search metric names (backed by `GET /api/v1/metrics/names?q=`,
 up to 1,000 names of the selected time range), open a quick chart, and *Add to dashboard*.
-Anything the browser shows can be refined as a TQL query in the explorer or a dashboard panel.
+The quick chart picks an aggregate for the metric kind: histograms and summaries their mean
+(`hist_mean()`, histograms also p50/p95/p99), counters (monotonic sums, `monotonic` in the names
+response) their per-second rate (`rate(value)`, button *rate/s*; `sum`, `avg`, `max`, `min` and
+`p95` are a click away), gauges and up-down sums their average. Anything the browser shows can
+be refined as a TQL query in the explorer or a dashboard panel.

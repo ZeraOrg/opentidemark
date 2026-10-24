@@ -78,3 +78,7 @@ contains(x, /re/) and id:~ and id >= 3
 # connection id built-in
 connection_id:01a1374d-6798-7342-93a1-e7a27cb65c52
 connectionid = 'abc' | stats count() by connection_id
+# arithmetic between aggregates (SPEC §10.5): numbers are parameters, division by zero is NULL
+* | stats sum(elapsed) / count() as mean, count() - 1 by service | where mean > 10 | sort mean desc
+* | stats sum(elapsed) / count() by service | where `sum(elapsed) / count()` > 1 | sort `sum(elapsed) / count()` desc
+* | stats (max(elapsed) - min(elapsed)) * 1000 as spread, 2 * count() + count_distinct(host) span 1m

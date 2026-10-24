@@ -244,8 +244,9 @@ func TestEventsTracesMetrics(t *testing.T) {
 	if w := e.do(viewer, "GET", "/traces/xyz", nil); w.Code != 400 {
 		t.Errorf("bad trace id %d", w.Code)
 	}
-	e.querier.Names = []store.MetricName{{Name: "cpu"}}
-	if names := decodeBody[[]metricNameView](t, e.do(viewer, "GET", "/metrics/names?q=cp", nil)); len(names) != 1 {
+	e.querier.Names = []store.MetricName{{Name: "cpu", Kind: "sum", Monotonic: true}}
+	if names := decodeBody[[]metricNameView](t, e.do(viewer, "GET", "/metrics/names?q=cp", nil)); len(names) != 1 ||
+		!names[0].Monotonic || names[0].Kind != "sum" {
 		t.Errorf("names %+v", names)
 	}
 }

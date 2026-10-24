@@ -154,14 +154,47 @@ type Stats struct {
 	Span *SpanClause
 }
 
-// Agg is one aggregate. Alias is always set after parsing (default fn or fn_field).
+// Agg is one stats column: an aggregate call, or arithmetic between aggregates (Expr set; Fn,
+// Field and Arg empty). Alias is always set after parsing (default fn, fn_field or fn_number,
+// or for arithmetic its canonical text).
 type Agg struct {
 	Position
 	Fn       string // lower case
 	Field    *Field
+	Arg      *Value   // number literal argument (ValueNumber) instead of a field, e.g. histogram_quantile(0.95)
+	Expr     *AggExpr // arithmetic between aggregates, e.g. sum(sum) / sum(count); nil for a call
 	Alias    string
 	AliasPos Position
 	Explicit bool // alias given with `as`
+}
+
+// AggExpr is a node of arithmetic between aggregates: a binary operation (Op set), an
+// aggregate call (Call) or a number literal (Num).
+type AggExpr struct {
+	Position
+	Op          string // "+", "-", "*" or "/" for a binary operation
+	Left, Right *AggExpr
+	Call        *Agg   // aggregate call; its Alias is unused
+	Num         *Value // number literal (ValueNumber)
+}
+
+// Calls returns the aggregate calls of the column in written order: the column itself, or
+// the calls of its arithmetic.
+func (a *Agg) Calls() []*Agg {
+	if a.Expr == nil {
+		return []*Agg{a}
+	}
+	return a.Expr.calls(nil)
+}
+
+func (e *AggExpr) calls(out []*Agg) []*Agg {
+	switch {
+	case e.Call != nil:
+		return append(out, e.Call)
+	case e.Op != "":
+		return e.Right.calls(e.Left.calls(out))
+	}
+	return out
 }
 
 // SpanClause is the stats time bucket: a duration or `auto`.

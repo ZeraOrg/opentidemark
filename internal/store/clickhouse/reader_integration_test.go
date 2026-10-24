@@ -72,6 +72,8 @@ func newReaderFixture(t *testing.T) *readerFixture {
 		{Timestamp: base, Stream: "app", Service: "api", Name: "http.server.duration", Unit: "ms", Kind: "histogram", Value: 3,
 			Attributes: map[string]any{"route": "/a"}},
 		{Timestamp: base, Stream: "app", Service: "api", Name: "process.cpu", Kind: "gauge", Value: 0.5, Description: "cpu"},
+		{Timestamp: base, Stream: "app", Service: "api", Name: "process.restarts", Kind: "sum", Temporality: "cumulative",
+			IsMonotonic: true, Value: 2},
 	}
 	if err := w.WriteMetrics(ctx, points); err != nil {
 		t.Fatal(err)
@@ -363,5 +365,9 @@ func (f *readerFixture) testMetricNames(t *testing.T) {
 	names, err := f.r.MetricNames(context.Background(), model.AllStreams(), "HTTP", store.TimeRange{From: f.from, To: f.to}, 10)
 	if err != nil || len(names) != 1 || names[0].Name != "http.server.duration" || names[0].Unit != "ms" {
 		t.Errorf("metric names %+v %v", names, err)
+	}
+	names, err = f.r.MetricNames(context.Background(), model.AllStreams(), "process.", store.TimeRange{From: f.from, To: f.to}, 10)
+	if err != nil || len(names) != 2 || names[0].Monotonic || !names[1].Monotonic || names[1].Kind != "sum" {
+		t.Errorf("monotonic metric names %+v %v", names, err)
 	}
 }

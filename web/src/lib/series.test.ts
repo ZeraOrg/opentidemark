@@ -75,6 +75,43 @@ describe('timeseries', () => {
     expect(timeseriesToChart(keyed).series.map((s) => s.label)).toEqual(['a · count', 'a · p95']);
   });
 
+  it('keeps buckets without observations as gaps and labels histogram aliases', () => {
+    const hist = {
+      ...ts,
+      columns: [
+        { name: '@bucket', type: 'timestamp' },
+        { name: 'route', type: 'string' },
+        { name: 'hist_mean', type: 'number' },
+        { name: 'histogram_quantile_0_95', type: 'number' },
+      ],
+      series: [
+        {
+          key: { route: 'GET /cart' },
+          points: [
+            [60_000, 0.125, 0.375],
+            [120_000, null, null],
+            [180_000, 0.25, 0.5],
+          ],
+        },
+      ],
+    } as QueryResponse;
+    expect(timeseriesToChart(hist)).toEqual({
+      x: [60_000, 120_000, 180_000],
+      series: [
+        { label: 'GET /cart · hist_mean', values: [0.125, null, 0.25] },
+        { label: 'GET /cart · histogram_quantile_0_95', values: [0.375, null, 0.5] },
+      ],
+    });
+    expect(timeseriesRows(hist)[1]).toEqual({
+      bucket: 120_000,
+      key: { route: 'GET /cart' },
+      series: 0,
+      values: [null, null],
+      delta: [null, null],
+    });
+    expect(statValue(hist)).toEqual({ value: 0.75, previous: 0.5, spark: [0.5, 0.75] });
+  });
+
   it('stacks values cumulatively', () => {
     expect(
       stack([

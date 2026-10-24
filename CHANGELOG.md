@@ -11,6 +11,51 @@ Release archives, checksums and container images are on the
 
 ## [Unreleased]
 
+### Added
+
+- Metric points keep the start time that OpenTelemetry sends with cumulative values (new column
+  `metric_points.start_time`, added automatically on upgrade; points stored earlier read 0).
+- TQL `hist_mean()`: the mean of the values that histograms and summaries recorded in each bucket,
+  e.g. `source metrics | name:http.server.request.duration | stats hist_mean() by service span 5m`.
+  It follows each series from point to point (also across process restarts), so cumulative
+  histograms such as those of .NET give a per-bucket mean instead of a mean since start. A bucket
+  in which nothing was recorded is `null`.
+- TQL `histogram_quantile(q)`: a quantile such as the 95th percentile, interpolated from the
+  histogram buckets recorded in each bucket like PromQL's `histogram_quantile`, e.g.
+  `source metrics | name:http.server.request.duration | stats histogram_quantile(0.95) by service span auto`.
+  It can be combined with `hist_mean()` in one `stats`; its column is named
+  `histogram_quantile_0_95` unless you name it with `as`.
+- TQL arithmetic between aggregates: a `stats` column can calculate with aggregates and numbers
+  using `+`, `-`, `*`, `/` and parentheses, e.g.
+  `source metrics | name:http.server.request.duration | stats sum(sum) / sum(count) as mean_ms by service span 1m`
+  or `stats count(exception) / count() * 100 as error_pct by service`. Dividing by zero gives an
+  empty value instead of an error. Without `as`, the column is named by the calculation.
+- Metrics browser charts histogram latency as mean or p50/p95/p99 (`hist_mean()`,
+  `histogram_quantile(q)`); summaries as mean. The dashboard panel builder offers both aggregates
+  with a quantile input, and the query editor highlights them. Buckets without observations are
+  drawn as gaps.
+- Metrics browser charts counters (monotonic OpenTelemetry sums) as their per-second rate by
+  default (`rate(value)`, new *rate/s* button) instead of adding up their running totals; `sum`,
+  `avg`, `max`, `min` and `p95` remain a click away. Up-down sums (such as active requests) are
+  averaged like gauges. `GET /api/v1/metrics/names` reports `monotonic` for each metric.
+
+### Fixed
+
+- TQL rejects a query that is under 8 KiB but longer than 8 KiB once normalised (for example many
+  adjacent terms, written as `a and b`) instead of accepting it and failing later, e.g. when a
+  dashboard panel runs it.
+- The query editors no longer trigger a Content-Security-Policy report in Chrome when text is
+  typed over a selection.
+- TQL `rate(value)` no longer under-counts counters: the increase between the last point of one
+  bucket and the first point of the next now counts, the first bucket compares with a point just
+  before the time range, and the value after a counter reset counts too. Rates of counters with
+  few points per bucket are therefore higher (and correct) compared with earlier versions.
+
+- OpenTelemetry summaries are one series again: their quantile values no longer count as series
+  attributes, which made every summary point its own series. Summaries are now stored as
+  cumulative. Summary points stored before this version keep their old series ids until retention
+  removes them.
+
 ## [0.5.0-rc.1] - 2026-10-21
 
 ### Added

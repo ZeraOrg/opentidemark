@@ -268,20 +268,52 @@ func (cp *completer) statsStage(rest []token) {
 				cp.add(SuggestKeyword, d, d, "bucket size")
 			}
 		}
-	case last.Kind == tLParen || ((isKw(last, kwBy) || last.Kind == tComma) && inBy):
+	case last.Kind == tLParen && len(rest) > 1 && isHistAgg(strings.ToLower(rest[len(rest)-2].Text)):
+		// histogram aggregates take no field
+	case (last.Kind == tLParen && contains(aggNames(), strings.ToLower(rest[len(rest)-2].Text))) ||
+		((isKw(last, kwBy) || last.Kind == tComma) && inBy):
 		cp.fieldSuggestions()
-	case len(rest) == 1 || last.Kind == tComma:
-		for _, a := range aggNames() {
-			cp.add(SuggestFunction, a, a+"(", "aggregate")
-		}
+	case len(rest) == 1 || last.Kind == tComma || last.Kind == tLParen || isArithTok(last):
+		cp.aggSuggestions()
 	case last.Kind == tRParen || (inBy && isFieldTok(last)):
 		for _, kw := range []string{kwBy, kwSpan, kwAs} {
 			if !inBy || kw != kwBy {
 				cp.add(SuggestKeyword, kw, kw+" ", "stats")
 			}
 		}
+		if !inBy {
+			for _, op := range []string{"+", "-", "*", "/"} {
+				cp.add(SuggestOperator, op, op+" ", "arithmetic between aggregates")
+			}
+		}
 		cp.add(SuggestOperator, "|", "| ", "add a stage")
 	}
+}
+
+// isArithTok reports whether t is a lone arithmetic operator, as the lexer reads it.
+func isArithTok(t token) bool {
+	return t.Kind == tStar || (t.Kind == tWord && (t.Text == "+" || t.Text == "-" || t.Text == "/"))
+}
+
+// aggSuggestions suggests the aggregates; histogram aggregates only for source metrics, with
+// their complete call (SPEC §10.7).
+func (cp *completer) aggSuggestions() {
+	for _, a := range aggNames() {
+		switch {
+		case !isHistAgg(a):
+			cp.add(SuggestFunction, a, a+"(", "aggregate")
+		case cp.src == model.SourceMetrics:
+			cp.add(SuggestFunction, a, histCall(a), "histogram aggregate")
+		}
+	}
+}
+
+// histCall is the insert text of a histogram aggregate.
+func histCall(fn string) string {
+	if fn == aggHistQuantile {
+		return fn + "(0.95)"
+	}
+	return fn + "()"
 }
 
 // sortStage suggests sort keys from the preceding stats stage.
@@ -302,7 +334,9 @@ func (cp *completer) sortStage(toks []token, pipe int, rest []token) {
 			continue
 		}
 		for _, a := range s.Aggs {
-			cp.add(SuggestField, a.Alias, a.Alias, "aggregate")
+			var name strings.Builder
+			writeField(&name, Field{Name: a.Alias}) // arithmetic without `as` is named by its text
+			cp.add(SuggestField, a.Alias, name.String(), "aggregate")
 		}
 		for _, f := range s.By {
 			cp.add(SuggestField, f.Name, f.Name, "group")

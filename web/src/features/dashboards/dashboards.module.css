@@ -554,9 +554,33 @@
 
 .measureRow {
   display: grid;
-  grid-template-columns: 160px auto minmax(0, 1fr) auto;
+  grid-template-columns: 160px minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
+}
+
+.measureFn {
+  min-width: 0;
+}
+
+.measureArg {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.measureField {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.quantileInput {
+  flex: 0 0 96px;
+}
+
+.measureProblem {
+  margin-top: 4px;
 }
 
 .groupInput {

@@ -2,6 +2,7 @@
 
 import { CompletionContext } from '@codemirror/autocomplete';
 import { EditorState } from '@codemirror/state';
+import { EditorView } from '@codemirror/view';
 import { describe, expect, it, vi } from 'vitest';
 import type { Completion } from '../api/types';
 import { CHEATSHEET } from './cheatsheet';
@@ -12,6 +13,7 @@ import {
   singleLine,
   tqlCompletionSource,
   toCompletionResult,
+  typeOverSelection,
 } from './codemirror';
 import { tokenize } from './tokenize';
 
@@ -75,6 +77,36 @@ describe('singleLine', () => {
     const state = EditorState.create({ doc: 'a', extensions: [singleLine] });
     expect(state.update({ changes: { from: 1, insert: 'b' } }).state.doc.toString()).toBe('ab');
     expect(state.update({ selection: { anchor: 0 } }).state.doc.toString()).toBe('a');
+  });
+});
+
+describe('typeOverSelection', () => {
+  function beforeInput(view: EditorView, init: InputEventInit): InputEvent {
+    const event = new InputEvent('beforeinput', { bubbles: true, cancelable: true, ...init });
+    view.contentDOM.dispatchEvent(event);
+    return event;
+  }
+
+  it('replaces a selection with the typed text itself and leaves other input to the browser', () => {
+    const view = new EditorView({
+      parent: document.body,
+      state: EditorState.create({
+        doc: 'level:error',
+        selection: { anchor: 0, head: 11 },
+        extensions: [typeOverSelection],
+      }),
+    });
+    const over = beforeInput(view, { inputType: 'insertText', data: 'x' });
+    expect(over.defaultPrevented).toBe(true);
+    expect(view.state.doc.toString()).toBe('x');
+    expect(view.state.selection.main.head).toBe(1);
+    const plain = beforeInput(view, { inputType: 'insertText', data: 'y' });
+    expect(plain.defaultPrevented).toBe(false);
+    view.dispatch({ selection: { anchor: 0, head: 1 } });
+    const composition = beforeInput(view, { inputType: 'insertCompositionText', data: 'z' });
+    expect(composition.defaultPrevented).toBe(false);
+    expect(view.state.doc.toString()).toBe('x');
+    view.destroy();
   });
 });
 

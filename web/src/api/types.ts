@@ -224,6 +224,8 @@ export interface MetricName {
   kind: string;
   unit: string;
   description: string;
+  /** True when a point of the metric in the range is a monotonic sum (a counter). */
+  monotonic: boolean;
 }
 
 export type SuggestionKind = 'field' | 'value' | 'operator' | 'keyword' | 'stage' | 'function';

@@ -89,6 +89,22 @@ export const singleLine: Extension = EditorState.transactionFilter.of((tr) => {
   };
 });
 
+/**
+ * Applies text typed over a selection itself instead of leaving the edit to the browser: when
+ * Chrome's native editing replaces a whole selection it sets a `style` attribute on the line,
+ * which the CSP (`style-src 'self'`, SPEC §15.7) blocks and reports as `style-src-attr` although
+ * CodeMirror re-renders the line anyway. Composition (IME) input stays with the browser.
+ */
+export const typeOverSelection: Extension = EditorView.domEventHandlers({
+  beforeinput(event, view) {
+    if (event.inputType !== 'insertText' || typeof event.data !== 'string' || view.composing) return false;
+    if (view.state.readOnly || view.state.selection.ranges.every((r) => r.empty)) return false;
+    event.preventDefault();
+    view.dispatch(view.state.replaceSelection(event.data), { scrollIntoView: true, userEvent: 'input.type' });
+    return true;
+  },
+});
+
 export type CompletionFetcher = (q: string, bytePos: number, signal: AbortSignal) => Promise<Completion>;
 
 /** Converts an API completion (byte offsets) into a CodeMirror result (UTF-16 offsets). */

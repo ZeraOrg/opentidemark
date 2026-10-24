@@ -145,3 +145,14 @@ args:
   3: int 200
 columns: start_time:time, trace_id:string, span_id:string, parent_span_id:string, stream:string, service:string, name:string, kind:string, duration_ms:duration_ms, status_code:string, status_message:string, connection_id:string, attrs:map, attrs_num:map, resource_json:json, events_json:json, links_json:json
 
+=== source spans | * | stats avg(duration) / 1000 as seconds, max(duration) - first(duration) as d by service
+kind: table  source: spans  limit: 10000
+canonical: source spans | * | stats avg(duration) / 1000 as seconds, max(duration) - first(duration) as d by service
+sql: SELECT service AS g0, (avg(duration_ns / 1e6) / nullIf(?, 0)) AS a0, (max(duration_ns / 1e6) - argMin(duration_ns / 1e6, start_time)) AS a1 FROM tidemark.spans WHERE start_time >= ? AND start_time < ? GROUP BY g0 ORDER BY a0 DESC, g0 ASC LIMIT ?
+args:
+  0: float64 1000
+  1: time 2026-10-13T11:00:00Z
+  2: time 2026-10-13T12:00:00Z
+  3: int 10000
+columns: service:string, seconds:number, d:number
+

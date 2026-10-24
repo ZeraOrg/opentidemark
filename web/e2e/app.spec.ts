@@ -17,6 +17,19 @@ async function snap(page: Page, name: string, fullPage = false): Promise<void> {
   await page.screenshot({ path: shot(name), caret: 'initial', fullPage });
 }
 
+/** Records `securitypolicyviolation` events in the page (the console guard below sees them too). */
+async function watchCsp(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const w = window as unknown as { cspViolations: string[] };
+    w.cspViolations = [];
+    document.addEventListener('securitypolicyviolation', (e) => w.cspViolations.push(e.violatedDirective));
+  });
+}
+
+async function cspViolations(page: Page): Promise<string[]> {
+  return page.evaluate(() => (window as unknown as { cspViolations: string[] }).cspViolations);
+}
+
 async function guard(page: Page): Promise<string[]> {
   const problems: string[] = [];
   page.on('console', (m) => {
@@ -189,11 +202,100 @@ test.describe('signed in', () => {
     await snap(page, '04-trace-waterfall');
   });
 
-  test('metrics browser', async ({ page }) => {
+  test('metrics browser charts a histogram as its mean or p95', async ({ page }) => {
     await page.goto('/metrics');
-    await expect(page.getByRole('img', { name: /http.server.request.duration/ })).toBeVisible();
+    const chart = page.getByRole('img', { name: /http.server.request.duration/ });
+    await expect(chart).toBeVisible();
+    const aggregate = page.getByRole('group', { name: 'Aggregate' });
+    await expect(aggregate.getByRole('button', { name: 'Mean', pressed: true })).toBeVisible();
+    await expect(
+      page.getByTitle(
+        'source metrics | name:http.server.request.duration | stats hist_mean() by service span auto',
+      ),
+    ).toBeVisible();
     await settle(page);
     await snap(page, '14-metrics');
+    await aggregate.getByRole('button', { name: 'p95' }).click();
+    await expect(aggregate.getByRole('button', { name: 'p95', pressed: true })).toBeVisible();
+    await expect(
+      page.getByTitle(
+        'source metrics | name:http.server.request.duration | stats histogram_quantile(0.95) by service span auto',
+      ),
+    ).toBeVisible();
+    await expect(chart).toBeVisible();
+    await settle(page);
+    await snap(page, '14-metrics-p95');
+    await page.getByRole('button', { name: /^Theme:/ }).click();
+    await page.getByRole('menuitemradio', { name: 'Light' }).click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+    await settle(page);
+    await snap(page, '14-metrics-p95-light');
+    // A summary has no buckets, so it only offers the mean; a gauge the plain aggregates.
+    await page.getByRole('button', { name: /db\.client\.operation\.duration/ }).click();
+    await expect(aggregate.getByRole('button', { name: 'Mean', pressed: true })).toBeVisible();
+    await expect(aggregate.getByRole('button')).toHaveCount(1);
+    await page.getByRole('button', { name: /process\.cpu\.utilization/ }).click();
+    await expect(aggregate.getByRole('button', { name: 'avg', pressed: true })).toBeVisible();
+    await expect(aggregate.getByRole('button')).toHaveCount(5);
+    // An up-down sum is a level like a gauge: averaged, no rate button.
+    await page.getByRole('button', { name: /http\.server\.active_requests/ }).click();
+    await expect(aggregate.getByRole('button', { name: 'avg', pressed: true })).toBeVisible();
+    await expect(aggregate.getByRole('button')).toHaveCount(5);
+    // A counter (monotonic sum) is a running total: its per-second rate is the default.
+    await page.getByRole('button', { name: /tidemark\.ingest\.events/ }).click();
+    await expect(aggregate.getByRole('button', { name: 'rate/s', pressed: true })).toBeVisible();
+    await expect(aggregate.getByRole('button')).toHaveCount(6);
+    await expect(
+      page.getByTitle(
+        'source metrics | name:tidemark.ingest.events | stats rate(value) by service span auto',
+      ),
+    ).toBeVisible();
+    await expect(page.getByRole('img', { name: /tidemark\.ingest\.events/ })).toBeVisible();
+    await settle(page);
+    await snap(page, '14-metrics-sum-rate-light');
+  });
+
+  test('panel builder with histogram measures', async ({ page }) => {
+    await page.goto('/dashboards/d-checkout/edit?panel=logvol');
+    await expect(page.getByRole('heading', { name: 'Edit panel' })).toBeVisible();
+    await page.getByRole('group', { name: 'Source' }).getByRole('button', { name: 'metrics' }).click();
+    const filter = page.getByRole('textbox', { name: 'Panel filter' });
+    await filter.click();
+    // Typing over a select-all: the editor applies the edit itself (SPEC §15.7), so the CSP
+    // reports nothing (Chrome's native edit would set a style attribute on the line).
+    await watchCsp(page);
+    await page.keyboard.press('Control+A');
+    await page.keyboard.type('name:http.server.request.duration');
+    await page.keyboard.press('Escape');
+    await expect(filter).toHaveText('name:http.server.request.duration');
+    expect(await cspViolations(page)).toEqual([]);
+    await page.getByLabel('Measure 1 function').selectOption('histogram_quantile');
+    const quantile = page.getByLabel('Measure 1 quantile');
+    await expect(quantile).toHaveValue('0.95');
+    await expect(page.getByTitle(/stats histogram_quantile\(0\.95\) by/).first()).toBeVisible();
+    await page.getByRole('button', { name: 'measure' }).click();
+    await expect(page.getByLabel('Measure 2 function')).toHaveValue('hist_mean');
+    await expect(page.getByLabel('Measure 2 field')).toBeHidden();
+    await page.getByLabel('Measure 2 function').selectOption('count');
+    await expect(page.getByText(/can only be combined with each other/)).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Apply' })).toBeDisabled();
+    await page.getByLabel('Measure 2 function').selectOption('hist_mean');
+    await quantile.fill('95');
+    await expect(page.getByText(/needs a quantile between 0 and 1/)).toBeVisible();
+    await quantile.fill('0.5');
+    await expect(page.getByText(/needs a quantile between 0 and 1/)).toBeHidden();
+    await expect(page.getByRole('button', { name: 'Apply' })).toBeEnabled();
+    await expect(page.getByTitle(/stats histogram_quantile\(0\.5\), hist_mean\(\) by/).first()).toBeVisible();
+    // The live preview answers the histogram query (one series per service and measure).
+    await expect(page.getByRole('img', { name: /^Log volume by service/ })).toBeVisible();
+    await expect(page.getByRole('list', { name: 'Legend' })).toContainText('checkout-api · hist_mean');
+    await settle(page);
+    await snap(page, '06-panel-editor-histogram');
+    await page.getByRole('button', { name: /^Theme:/ }).click();
+    await page.getByRole('menuitemradio', { name: 'Light' }).click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+    await settle(page);
+    await snap(page, '06-panel-editor-histogram-light');
   });
 
   test('dashboards: view, edit panel, create from scratch', async ({ page }) => {
@@ -618,6 +720,23 @@ test.describe('phone (390 px)', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'Platform' })).toBeVisible();
     await settle(page);
     await snap(page, '12-team-mobile', true);
+  });
+
+  test('metrics and the panel builder on a phone', async ({ page }) => {
+    await signIn(page);
+    await page.goto('/metrics');
+    const aggregate = page.getByRole('group', { name: 'Aggregate' });
+    await expect(aggregate.getByRole('button', { name: 'Mean', pressed: true })).toBeVisible();
+    await aggregate.getByRole('button', { name: 'p95' }).click();
+    await expect(page.getByRole('img', { name: /http.server.request.duration/ })).toBeVisible();
+    await settle(page);
+    await snap(page, '12-metrics-mobile', true);
+    await page.goto('/dashboards/d-checkout/edit?panel=logvol');
+    await page.getByRole('group', { name: 'Source' }).getByRole('button', { name: 'metrics' }).click();
+    await page.getByLabel('Measure 1 function').selectOption('histogram_quantile');
+    await expect(page.getByLabel('Measure 1 quantile')).toHaveValue('0.95');
+    await settle(page);
+    await snap(page, '12-panel-editor-mobile', true);
   });
 
   test('update chip and card on a phone', async ({ page }) => {

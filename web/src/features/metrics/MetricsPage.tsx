@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Metric browser (SPEC §16.1): search metric names, chart one with a chosen aggregate and
-// grouping, open the query in the explorer or add it to a dashboard.
+// grouping, open the query in the explorer or add it to a dashboard. Histograms, exponential
+// histograms and summaries chart the mean of the recorded values by default (`hist_mean()`,
+// SPEC §10.5); histograms also offer p50 / p95 / p99 (`histogram_quantile(q)`). Monotonic sums
+// (counters, `monotonic` from `/metrics/names`) chart their per-second rate by default
+// (`rate(value)`, SPEC §10.5): their values are running totals, so adding them up says little.
+// An up-down sum is a level like a gauge, so it gets the plain aggregates and averages.
 
 import { useQuery } from '@tanstack/react-query';
 import { BarChart3, LayoutGrid, Search } from 'lucide-react';
@@ -24,18 +29,74 @@ import { AddToDashboardDialog } from '../dashboards/AddToDashboard';
 import { valueLiteral } from '../explorer/terms';
 import s from './metrics.module.css';
 
-export type MetricAgg = 'avg' | 'sum' | 'max' | 'min' | 'p95';
+export type MetricAgg =
+  'rate' | 'avg' | 'sum' | 'max' | 'min' | 'p95' | 'hist_mean' | 'hist_p50' | 'hist_p95' | 'hist_p99';
 export type MetricGroup = 'none' | 'service';
+
+/** The stats aggregate and the button label of each quick-chart aggregate. */
+const AGGREGATES: Record<MetricAgg, { stats: string; label: string }> = {
+  rate: { stats: 'rate(value)', label: 'rate/s' },
+  avg: { stats: 'avg(value)', label: 'avg' },
+  sum: { stats: 'sum(value)', label: 'sum' },
+  max: { stats: 'max(value)', label: 'max' },
+  min: { stats: 'min(value)', label: 'min' },
+  p95: { stats: 'p95(value)', label: 'p95' },
+  hist_mean: { stats: 'hist_mean()', label: 'Mean' },
+  hist_p50: { stats: 'histogram_quantile(0.5)', label: 'p50' },
+  hist_p95: { stats: 'histogram_quantile(0.95)', label: 'p95' },
+  hist_p99: { stats: 'histogram_quantile(0.99)', label: 'p99' },
+};
+
+const PLAIN_AGGS: readonly MetricAgg[] = ['avg', 'sum', 'max', 'min', 'p95'];
+const SUM_AGGS: readonly MetricAgg[] = ['rate', ...PLAIN_AGGS];
+const HISTOGRAM_AGGS: readonly MetricAgg[] = ['hist_mean', 'hist_p50', 'hist_p95', 'hist_p99'];
+const SUMMARY_AGGS: readonly MetricAgg[] = ['hist_mean'];
+
+/** A counter: a monotonic sum (OTLP kind `sum`, `counter` as a synonym), whose values are running totals. */
+const isCounter = (kind: string, monotonic: boolean): boolean =>
+  monotonic && (kind === 'sum' || kind === 'counter');
+
+/** Label of an aggregate button. */
+export function aggLabel(agg: MetricAgg): string {
+  return AGGREGATES[agg].label;
+}
+
+/**
+ * The unit the chart shows for an aggregate of a metric with `unit`: a rate is per second, the
+ * unitless `1` is no unit.
+ */
+export function aggUnit(agg: MetricAgg, unit: string | undefined): string {
+  if (unit === undefined || unit === '' || unit === '1') return '';
+  return agg === 'rate' ? `${unit}/s` : unit;
+}
 
 /** The TQL behind the quick chart. */
 export function metricQuery(name: string, agg: MetricAgg, group: MetricGroup): string {
   const by = group === 'none' ? '' : ` by ${group}`;
-  return `source metrics | name:${valueLiteral(name)} | stats ${agg}(value)${by} span auto`;
+  return `source metrics | name:${valueLiteral(name)} | stats ${AGGREGATES[agg].stats}${by} span auto`;
 }
 
-/** Sums and counters are summed by default, everything else averaged. */
-export function defaultAgg(kind: string): MetricAgg {
-  return kind === 'sum' || kind === 'counter' ? 'sum' : 'avg';
+/**
+ * The aggregates offered for a metric kind: histogram aggregates for histograms (quantiles need
+ * buckets, so a summary only has the mean), the per-second rate besides the plain aggregates of
+ * `value` for counters (monotonic sums), the plain aggregates for everything else, up-down sums
+ * included (their increase per second is rarely meaningful).
+ */
+export function aggOptions(kind: string, monotonic: boolean): readonly MetricAgg[] {
+  if (kind === 'histogram' || kind === 'exp_histogram') return HISTOGRAM_AGGS;
+  if (kind === 'summary') return SUMMARY_AGGS;
+  if (isCounter(kind, monotonic)) return SUM_AGGS;
+  return PLAIN_AGGS;
+}
+
+/**
+ * Counters chart their per-second rate, histograms and summaries the mean per bucket, the rest
+ * (gauges and up-down sums) the average.
+ */
+export function defaultAgg(kind: string, monotonic: boolean): MetricAgg {
+  if (isCounter(kind, monotonic)) return 'rate';
+  if (aggOptions(kind, monotonic) !== PLAIN_AGGS) return 'hist_mean';
+  return 'avg';
 }
 
 export default function MetricsPage() {
@@ -54,7 +115,10 @@ export default function MetricsPage() {
   const [agg, setAgg] = useState<MetricAgg | null>(null);
   const [group, setGroup] = useState<MetricGroup>('service');
   const [adding, setAdding] = useState(false);
-  const effectiveAgg = agg ?? defaultAgg(meta?.kind ?? '');
+  const kind = meta?.kind ?? '';
+  const monotonic = meta?.monotonic ?? false;
+  const options = aggOptions(kind, monotonic);
+  const effectiveAgg = agg !== null && options.includes(agg) ? agg : defaultAgg(kind, monotonic);
   const q = selected === null ? '' : metricQuery(selected, effectiveAgg, group);
   const chart = useQuery({
     queryKey: ['query', q, range.from, range.to, '', scope.key],
@@ -122,10 +186,7 @@ export default function MetricsPage() {
                     label="Aggregate"
                     value={effectiveAgg}
                     onChange={setAgg}
-                    options={(['avg', 'sum', 'max', 'min', 'p95'] as const).map((v) => ({
-                      value: v,
-                      label: v,
-                    }))}
+                    options={options.map((v) => ({ value: v, label: aggLabel(v) }))}
                   />
                   <Segmented<MetricGroup>
                     label="Group by"
@@ -149,7 +210,7 @@ export default function MetricsPage() {
                     data={data}
                     height={300}
                     ariaLabel={selected}
-                    unit={meta?.unit === '1' ? '' : meta?.unit}
+                    unit={aggUnit(effectiveAgg, meta?.unit)}
                   />
                 )
               ) : null}

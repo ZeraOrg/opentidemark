@@ -12,3 +12,13 @@ source metrics | free text
 %streams team-a source metrics | name:http_requests_total | stats rate(value) by service
 # connection id built-in
 source metrics | connection_id:abc
+# histogram aggregates (SPEC §10.5): per-series deltas with a lookback before the range
+source metrics | name:http.server.request.duration | stats hist_mean() by service span 5m
+source metrics | name:x and route:/a | stats hist_mean() as mean_ms by route | where mean_ms > 100 | sort mean_ms desc | limit 5
+source metrics | name:x | stats hist_mean()
+source metrics | name:http.server.request.duration | stats histogram_quantile(0.95) by service span auto
+source metrics | name:x | stats histogram_quantile(0.5) as p50, histogram_quantile(0.99), hist_mean() by route | where p50 > 10
+# arithmetic between aggregates on the rate and histogram paths
+source metrics | name:x | stats rate(value) * 60 as per_minute by service span 1m
+source metrics | name:x | stats 1 / rate(value) as interval
+source metrics | name:x | stats histogram_quantile(0.99) / histogram_quantile(0.5) as tail, hist_mean() * 1000 as mean_us by route

@@ -44,12 +44,17 @@ func (c *compiler) statsQuery(b *sqlBuf, out *Compiled) error {
 	}
 	out.Limit = limit
 	out.Columns = c.statsColumns(sp)
-	if sp.metricRate {
+	filterKw := " HAVING "
+	switch {
+	case sp.histogram:
+		c.histStats(b, sp, out.Span)
+		filterKw = " WHERE " // the outer query does not aggregate (SPEC §10.6)
+	case sp.metricRate:
 		c.metricRate(b, sp, out.Span)
-	} else {
+	default:
 		c.plainStats(b, sp, out.Span)
 	}
-	c.statsTail(b, sp, out.Span, limit)
+	c.statsTail(b, sp, out.Span, limit, filterKw)
 	return nil
 }
 
@@ -73,7 +78,7 @@ func (c *compiler) statsColumns(sp *statsPlan) []Column {
 }
 
 func (c *compiler) aggType(a Agg) ColumnType {
-	if (a.Fn != "first" && a.Fn != "last") || a.Field == nil {
+	if a.Expr != nil || (a.Fn != "first" && a.Fn != "last") || a.Field == nil {
 		return ColumnNumber
 	}
 	r, _ := c.s.resolve(*a.Field)
@@ -134,7 +139,7 @@ func (c *compiler) plainStats(b *sqlBuf, sp *statsPlan, span time.Duration) {
 		if i > 0 || span > 0 || len(sp.by) > 0 {
 			b.w(", ")
 		}
-		c.agg(b, a, span)
+		column(b, a, func(call Agg) { c.agg(b, call, span) })
 		b.w(" AS ", aggAlias(i))
 	}
 	b.w(" FROM ", c.table(), " WHERE ")
@@ -144,28 +149,80 @@ func (c *compiler) plainStats(b *sqlBuf, sp *statsPlan, span time.Duration) {
 	}
 }
 
-// metricRate renders rate(value) on metrics: per-series increase (deltaSum of
-// cumulative sums, or sum of delta points) summed across series and divided
-// by the bucket (or range) seconds (SPEC §10.5).
+// metricRate renders rate(value) on metrics: the per-point increases of each series (SPEC §10.5)
+// of the points in the request range, summed per bucket and group and divided by the bucket (or
+// range) seconds. The points are read from one lookback before the range, so the first point in
+// the range has a previous point.
 func (c *compiler) metricRate(b *sqlBuf, sp *statsPlan, span time.Duration) {
 	outer := groupByList(sp, span)
 	b.w("SELECT ")
 	if outer != "" {
 		b.w(outer, ", ")
 	}
-	b.w("sum(r) / ")
-	b.arg(c.rangeSeconds(span))
-	b.w(" AS ", aggAlias(0), " FROM (SELECT ")
+	column(b, sp.aggs[0], func(Agg) { // a quotient: binds tighter than the arithmetic around it
+		b.w("sum(r_d) / ")
+		b.arg(c.rangeSeconds(span))
+	})
+	b.w(" AS ", aggAlias(0), " FROM (")
+	c.ratePoints(b, sp, span)
+	b.w(") WHERE ", c.s.timeCol, " >= ")
+	b.arg(c.o.From.UTC())
+	if outer != "" {
+		b.w(" GROUP BY ", outer)
+	}
+}
+
+// ratePoints renders the increase of each point against the previous point of its series. A
+// point counts whole when its temporality is delta, when the series restarted (both start times
+// known and different, or the value decreased), or when it is the first point of its series and
+// its start time lies in the read range. Any other first point is only the baseline of the next.
+func (c *compiler) ratePoints(b *sqlBuf, sp *statsPlan, span time.Duration) {
+	readFrom := c.o.From.Add(-c.deltaLookback(span))
+	b.w("SELECT ")
 	c.keys(b, sp, span)
 	if span > 0 || len(sp.by) > 0 {
 		b.w(", ")
 	}
-	b.w("series_id, if(any(temporality) = 'delta', sum(value), ",
-		"deltaSumTimestamp(value, toUnixTimestamp64Milli(timestamp))) AS r FROM ", c.table(), " WHERE ")
-	c.where(b)
-	b.w(" GROUP BY ", groupByList(sp, span, "series_id"), ")")
-	if outer != "" {
-		b.w(" GROUP BY ", outer)
+	b.w(c.s.timeCol, ", row_number() OVER w = 1 AS r_first, ",
+		"toUnixTimestamp64Nano(start_time) AS r_st, lagInFrame(toUnixTimestamp64Nano(start_time)) OVER w AS r_pst, ",
+		"lagInFrame(value) OVER w AS r_pv, ",
+		"multiIf(temporality = 'delta' OR (NOT r_first AND ((r_st != 0 AND r_pst != 0 AND r_st != r_pst) OR value < r_pv)) ",
+		"OR (r_first AND r_st != 0 AND start_time >= ")
+	b.arg(readFrom.UTC())
+	b.w("), value, r_first, 0, value - r_pv) AS r_d FROM ", c.table(), " WHERE ")
+	c.whereFrom(b, readFrom)
+	b.w(" WINDOW w AS (PARTITION BY stream, series_id ORDER BY ", c.s.timeCol,
+		" ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)")
+}
+
+// column renders stats column a: its aggregate call, or its arithmetic with each call rendered
+// by leaf in written order. Numbers are parameters; division by zero yields NULL (SPEC §10.5).
+func column(b *sqlBuf, a Agg, leaf func(Agg)) {
+	if a.Expr == nil {
+		leaf(a)
+		return
+	}
+	arith(b, a.Expr, leaf)
+}
+
+func arith(b *sqlBuf, e *AggExpr, leaf func(Agg)) {
+	switch {
+	case e.Call != nil:
+		leaf(*e.Call)
+	case e.Num != nil:
+		b.arg(e.Num.Num)
+	case e.Op == "/":
+		b.w("(")
+		arith(b, e.Left, leaf)
+		b.w(" / nullIf(")
+		arith(b, e.Right, leaf)
+		b.w(", 0))")
+	default:
+		b.w("(")
+		arith(b, e.Left, leaf)
+		b.w(" ", e.Op, " ") // + - * (allow-listed by the parser)
+		arith(b, e.Right, leaf)
+		b.w(")")
 	}
 }
 
@@ -210,11 +267,12 @@ func (c *compiler) agg(b *sqlBuf, a Agg, span time.Duration) {
 	}
 }
 
-// statsTail renders HAVING, ORDER BY and LIMIT.
-func (c *compiler) statsTail(b *sqlBuf, sp *statsPlan, span time.Duration, limit int) {
+// statsTail renders the conditions of `where` after stats (filterKw: HAVING, or WHERE when the
+// outer query does not aggregate), ORDER BY and LIMIT.
+func (c *compiler) statsTail(b *sqlBuf, sp *statsPlan, span time.Duration, limit int, filterKw string) {
 	if len(c.p.having) > 0 {
 		c.scope = newHavingScope(c.s, sp)
-		b.w(" HAVING ")
+		b.w(filterKw)
 		for i, h := range c.p.having {
 			if i > 0 {
 				b.w(" AND ")

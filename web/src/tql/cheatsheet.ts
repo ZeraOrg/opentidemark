@@ -23,9 +23,21 @@ export const CHEATSHEET: readonly CheatEntry[] = [
   { q: 'level:error | top 10 exception_type', note: 'most frequent values' },
   { q: '* | stats count() by level span 5m', note: 'time series' },
   { q: 'elapsed:* | stats p95(elapsed), avg(elapsed) by service span 1m', note: 'percentiles' },
+  {
+    q: 'elapsed:* | stats sum(elapsed) / count() as mean_ms by service',
+    note: 'arithmetic between aggregates',
+  },
   { q: 'source spans | service:checkout-api and status:error | stats count() by name', note: 'spans' },
   {
     q: 'source metrics | name:http.server.request.duration | stats avg(value) by service span 1m',
     note: 'metrics',
+  },
+  {
+    q: 'source metrics | name:http.server.request.duration | stats hist_mean() by service span 5m',
+    note: 'histogram mean',
+  },
+  {
+    q: 'source metrics | name:http.server.request.duration | stats histogram_quantile(0.95) by route span auto',
+    note: 'histogram p95',
   },
 ];

@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	ch "github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
@@ -31,7 +32,7 @@ const (
 	spanColumns = "start_time, trace_id, span_id, parent_span_id, stream, service, name, kind, duration_ns, " +
 		"status_code, status_message, connection_id, attrs, attrs_num, resource_json, events_json, links_json"
 	metricColumns = "timestamp, stream, service, name, description, unit, kind, temporality, is_monotonic, value, " +
-		"count, sum, min, max, bucket_bounds, bucket_counts, attrs, series_id, connection_id"
+		"count, sum, min, max, bucket_bounds, bucket_counts, attrs, series_id, connection_id, start_time"
 )
 
 // Writer inserts batches with the writer connection; it implements the store writer ports.
@@ -146,7 +147,30 @@ func MetricRow(p model.MetricPoint) []any {
 	attrs := Flatten(p.Attributes).Strings
 	return []any{p.Timestamp, p.Stream, p.Service, p.Name, p.Description, p.Unit, p.Kind, p.Temporality,
 		p.IsMonotonic, p.Value, p.Count, p.Sum, p.Min, p.Max, nonNilF(p.BucketBounds), nonNilU(p.BucketCounts),
-		attrs, SeriesID(p.Name, p.Service, attrs), p.ConnectionID}
+		attrs, SeriesID(p.Name, p.Service, seriesAttrs(p.Kind, attrs)), p.ConnectionID, startTime(p.StartTime)}
+}
+
+// seriesAttrs returns the attributes that identify a series: all of them, except the quantile
+// values of a summary point, which change with every point (SPEC §8.2).
+func seriesAttrs(kind string, attrs map[string]string) map[string]string {
+	if kind != model.MetricSummary {
+		return attrs
+	}
+	out := make(map[string]string, len(attrs))
+	for k, v := range attrs {
+		if !strings.HasPrefix(k, model.SummaryQuantilePrefix) {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+// startTime maps an unknown start time (zero) to the column default, the Unix epoch.
+func startTime(t time.Time) time.Time {
+	if t.IsZero() {
+		return time.Unix(0, 0).UTC()
+	}
+	return t.UTC()
 }
 
 func (w *Writer) insert(ctx context.Context, table, columns string, n int, appendRow func(driver.Batch, int) error) error {

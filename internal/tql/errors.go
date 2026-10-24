@@ -15,7 +15,8 @@ const (
 	MaxValues     = 1000    // maximum values in an `in` list or value group
 	MaxStages     = 5       // maximum pipe stages
 	MaxByFields   = 10      // maximum `by` fields in stats
-	MaxAggregates = 20      // maximum aggregates in one stats stage
+	MaxAggregates = 20      // maximum aggregates in one stats stage, counting those inside arithmetic
+	MaxAggTerms   = 50      // maximum aggregates and numbers in one stats stage
 	MaxFields     = 50      // maximum fields in a `fields` stage
 	MaxBuckets    = 10000   // maximum time buckets a timeseries may produce
 )

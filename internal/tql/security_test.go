@@ -12,7 +12,7 @@ import (
 )
 
 // trustedQuoted lists the only quoted fragments the compiler itself emits.
-var trustedQuoted = regexp.MustCompile("''|'delta'|`count`|`sum`|`min`|`max`")
+var trustedQuoted = regexp.MustCompile("''|'delta'|'histogram'|'exp_histogram'|'summary'|`count`|`sum`|`min`|`max`")
 
 // assertSafeSQL fails when SQL text contains anything that could only come
 // from user input: quotes outside trusted fragments, comments, statement
@@ -45,6 +45,8 @@ func TestSQLInjection(t *testing.T) {
 		"`%s`:1", "`%s` > 3", `* | stats count() by ` + "`%s`", `* | stats avg(` + "`%s`)" + ` as ` + "`%s`",
 		"* | stats count() by `%s` | where `%s`:1 | sort `%s`", "* | top 3 `%s` by `%s`", "* | fields `%s`",
 		`source spans | %s`, `source metrics | ` + "`%s`" + `:%s | stats rate(value)`,
+		`source metrics | ` + "`%s`" + `:1 | stats hist_mean() by ` + "`%s`" + ` span 1m | where ` + "`%s`" + `:1`,
+		"* | stats sum(`%s`) / (count() - 1) as `%s` by `%s` | where `%s` > 1 | sort `%s`",
 	}
 	o := goldenOptions()
 	o.IndexedFields = map[model.Source]map[string]string{model.SourceLogs: {"k": "f_k"}}

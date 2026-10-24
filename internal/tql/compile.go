@@ -184,9 +184,13 @@ func (c *compiler) table() string {
 }
 
 // where renders the full WHERE condition.
-func (c *compiler) where(b *sqlBuf) {
+func (c *compiler) where(b *sqlBuf) { c.whereFrom(b, c.o.From) }
+
+// whereFrom renders the WHERE condition with the time range starting at from (histogram
+// aggregates read a lookback before the request range).
+func (c *compiler) whereFrom(b *sqlBuf, from time.Time) {
 	b.w(c.s.timeCol, " >= ")
-	b.arg(c.o.From.UTC())
+	b.arg(from.UTC())
 	b.w(" AND ", c.s.timeCol, " < ")
 	b.arg(c.o.To.UTC())
 	c.streamScope(b)

@@ -22,7 +22,10 @@ func FuzzParse(f *testing.F) {
 		"source spans | service:checkout-api and status:error | stats count() by name",
 		"source metrics | name:x | stats rate(value) by service span 1m | where rate_value > 1",
 		"x in [1, 'a'] and contains(m, 'x') ci", "`we'ird`:\"a'b\" -- ;", "a:(x or y and z)", "!a && (b || c)",
-		"@timestamp > now-15m", "x:$var", "* | fields a, b | limit 3", "x:\\*\\(", "x like '%a%' ci",
+		"@timestamp > now-15m", "x:$var", "* | fields a, b | limit 3", "x:\\*\\(", "x like '%a%' ci", "x | stats p95(0.5) as q", "source metrics | x | stats hist_mean() by a span 1m | where hist_mean > 1",
+		"source metrics | x | stats histogram_quantile(0.95) as p by a",
+		"x | stats sum(a)/sum(b) as r, 2*count()-1 by c | where r > 1", "source metrics | x | stats histogram_quantile(0.99) / hist_mean() as t",
+		"source metrics | x | stats rate(value) * 60 as m span 1m", "x | stats (sum(a) + -1e3) / (count() * 0)",
 	}
 	for _, s := range seeds {
 		f.Add(s)

@@ -33,15 +33,19 @@ import { cx } from '../../lib/cx';
 import { useDebounced } from '../../lib/hooks';
 import type { TimeRange } from '../../lib/time';
 import {
+  builderProblem,
   emptyModel,
   fromTql,
   INTERVALS,
   MAX_GROUP_BY,
   MAX_MEASURES,
   MEASURE_FUNCTIONS,
+  nextMeasure,
   toTql,
+  withFn,
   type BuilderModel,
   type Interval,
+  type Measure,
   type MeasureFn,
 } from '../../tql/builder';
 import { variablesOf } from '../../tql/tokenize';
@@ -100,6 +104,54 @@ function Step({ n, title, hint, children }: { n: number; title: string; hint: st
   );
 }
 
+/** The argument of one measure: a field, the quantile of `histogram_quantile`, none for `hist_mean`. */
+function MeasureArgument({
+  n,
+  measure,
+  onChange,
+}: {
+  n: number;
+  measure: Measure;
+  onChange: (field: string) => void;
+}) {
+  if (measure.fn === 'hist_mean') {
+    return <span className={l.subtle}>mean of the recorded values</span>;
+  }
+  if (measure.fn === 'histogram_quantile') {
+    return (
+      <span className={s.measureArg}>
+        <span className={l.subtle}>quantile</span>
+        <TextInput
+          aria-label={`Measure ${n} quantile`}
+          mono
+          type="number"
+          inputMode="decimal"
+          min={0}
+          max={1}
+          step="any"
+          placeholder="0.95"
+          className={s.quantileInput}
+          value={measure.field}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      </span>
+    );
+  }
+  return (
+    <span className={s.measureArg}>
+      <span className={l.subtle}>of</span>
+      <TextInput
+        aria-label={`Measure ${n} field`}
+        mono
+        placeholder="—"
+        className={s.measureField}
+        value={measure.field}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </span>
+  );
+}
+
 function Builder({
   model,
   onChange,
@@ -111,7 +163,10 @@ function Builder({
 }) {
   const [groupDraft, setGroupDraft] = useState('');
   const set = (p: Partial<BuilderModel>): void => onChange({ ...model, ...p });
+  const setMeasure = (i: number, next: (m: Measure) => Measure): void =>
+    set({ measures: model.measures.map((x, j) => (j === i ? next(x) : x)) });
   const vars = variablesOf(model.filter);
+  const problem = builderProblem(model);
   return (
     <fieldset className={s.builder} disabled={readOnly}>
       <Step n={1} title="Source" hint="logs · spans · metrics">
@@ -148,27 +203,15 @@ function Builder({
             <div key={i} className={s.measureRow}>
               <Select
                 aria-label={`Measure ${i + 1} function`}
+                className={s.measureFn}
                 options={MEASURE_FUNCTIONS.map((f) => ({ value: f, label: f }))}
                 value={m.fn}
-                onChange={(e) =>
-                  set({
-                    measures: model.measures.map((x, j) =>
-                      j === i ? { ...x, fn: e.target.value as MeasureFn } : x,
-                    ),
-                  })
-                }
+                onChange={(e) => setMeasure(i, (x) => withFn(x, e.target.value as MeasureFn))}
               />
-              <span className={l.subtle}>of</span>
-              <TextInput
-                aria-label={`Measure ${i + 1} field`}
-                mono
-                placeholder="—"
-                value={m.field}
-                onChange={(e) =>
-                  set({
-                    measures: model.measures.map((x, j) => (j === i ? { ...x, field: e.target.value } : x)),
-                  })
-                }
+              <MeasureArgument
+                n={i + 1}
+                measure={m}
+                onChange={(field) => setMeasure(i, (x) => ({ ...x, field }))}
               />
               {model.measures.length > 1 ? (
                 <Button
@@ -188,11 +231,16 @@ function Builder({
                 size="sm"
                 variant="ghost"
                 icon={<Plus size={14} />}
-                onClick={() => set({ measures: [...model.measures, { fn: 'count', field: '' }] })}
+                onClick={() => set({ measures: [...model.measures, nextMeasure(model.measures)] })}
               >
                 measure
               </Button>
             </div>
+          ) : null}
+          {problem !== null ? (
+            <Notice kind="warning" className={s.measureProblem}>
+              {problem}
+            </Notice>
           ) : null}
         </div>
       </Step>
@@ -409,6 +457,8 @@ export function PanelEditor({
     setTab(t);
   };
   const kind = check.kind ?? (panel.type === 'markdown' ? null : 'timeseries');
+  const problem =
+    tab === 'builder' && !builderLocked && panel.type !== 'markdown' ? builderProblem(model) : null;
   return (
     <div className={s.page}>
       <div className={s.head}>
@@ -425,7 +475,7 @@ export function PanelEditor({
           </Button>
           <Button
             variant="primary"
-            disabled={check.error !== null || panel.title.trim() === ''}
+            disabled={check.error !== null || problem !== null || panel.title.trim() === ''}
             onClick={() => onApply(panel)}
           >
             Apply
