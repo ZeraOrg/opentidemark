@@ -11,6 +11,8 @@ Release archives, checksums and container images are on the
 
 ## [Unreleased]
 
+## [0.5.0-rc.2] - 2026-10-26
+
 ### Added
 
 - Metric points keep the start time that OpenTelemetry sends with cumulative values (new column
