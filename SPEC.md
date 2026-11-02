@@ -8,7 +8,7 @@
 > well. Any change to behaviour, APIs, schema, configuration, layout, UI or tooling **must**
 > update this spec in the same commit. Version history is in §21.
 
-**Spec version:** 0.34.4 · **Last updated:** 2026-10-25
+**Spec version:** 0.34.5 · **Last updated:** 2026-11-02
 
 ---
 
@@ -2845,6 +2845,10 @@ Normative details:
   (Vitest's mocker needs msw 2; remove the rule when Vitest supports msw 3) and major updates of
   `@types/node`, and the Docker entry ignores major updates of the `node` image, so both stay on
   the Node LTS line of the build (Node 24) until it is moved deliberately.
+  `web/package.json` `overrides` pins `minimatch` `11.0.1` (development only, through ESLint,
+  `@eslint/config-array` and typescript-eslint, which still require `^10`): GHSA-g3hv-75wg-m249
+  is fixed only in 11.0.1, and §15.9 fixes vulnerabilities by upgrading. Remove the override when
+  those packages require minimatch 11.
 - **Documentation site** (`mkdocs.yml`, `docs-site/`, `.github/workflows/docs.yml`): MkDocs
   `1.6.1` (BSD-2-Clause) with Material for MkDocs `9.7.7` (MIT), every transitive dependency
   pinned with hashes in `docs-site/requirements.txt` (generated from `docs-site/requirements.in`
@@ -3587,6 +3591,7 @@ items of M0–M3b:
 
 | Version | Date | Change |
 |---|---|---|
+| 0.34.5 | 2026-11-02 | Web dev dependencies (§17.4, §15.9): an npm `overrides` entry pins `minimatch` 11.0.1 for ESLint and typescript-eslint (GHSA-g3hv-75wg-m249, fixed only in 11.x, development only), so the OSV-Scanner supply-chain gate passes; to be removed once they require minimatch 11. It brings the development-only `@isaacs/nonrecursive-glob-match` 1.0.3 (BlueOak-1.0.0). Taken 6 days after the release of 11.0.1 as an owner-approved security exception to the 7-day rule of §15.9. |
 | 0.34.4 | 2026-10-25 | Monotonic sums (§11.3, §16.1, §18): `GET /metrics/names` reports `monotonic` (true when a point of the metric in the range is a monotonic sum, from `is_monotonic`; `store.MetricName.Monotonic`, `metricNameView`). The metric browser charts *rate/s* by default and offers the button only for counters (`sum`/`counter` with `monotonic` true); an up-down sum is averaged with the plain aggregates like a gauge (0.34.2 defaulted every sum to the rate). The mock's `http.server.active_requests` is an up-down sum; Vitest and the e2e metrics test cover both. |
 | 0.34.3 | 2026-10-25 | TQL limits (§10.3, §18): the 8 KiB query limit also applies to the canonical form, so a query that `String()` writes longer (adjacent `''` become `"" and ""`) is rejected with a positioned error instead of yielding canonical TQL that does not parse (e.g. a resolved dashboard panel query); found by `FuzzParse`, input kept in `testdata/fuzz`. |
 | 0.34.2 | 2026-10-25 | Metric browser (§16.1, §18): sums and counters offer *rate/s* (`rate(value)`) before the plain aggregates and chart it by default instead of `sum(value)`, which added up running totals; the chart unit of a rate is `<unit>/s`. The names endpoint carries no temporality or monotonicity, so the default follows the kind alone. Vitest covers the options, defaults and unit per kind; the e2e metrics test checks a sum. |
