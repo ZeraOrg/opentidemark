@@ -503,3 +503,13 @@ error: pos=41 len=7 msg="count() cannot be combined with histogram aggregates in
   | source metrics | x | stats hist_mean() / count() as x
   |                                          ^^^^^^^
 
+=== foo | stats stddev(@timestamp)
+error: pos=19 len=10 msg="stddev() needs a numeric field; @timestamp is not numeric"
+  | foo | stats stddev(@timestamp)
+  |                    ^^^^^^^^^^
+
+=== foo | stats stddev()
+error: pos=12 len=8 msg="stddev() needs a field" hint="stddev(field)"
+  | foo | stats stddev()
+  |             ^^^^^^^^
+

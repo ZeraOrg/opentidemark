@@ -8,8 +8,10 @@
 // Never part of the production bundle.
 
 import { http, HttpResponse, type JsonBodyType } from 'msw';
+import { parseGoDuration } from '../lib/duration';
 import type {
   Alert,
+  RuleDoc,
   ApiToken,
   Channel,
   Connection,
@@ -397,10 +399,13 @@ function countBase(group: string): number {
 
 /** Mean of the latency-like values a sum adds up, so that `sum(x) / count()` is a mean. */
 const MEAN_LATENCY_MS = 140;
+/** Spread of those latency-like values (`stddev`). */
+const STDDEV_LATENCY_MS = 45;
 
 function callBase(agg: string, group: string, q: string): number {
   if (/p99|histogram_quantile\(0\.99/.test(agg)) return 520 * unitScale(q);
   if (/p95|histogram_quantile\(0\.95/.test(agg)) return 380 * unitScale(q);
+  if (/stddev/.test(agg)) return STDDEV_LATENCY_MS * unitScale(q);
   if (/p50|avg|hist_mean|histogram_quantile|min|max/.test(agg)) return MEAN_LATENCY_MS * unitScale(q);
   return countBase(group);
 }
@@ -423,6 +428,57 @@ export function baseFor(agg: string, group: string, q = ''): number {
   return evalArithmetic(agg, (call) => arithmeticCallBase(call, group, q));
 }
 
+/**
+ * A mock overlay (SPEC §14.4): threshold rules as they are; deviation rules with a band that
+ * follows the trend the mock series grow along, so only their spikes leave it.
+ */
+function mockOverlay(
+  o: { name: string; draft?: boolean; ruleId?: string; doc: RuleDoc },
+  from: number,
+  to: number,
+): Record<string, unknown> {
+  const windowMs = parseGoDuration(o.doc.window) ?? 300_000;
+  const base = {
+    name: o.name,
+    ...(o.draft === true ? { draft: true } : {}),
+    ...(o.ruleId !== undefined ? { ruleId: o.ruleId } : {}),
+  };
+  const c = o.doc.condition;
+  if (c.type !== 'deviation') return { ...base, condition: c, windowMs, bands: null };
+  const agg = aggregates(o.doc.query)[0] ?? 'count()';
+  const groups = mockGroups(o.doc.query, o.doc.groupBy);
+  const trend = /p\d\d|histogram_quantile/.test(agg) ? 0.5 : 1.4;
+  const start = Math.floor(from / windowMs) * windowMs;
+  const bands = groups.map((g) => {
+    const mean0 = baseFor(agg, g, o.doc.query);
+    const points: [number, number | null, number, number | null][] = [];
+    for (let t = start; t < to; t += windowMs) {
+      const x = (t - start) / Math.max(1, to - start);
+      const mean = mean0 * (1 + trend * x);
+      const dist = Math.max(c.sigma * mean0 * 0.05, c.minDelta);
+      points.push([
+        t,
+        c.direction === 'above' ? null : mean - dist,
+        mean,
+        c.direction === 'below' ? null : mean + dist,
+      ]);
+    }
+    return { labels: g === '' ? {} : { [o.doc.groupBy[0] ?? 'k']: g }, key: g === '' ? [] : [g], points };
+  });
+  return { ...base, condition: c, windowMs, bands };
+}
+
+/**
+ * The groups of a mock time series: the values of the first by-field, or only the filtered
+ * service when the query names one (`service:payments-api … by service`).
+ */
+function mockGroups(q: string, by: readonly string[]): string[] {
+  if (by.length === 0) return [''];
+  const svc = /\bservice:([\w.-]+)/.exec(q)?.[1];
+  if (by[0] === 'service' && svc !== undefined) return [svc];
+  return (GROUP_VALUES[by[0] ?? ''] ?? ['a', 'b']).slice(0, 5);
+}
+
 /** A response number: NaN (division by zero) becomes null, as the server reports it. */
 const finite = (v: number): number | null => (Number.isFinite(v) ? v : null);
 
@@ -432,7 +488,7 @@ function timeseries(q: string, from: number, to: number): QueryResponse {
   const n = Math.max(2, Math.ceil((to - start) / span));
   const by = byFields(q);
   const aggs = aggregates(q);
-  const groups = by.length === 0 ? [''] : (GROUP_VALUES[by[0] ?? ''] ?? ['a', 'b']).slice(0, 5);
+  const groups = mockGroups(q, by);
   const xs = Array.from({ length: n }, (_, i) => start + i * span);
   return {
     kind: 'timeseries',
@@ -674,6 +730,7 @@ const AGG_NAMES = [
   'avg',
   'min',
   'max',
+  'stddev',
   'p50',
   'p75',
   'p90',
@@ -1618,13 +1675,45 @@ export const handlers = [
     }),
   ),
   http.post(
+    `${P}/alerts/overlays`,
+    authed(async ({ request }) => {
+      const b = await body<{ q: string; from?: string; to?: string; rules?: string[]; doc?: RuleDoc }>(
+        request,
+      );
+      const [from, to] = range(b.from, b.to);
+      const norm = (q: string) =>
+        q
+          .replace(/\s+span\s+\S+/i, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+      const chart = norm(b.q);
+      const picked = state.alerts.filter((a) => b.rules?.includes(a.id) === true);
+      const matched = [...state.alerts]
+        .sort((x, y) => x.name.localeCompare(y.name))
+        .filter((a) => chart !== '' && norm(a.doc.query) === chart && !picked.includes(a));
+      const list: { name: string; draft?: boolean; ruleId?: string; doc: RuleDoc }[] = [
+        ...(b.doc !== undefined ? [{ name: 'draft', draft: true, doc: b.doc }] : []),
+        ...[...picked, ...matched].map((a) => ({ name: a.name, ruleId: a.id, doc: a.doc })),
+      ].slice(0, 5);
+      return json({ overlays: list.map((o) => mockOverlay(o, from, to)) } as unknown as JsonBodyType);
+    }),
+  ),
+  http.post(
     `${P}/alerts/:id/test`,
     authed(({ params }) => {
       const a = state.alerts.find((x) => x.id === str(params.id));
       if (a === undefined) return err(404, 'not_found', 'alert not found');
+      const deviation = a.doc.condition.type === 'deviation';
       return json({
         state: a.state,
-        samples: [{ labels: {}, value: a.lastValue }],
+        samples: [
+          {
+            labels: deviation ? { service: 'payments-api' } : {},
+            value: a.lastValue,
+            // a mock baseline: the value sits within the normal range
+            ...(deviation ? { baseline: { mean: 430, stdDev: 26.5, samples: 288, z: -0.68 } } : {}),
+          },
+        ],
         groups: a.groups,
         transitions: [],
       } as unknown as JsonBodyType);

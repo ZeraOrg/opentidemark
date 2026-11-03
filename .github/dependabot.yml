@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Dependency update PRs (SPEC §15.9, §17.4): once a week (Monday), all ecosystems together in ONE
-# pull request (multi-ecosystem group), so a week costs a single CI run. Security updates are
-# still raised immediately by Dependabot alerts.
+# pull request (multi-ecosystem group), so a week costs a single CI run. Every ecosystem has a
+# 7-day cooldown, so Dependabot only proposes versions that already satisfy the 7-day rule.
+# Security updates are still raised immediately by Dependabot alerts (cooldown does not apply).
 version: 2
 multi-ecosystem-groups:
   dependencies:
@@ -13,10 +14,14 @@ updates:
     directory: /
     patterns: ["*"]
     multi-ecosystem-group: dependencies
+    cooldown:
+      default-days: 7
   - package-ecosystem: npm
     directory: /web
     patterns: ["*"]
     multi-ecosystem-group: dependencies
+    cooldown:
+      default-days: 7
     ignore:
       # typescript-eslint 8.71 supports TypeScript < 6.1; remove once a typescript-eslint release
       # supports TypeScript 7 (otherwise every weekly npm update fails on the peer dependency).
@@ -33,10 +38,14 @@ updates:
     directory: /
     patterns: ["*"]
     multi-ecosystem-group: dependencies
+    cooldown:
+      default-days: 7
   - package-ecosystem: docker
     directory: /
     patterns: ["*"]
     multi-ecosystem-group: dependencies
+    cooldown:
+      default-days: 7
     ignore:
       # The web build stays on the current Node LTS line (Node 24); move up deliberately.
       - dependency-name: node

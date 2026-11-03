@@ -15,6 +15,7 @@ export const MEASURE_FUNCTIONS = [
   'avg',
   'min',
   'max',
+  'stddev',
   'p50',
   'p75',
   'p90',

@@ -10,6 +10,18 @@ args:
   4: int 10000
 columns: @bucket:time, service:string, avg_value:number
 
+=== source metrics | name:http.server.request.duration | stats stddev(value) by service span 1m
+kind: timeseries  source: metrics  limit: 10000  span: 1m0s
+canonical: source metrics | name:"http.server.request.duration" | stats stddev(value) by service span 1m
+sql: SELECT toStartOfInterval(timestamp, toIntervalSecond(?)) AS bucket, service AS g0, if(count(value) > 1, stddevSamp(value), NULL) AS a0 FROM tidemark.metric_points WHERE timestamp >= ? AND timestamp < ? AND (lower(name) = lower(?)) GROUP BY bucket, g0 ORDER BY bucket ASC, g0 ASC LIMIT ?
+args:
+  0: int64 60
+  1: time 2026-10-13T11:00:00Z
+  2: time 2026-10-13T12:00:00Z
+  3: string "http.server.request.duration"
+  4: int 10000
+columns: @bucket:time, service:string, stddev_value:number
+
 === source metrics | name:http.server.request.count | stats rate(value) by service span 1m
 kind: timeseries  source: metrics  limit: 10000  span: 1m0s
 canonical: source metrics | name:"http.server.request.count" | stats rate(value) by service span 1m

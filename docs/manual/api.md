@@ -104,6 +104,7 @@ environments); `environments` filters **logs** only.
 | `POST /dashboards/{id}/panels/{panelId}/query` | viewer | Panel query with variables substituted |
 | `POST /dashboards`, `POST /dashboards/import`, `PUT/DELETE /dashboards/{id}`, `POST /dashboards/{id}/duplicate` | editor | Manage |
 | `GET /alerts`, `GET /alerts/{id}`, `GET /alerts/{id}/history` | viewer | Rules (with `streams`), state, history; only rules within the caller's scope |
+| `POST /alerts/overlays` `{q, from, to, rules?, doc?, streams?}` | viewer | The rules to draw on a chart of `q` (matching queries, named `rules`, or a draft `doc`) with the rolling band of deviation rules ([Rules on charts](alerting.md#rules-on-charts)) |
 | `POST /alerts`, `PUT/DELETE /alerts/{id}`, `POST /alerts/{id}/test`, `POST /alerts/{id}/mute` | editor | Manage rules |
 | `GET /channels`, `GET /channels/{id}` | viewer | Channels (secrets masked) |
 | `POST /channels`, `PUT/DELETE /channels/{id}`, `POST /channels/{id}/test` | admin | Manage channels |

@@ -279,6 +279,8 @@ export interface PanelOptions {
   decimals?: number;
   legend?: 'bottom' | 'right' | 'hidden';
   thresholds?: { value: number; color: ThresholdColor }[];
+  /** Alert rules drawn on the chart besides those whose query matches (SPEC §13.1, §14.4). */
+  alertRules?: string[];
   content?: string;
 }
 
@@ -334,10 +336,38 @@ export type Severity = 'info' | 'warning' | 'critical';
 export type NoDataPolicy = 'ok' | 'keep' | 'alerting';
 export type AlertState = 'ok' | 'pending' | 'firing' | 'error';
 
+/** A fixed threshold (SPEC §14.1); stored without `type`. */
+export interface ThresholdCondition {
+  type?: 'threshold';
+  op: ConditionOp;
+  threshold: number;
+}
+
+export type DeviationDirection = 'above' | 'below' | 'both';
+
+/** A deviation from the value's baseline of `baseline` (a Go duration) in σ (SPEC §14.1). */
+export interface DeviationCondition {
+  type: 'deviation';
+  direction: DeviationDirection;
+  sigma: number;
+  baseline: string;
+  minDelta: number;
+}
+
+export type RuleCondition = ThresholdCondition | DeviationCondition;
+
+/** A group's baseline of a deviation rule; `z` is absent when `stdDev` is 0. */
+export interface Baseline {
+  mean: number;
+  stdDev: number;
+  samples: number;
+  z?: number;
+}
+
 export interface RuleDoc {
   description: string;
   query: string;
-  condition: { op: ConditionOp; threshold: number };
+  condition: RuleCondition;
   window: string;
   every: string;
   for: string;
@@ -353,6 +383,7 @@ export interface AlertGroup {
   state: string;
   since: string;
   value: number | null;
+  baseline?: Baseline;
 }
 
 export interface Alert {
@@ -373,10 +404,40 @@ export interface Alert {
   updatedAt: string;
 }
 
+/** The rolling band of one group: [epoch ms, lower | null, mean, upper | null] per window. */
+export interface AlertBand {
+  labels: Record<string, string>;
+  /** By-field values in by order (the chart series label). */
+  key: string[];
+  points: [number, number | null, number, number | null][];
+}
+
+/** An alert rule drawn on a chart (POST /alerts/overlays, SPEC §14.4). */
+export interface AlertOverlay {
+  ruleId?: string;
+  name: string;
+  draft?: boolean;
+  condition: RuleCondition;
+  /** The rule's window: the width of a band point. */
+  windowMs: number;
+  /** null for threshold rules. */
+  bands: AlertBand[] | null;
+  error?: string;
+}
+
+export interface AlertOverlaysRequest {
+  q: string;
+  from: string;
+  to: string;
+  rules?: string[];
+  doc?: RuleDoc;
+  streams?: string[] | null;
+}
+
 export interface AlertTestResult {
   state: string;
   error?: string;
-  samples: { labels: Record<string, string>; value: number | null }[];
+  samples: { labels: Record<string, string>; value: number | null; baseline?: Baseline }[];
   groups: AlertGroup[];
   transitions: { labels: Record<string, string>; from: string; to: string; message: string }[];
 }

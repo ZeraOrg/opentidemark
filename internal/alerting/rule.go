@@ -31,6 +31,17 @@ const (
 	MaxGroups      = 1000
 	maxDescription = 1024
 	maxQueryLen    = 8192
+	day            = 24 * time.Hour
+)
+
+// Deviation rule limits (SPEC §14.1).
+const (
+	MaxSigma           = 100
+	MinBaselineBuckets = 5
+	MaxBaselineBuckets = 1000
+	MaxBaseline        = 30 * day
+	MinBaselineSamples = 5
+	MaxBaselineRows    = 100_000
 )
 
 // Severities.
@@ -92,13 +103,57 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// Condition compares the rule value with a threshold.
+// Condition types (SPEC §14.1): a fixed threshold, or a deviation from the value's baseline.
+const (
+	ConditionThreshold = "threshold"
+	ConditionDeviation = "deviation"
+)
+
+// Deviation directions.
+const (
+	DirectionAbove = "above"
+	DirectionBelow = "below"
+	DirectionBoth  = "both"
+)
+
+var directions = []string{DirectionAbove, DirectionBelow, DirectionBoth}
+
+// Condition compares the rule value with a threshold (Op, Threshold) or, for Type deviation,
+// with the baseline of the value's recent history (Direction, Sigma, Baseline, MinDelta). Type
+// "" means threshold. The fields of the other form must be zero.
 type Condition struct {
-	Op        string  `json:"op"`
-	Threshold float64 `json:"threshold"`
+	Type      string   `json:"type"`
+	Op        string   `json:"op"`
+	Threshold float64  `json:"threshold"`
+	Direction string   `json:"direction"`
+	Sigma     float64  `json:"sigma"`
+	Baseline  Duration `json:"baseline"`
+	MinDelta  float64  `json:"minDelta"`
 }
 
-// Met reports whether v satisfies the condition.
+// MarshalJSON writes the canonical form of the condition's type: {op, threshold} for threshold
+// conditions (as before deviation rules existed) and {type, direction, sigma, baseline,
+// minDelta} for deviation conditions.
+func (c Condition) MarshalJSON() ([]byte, error) {
+	if c.IsDeviation() {
+		return json.Marshal(struct {
+			Type      string   `json:"type"`
+			Direction string   `json:"direction"`
+			Sigma     float64  `json:"sigma"`
+			Baseline  Duration `json:"baseline"`
+			MinDelta  float64  `json:"minDelta"`
+		}{ConditionDeviation, c.Direction, c.Sigma, c.Baseline, c.MinDelta})
+	}
+	return json.Marshal(struct {
+		Op        string  `json:"op"`
+		Threshold float64 `json:"threshold"`
+	}{c.Op, c.Threshold})
+}
+
+// IsDeviation reports whether the condition compares with a baseline.
+func (c Condition) IsDeviation() bool { return c.Type == ConditionDeviation }
+
+// Met reports whether v satisfies a threshold condition.
 func (c Condition) Met(v float64) bool {
 	switch c.Op {
 	case ">":
@@ -164,6 +219,9 @@ func ParseRule(raw json.RawMessage) (*RuleDoc, error) {
 	if d.GroupBy == nil {
 		d.GroupBy = []string{}
 	}
+	if d.Condition.Type == ConditionThreshold {
+		d.Condition.Type = ""
+	}
 	if err := d.Validate(); err != nil {
 		return nil, err
 	}
@@ -175,10 +233,6 @@ func (d *RuleDoc) Validate() error {
 	switch {
 	case len(d.Description) > maxDescription:
 		return ruleErr("description", "is too long")
-	case !slices.Contains(operators, d.Condition.Op):
-		return ruleErr("condition.op", "must be one of %s", strings.Join(operators, " "))
-	case math.IsNaN(d.Condition.Threshold) || math.IsInf(d.Condition.Threshold, 0):
-		return ruleErr("condition.threshold", "must be a finite number")
 	case time.Duration(d.Window) < MinWindow || time.Duration(d.Window) > MaxWindow:
 		return ruleErr("window", "must be between %s and %s", MinWindow, MaxWindow)
 	case time.Duration(d.Every) < MinEvery || time.Duration(d.Every) > MaxEvery:
@@ -197,9 +251,67 @@ func (d *RuleDoc) Validate() error {
 			return ruleErr("channels", "ids must be non-empty and unique")
 		}
 	}
-	_, err := d.Compile(time.Unix(0, 0).UTC(), "", nil, model.NoStreams())
-	return err
+	if err := d.validateCondition(); err != nil {
+		return err
+	}
+	epoch := time.Unix(0, 0).UTC()
+	if _, err := d.Compile(epoch, "", nil, model.NoStreams()); err != nil {
+		return err
+	}
+	if d.Condition.IsDeviation() {
+		if _, err := d.CompileBaseline(epoch, "", nil, model.NoStreams()); err != nil {
+			return err
+		}
+	}
+	return nil
 }
+
+func (d *RuleDoc) validateCondition() error {
+	c := d.Condition
+	switch c.Type {
+	case "":
+		return validateThreshold(c)
+	case ConditionDeviation:
+		return d.validateDeviation()
+	}
+	return ruleErr("condition.type", "must be threshold or deviation")
+}
+
+func validateThreshold(c Condition) error {
+	switch {
+	case !slices.Contains(operators, c.Op):
+		return ruleErr("condition.op", "must be one of %s", strings.Join(operators, " "))
+	case !finite(c.Threshold):
+		return ruleErr("condition.threshold", "must be a finite number")
+	case c.Direction != "" || c.Sigma != 0 || c.Baseline != 0 || c.MinDelta != 0:
+		return ruleErr("condition", "direction, sigma, baseline and minDelta need type deviation")
+	}
+	return nil
+}
+
+func (d *RuleDoc) validateDeviation() error {
+	c, w := d.Condition, time.Duration(d.Window)
+	switch {
+	case c.Op != "" || c.Threshold != 0:
+		return ruleErr("condition", "op and threshold are not used by type deviation")
+	case !slices.Contains(directions, c.Direction):
+		return ruleErr("condition.direction", "must be above, below or both")
+	case !finite(c.Sigma) || c.Sigma <= 0 || c.Sigma > MaxSigma:
+		return ruleErr("condition.sigma", "must be greater than 0 and at most %d", MaxSigma)
+	case !finite(c.MinDelta) || c.MinDelta < 0:
+		return ruleErr("condition.minDelta", "must be a finite number of at least 0")
+	case w%time.Second != 0 || day%w != 0:
+		return ruleErr("window", "must divide 24h for deviation rules (e.g. 1m, 5m, 15m, 1h, 6h, 24h)")
+	}
+	b := time.Duration(c.Baseline)
+	if b <= 0 || b%w != 0 || b/w < MinBaselineBuckets || b/w > MaxBaselineBuckets || b > MaxBaseline {
+		return ruleErr("condition.baseline", "must be a multiple of window giving %d to %d windows, at most %s",
+			MinBaselineBuckets, MaxBaselineBuckets, MaxBaseline)
+	}
+	return nil
+}
+
+func finite(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) }
 
 // Compile parses the query and compiles it for the window ending at now. The query must be
 // a single stats stage without span whose by-fields equal groupBy and whose only aggregate
@@ -235,6 +347,14 @@ func (d *RuleDoc) checkShape(q *tql.Query) error {
 			stats = s
 		case *tql.Top:
 			return ruleErr("query", "top is not allowed; use stats with one aggregate")
+		case *tql.Where:
+			if stats != nil && d.Condition.IsDeviation() {
+				return ruleErr("query", "where after stats is not allowed in deviation rules (it would drop baseline windows)")
+			}
+		case *tql.Limit:
+			if d.Condition.IsDeviation() {
+				return ruleErr("query", "limit is not allowed in deviation rules (it would drop baseline windows)")
+			}
 		}
 	}
 	if stats == nil {

@@ -375,6 +375,18 @@ describe('tokenize', () => {
     expect(kinds(q)).toEqual(want);
   });
 
+  it('classifies stddev as an aggregate function', () => {
+    expect(kinds('* | stats stddev(elapsed)')).toEqual([
+      'value:*',
+      'pipe:|',
+      'keyword:stats',
+      'function:stddev',
+      'punct:(',
+      'field:elapsed',
+      'punct:)',
+    ]);
+  });
+
   it('classifies a keyword used as a field name as a field', () => {
     const k = tokenize('source:x').find((t) => t.text === 'source')?.kind;
     expect(k).toBe<TokenKind>('field');

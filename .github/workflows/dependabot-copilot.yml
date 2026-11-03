@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Dependabot follow-up (SPEC §17.4): every six hours, each open Dependabot pull request whose ci
+# failed, or whose update is not routine (a changed workflow, Dockerfile or Go release, or a
+# major version step), gets one issue (label dependabot-fix) that is assigned to the Copilot
+# coding agent; Copilot works on the Dependabot branch and opens a pull request into it. Issues
+# of closed Dependabot pull requests are closed. Runs only in the main public repository
+# ZeraOrg/opentidemark; elsewhere its job is skipped. Secret COPILOT_ASSIGN_TOKEN: a user token
+# that may assign Copilot (fine-grained: this repository with Issues, Pull requests, Contents and
+# Actions read and write), because the API does not accept installation tokens.
+name: dependabot-copilot
+
+on:
+  schedule:
+    - cron: "23 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependabot-copilot
+  cancel-in-progress: false # never hand the same pull request off twice
+
+jobs:
+  hand-off:
+    name: hand failing Dependabot updates to Copilot
+    if: github.repository == 'ZeraOrg/opentidemark'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+      actions: read
+      checks: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: scripts
+      - name: hand off
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COPILOT_TOKEN: ${{ secrets.COPILOT_ASSIGN_TOKEN }}
+        run: scripts/dependabot-copilot.sh hand-off

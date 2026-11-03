@@ -46,6 +46,12 @@ type fakeQuerier struct {
 	delay    time.Duration
 	lastSQL  string
 	lastArgs []any
+	// baseline answers the bucketed baseline queries of deviation rules (Span > 0).
+	baseline      [][]any
+	baselineErr   error
+	baselineCalls int
+	baselineFrom  time.Time
+	baselineTo    time.Time
 }
 
 func (q *fakeQuerier) set(query string, rows [][]any, err error) {
@@ -70,6 +76,27 @@ func (q *fakeQuerier) Run(_ context.Context, c *tql.Compiled) (store.Result, err
 	defer q.mu.Unlock()
 	q.calls++
 	q.lastSQL, q.lastArgs = c.SQL, c.Args
+	if c.Span > 0 {
+		q.baselineCalls++
+		if c.Limit != MaxBaselineRows {
+			return store.Result{}, errors.New("baseline row limit is not MaxBaselineRows")
+		}
+		for _, a := range c.Args {
+			if at, ok := a.(time.Time); ok {
+				if q.baselineFrom.IsZero() || at.Before(q.baselineFrom) {
+					q.baselineFrom = at
+				}
+				if at.After(q.baselineTo) {
+					q.baselineTo = at
+				}
+			}
+		}
+		var names []string
+		for _, col := range c.Columns[1 : len(c.Columns)-1] {
+			names = append(names, col.Name)
+		}
+		return store.Result{Kind: tql.KindTimeseries, Series: toSeries(q.baseline, names)}, q.baselineErr
+	}
 	if c.Limit > MaxGroups {
 		return store.Result{}, errors.New("row limit above MaxGroups")
 	}

@@ -151,6 +151,7 @@ describe('fromTql', () => {
       filter: 'name:http.server.request.duration',
       measures: [
         { fn: 'avg', field: 'value' },
+        { fn: 'stddev', field: 'value' },
         { fn: 'max', field: 'value' },
       ],
       groupBy: ['service', '`k8s pod`'],

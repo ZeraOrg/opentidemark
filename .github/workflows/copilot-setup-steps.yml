@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Development environment of the Copilot coding agent (SPEC §17.4), which fixes Dependabot
+# updates (dependabot-copilot.yml): the Go release of go.mod, Node 24 with npm 11, the web
+# dependencies and the pinned lint and vulnerability tools of ci.yml, so `make check` and
+# `make notices` work in the agent's session. Copilot runs the job named copilot-setup-steps
+# itself; the workflow has no automatic trigger and can be started by hand to test it.
+name: copilot-setup-steps
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GOLANGCI_LINT_VERSION: v2.14.0
+  GOVULNCHECK_VERSION: v1.9.0
+  NODE_VERSION: "24"
+
+jobs:
+  copilot-setup-steps:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Go modules and tools
+        run: |
+          go mod download
+          go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}"
+          go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
+      - name: web dependencies
+        working-directory: web
+        run: npm ci --no-audit --no-fund

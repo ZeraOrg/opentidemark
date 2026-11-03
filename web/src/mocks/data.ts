@@ -10,6 +10,7 @@ import type {
   ApiToken,
   AuditEntry,
   Channel,
+  ConditionOp,
   Connection,
   Dashboard,
   DashboardDoc,
@@ -1138,46 +1139,79 @@ const RULES: RuleSeed[] = [
   ],
 ];
 
-export const ALERTS: Alert[] = RULES.map(
-  ([id, name, state, query, op, threshold, forDur, severity, channels, value, group, muted, err], i) => ({
-    id,
-    name,
+export const ALERTS: Alert[] = [
+  ...RULES.map(
+    (
+      [id, name, state, query, op, threshold, forDur, severity, channels, value, group, muted, err],
+      i,
+    ): Alert => ({
+      id,
+      name,
+      enabled: true,
+      doc: {
+        description: '',
+        query,
+        condition: { op: op as ConditionOp, threshold },
+        window: '5m0s',
+        every: '1m0s',
+        for: forDur === '0s' ? '0s' : forDur.replace('m', 'm0s'),
+        severity: severity as Alert['doc']['severity'],
+        channels,
+        noData: 'ok',
+        groupBy: group === '' ? [] : [group],
+        muteUntil: muted === true ? iso(NOW + 3 * 3_600_000) : null,
+      },
+      streams: id === 'a-decl' ? ['payments'] : null,
+      state,
+      stateSince: iso(NOW - (i + 1) * 7 * MIN),
+      lastEvalAt: iso(NOW - 20_000),
+      lastValue: value,
+      lastError: err ?? '',
+      groups:
+        group === ''
+          ? []
+          : [
+              {
+                labels: { [group]: group === 'service' ? 'checkout-api' : 'POST /orders' },
+                state,
+                since: iso(NOW - 6 * MIN),
+                value,
+              },
+            ],
+      version: 3,
+      createdAt: created,
+      updatedAt: created,
+    }),
+  ),
+  {
+    id: 'a-volume',
+    name: 'Payments volume drop',
     enabled: true,
     doc: {
-      description: '',
-      query,
-      condition: { op: op as Alert['doc']['condition']['op'], threshold },
+      description: 'Intended traffic fell far below its usual level',
+      query: 'service:payments-api | stats count() by service',
+      condition: { type: 'deviation', direction: 'below', sigma: 3, baseline: '24h0m0s', minDelta: 2 },
       window: '5m0s',
       every: '1m0s',
-      for: forDur === '0s' ? '0s' : forDur.replace('m', 'm0s'),
-      severity: severity as Alert['doc']['severity'],
-      channels,
+      for: '5m0s',
+      severity: 'critical',
+      channels: [],
       noData: 'ok',
-      groupBy: group === '' ? [] : [group],
-      muteUntil: muted === true ? iso(NOW + 3 * 3_600_000) : null,
+      groupBy: ['service'],
+      muteUntil: null,
     },
-    streams: id === 'a-decl' ? ['payments'] : null,
-    state,
-    stateSince: iso(NOW - (i + 1) * 7 * MIN),
+    streams: null,
+    state: 'ok',
+    stateSince: iso(NOW - 95 * MIN),
     lastEvalAt: iso(NOW - 20_000),
-    lastValue: value,
-    lastError: err ?? '',
-    groups:
-      group === ''
-        ? []
-        : [
-            {
-              labels: { [group]: group === 'service' ? 'checkout-api' : 'POST /orders' },
-              state,
-              since: iso(NOW - 6 * MIN),
-              value,
-            },
-          ],
-    version: 3,
+    lastValue: 412,
+    lastError: '',
+    groups: [],
+    version: 1,
     createdAt: created,
     updatedAt: created,
-  }),
-);
+  },
+];
 
 export const HISTORY: AlertHistoryEntry[] = [
   {

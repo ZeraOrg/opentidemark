@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //
-// Time-series chart on uPlot (SPEC §5, DESIGN §2.4, §9.3): series colours from the chart tokens
-// (re-created on theme change), line / area / bars, stacking, dashed threshold lines, an
-// optional shaded "condition holds" region (alert preview), crosshair tooltip and a legend.
-// Also the SVG sparkline used by stat tiles.
+// Time-series chart on uPlot (SPEC §5, §14.4, DESIGN §2.4, §9.3): series colours from the chart
+// tokens (re-created on theme change), line / area / bars, stacking, dashed threshold lines, an
+// optional shaded "condition holds" region (alert preview), alert rule overlays (threshold lines
+// and the rolling normal range of deviation rules, with the buckets that leave it shaded),
+// crosshair tooltip and a legend. Also the SVG sparkline used by stat tiles.
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import uPlot from 'uplot';
@@ -26,6 +27,42 @@ export interface ChartThreshold {
   label?: string;
 }
 
+/** One group's rolling band: [epoch ms, lower | null, mean, upper | null] per window. */
+export interface ChartBand {
+  /** Index of the chart series the band belongs to. */
+  series: number;
+  windowMs: number;
+  points: readonly (readonly [number, number | null, number, number | null])[];
+}
+
+/** An alert rule drawn on the chart (SPEC §14.4); `text` describes its condition. */
+export type ChartOverlay =
+  | { kind: 'threshold'; name: string; text: string; op: ConditionOp; value: number }
+  | { kind: 'band'; name: string; text: string; bands: readonly ChartBand[]; error?: string };
+
+/** The band point whose window contains t, or undefined. */
+export function bandPointAt(band: ChartBand, t: number): ChartBand['points'][number] | undefined {
+  return band.points.find((p) => p[0] <= t && t < p[0] + band.windowMs);
+}
+
+/** Whether series value v at time t leaves an overlay (breaks a threshold or its band). */
+export function overlayBreached(o: ChartOverlay, series: number, t: number, v: number): boolean {
+  if (o.kind === 'threshold') return conditionHolds(v, o.op, o.value);
+  return o.bands.some((b) => {
+    if (b.series !== series) return false;
+    const p = bandPointAt(b, t);
+    return p !== undefined && ((p[1] !== null && v < p[1]) || (p[3] !== null && v > p[3]));
+  });
+}
+
+/** The largest value an overlay draws (so the y scale includes it). */
+function overlayMax(o: ChartOverlay): number {
+  if (o.kind === 'threshold') return o.value;
+  let m = -Infinity;
+  for (const b of o.bands) for (const p of b.points) m = Math.max(m, p[3] ?? p[2]);
+  return m;
+}
+
 export interface ChartProps {
   data: ChartData;
   height: number;
@@ -34,6 +71,8 @@ export interface ChartProps {
   stacked?: boolean;
   thresholds?: readonly ChartThreshold[];
   shade?: { op: ConditionOp; value: number } | null;
+  /** Alert rules drawn on the chart (SPEC §14.4). */
+  overlays?: readonly ChartOverlay[];
   unit?: string;
   decimals?: number;
   legend?: 'bottom' | 'right' | 'hidden';
@@ -107,6 +146,7 @@ function buildPlot(
   const spanMs = (p.data.x[p.data.x.length - 1] ?? 0) - (p.data.x[0] ?? 0);
   const bars = uPlot.paths.bars?.({ size: [0.72, 48], align: 0 });
   const thresholds = p.thresholds ?? [];
+  const overlays = p.overlays ?? [];
   const series: uPlot.Series[] = [{}];
   for (const i of order) {
     const c = colors[i] ?? axisColor;
@@ -137,7 +177,12 @@ function buildPlot(
       x: { time: true },
       y: {
         range: (_u, min, max) => {
-          const hi = Math.max(max, ...thresholds.map((t) => t.value), p.shade?.value ?? -Infinity);
+          const hi = Math.max(
+            max,
+            ...thresholds.map((t) => t.value),
+            ...overlays.map(overlayMax),
+            p.shade?.value ?? -Infinity,
+          );
           const lo = Math.min(0, min);
           return [lo, hi <= lo ? lo + 1 : hi * 1.1];
         },
@@ -183,6 +228,7 @@ function buildPlot(
             });
             ctx.restore();
           }
+          drawOverlays(u, overlays, raw, p.data.x, colors);
           for (const t of thresholds) {
             const y = u.valToPos(t.value, 'y', true);
             if (y < top - 1 || y > top + h + 1) continue;
@@ -224,6 +270,128 @@ function buildPlot(
   return { opts, data };
 }
 
+/**
+ * Draws alert rule overlays: each deviation band as a tinted step band in its series colour with
+ * dashed bounds, each threshold as a dashed danger line, and buckets where a series leaves an
+ * overlay shaded in the danger colour.
+ */
+function drawOverlays(
+  u: uPlot,
+  overlays: readonly ChartOverlay[],
+  raw: readonly { values: readonly (number | null)[] }[],
+  x: readonly number[],
+  colors: readonly string[],
+): void {
+  if (overlays.length === 0) return;
+  const px = uPlot.pxRatio;
+  const ctx = u.ctx;
+  const { left, top, width: w, height: h } = u.bbox;
+  const mono = cssVar('--tm-font-mono') || 'monospace';
+  const pos = (ms: number) => Math.min(left + w, Math.max(left, u.valToPos(ms / 1000, 'x', true)));
+  ctx.save();
+  ctx.fillStyle = `${cssVar('--tm-color-danger')}1f`;
+  x.forEach((t, i) => {
+    const breached = raw.some((sr, si) => {
+      const v = sr.values[i];
+      return v !== null && v !== undefined && overlays.some((o) => overlayBreached(o, si, t, v));
+    });
+    if (!breached) return;
+    const step = (x[1] ?? t) - (x[0] ?? t) || 1;
+    const x0 = pos(t);
+    ctx.fillRect(x0, top, Math.max(px, pos(x[i + 1] ?? t + step) - x0), h);
+  });
+  let labelRow = 0;
+  for (const o of overlays) {
+    if (o.kind === 'band') {
+      // Bands are labelled in the top-left corner (threshold lines carry their own label).
+      ctx.fillStyle = cssVar('--tm-chart-axis');
+      ctx.font = `${10 * px}px ${mono}`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText(
+        `${o.name} ${o.text}${o.error !== undefined ? ' (band unavailable)' : ''}`,
+        left + 6 * px,
+        top + (4 + 13 * labelRow) * px,
+      );
+      labelRow++;
+    }
+    if (o.kind === 'threshold') {
+      const y = u.valToPos(o.value, 'y', true);
+      if (y < top - 1 || y > top + h + 1) continue;
+      const c = cssVar('--tm-color-danger');
+      ctx.strokeStyle = c;
+      ctx.lineWidth = px;
+      ctx.setLineDash([4 * px, 4 * px]);
+      ctx.beginPath();
+      ctx.moveTo(left, y);
+      ctx.lineTo(left + w, y);
+      ctx.stroke();
+      ctx.fillStyle = c;
+      ctx.font = `${10 * px}px ${mono}`;
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillText(`${o.name} ${o.text}`, left + w - 6 * px, y - 4 * px);
+      continue;
+    }
+    for (const b of o.bands) {
+      const c = colors[b.series] ?? cssVar('--tm-chart-threshold');
+      for (const [t, lo, mean, hi] of b.points) {
+        const x0 = pos(t);
+        const x1 = pos(t + b.windowMs);
+        if (x1 <= x0) continue;
+        // The normal range is mean ± d; only the alerting side(s) get a dashed bound.
+        const d = hi !== null ? hi - mean : lo !== null ? mean - lo : 0;
+        const yHi = u.valToPos(mean + d, 'y', true);
+        const yLo = u.valToPos(mean - d, 'y', true);
+        const y0 = Math.max(top, yHi);
+        const y1 = Math.min(top + h, yLo);
+        if (y1 > y0) {
+          ctx.fillStyle = `${c}${o.bands.length > 1 ? '12' : '24'}`;
+          ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+        }
+        ctx.strokeStyle = c;
+        ctx.lineWidth = px;
+        ctx.setLineDash([3 * px, 3 * px]);
+        ctx.beginPath();
+        for (const y of [hi === null ? null : yHi, lo === null ? null : yLo]) {
+          if (y === null || y < top || y > top + h) continue;
+          ctx.moveTo(x0, y);
+          ctx.lineTo(x1, y);
+        }
+        ctx.stroke();
+        const ym = u.valToPos(mean, 'y', true);
+        if (ym >= top && ym <= top + h) {
+          ctx.setLineDash([px, 3 * px]);
+          ctx.beginPath();
+          ctx.moveTo(x0, ym);
+          ctx.lineTo(x1, ym);
+          ctx.stroke();
+        }
+      }
+    }
+  }
+  ctx.restore();
+}
+
+/** One line per alert rule drawn on a chart: its name and condition, or why its band is missing. */
+export function OverlayLegend({ overlays }: { overlays: readonly ChartOverlay[] }) {
+  if (overlays.length === 0) return null;
+  return (
+    <ul className={s.overlayLegend} aria-label="Alert rules on this chart">
+      {overlays.map((o) => (
+        <li key={o.name}>
+          <span className={s.overlaySwatch} aria-hidden="true" />
+          <span className={s.overlayName}>{o.name}</span>
+          <span>{o.text}</span>
+          {o.kind === 'band' && o.error !== undefined ? (
+            <span className={s.overlayError}>{o.error}</span>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function Legend({
   items,
   className,
@@ -261,6 +429,7 @@ export function Chart(props: ChartProps) {
     [data, colors, palette],
   );
   const thresholdsKey = JSON.stringify(props.thresholds ?? []);
+  const overlaysKey = JSON.stringify(props.overlays ?? []);
   const shadeKey = JSON.stringify(props.shade ?? null);
 
   useEffect(() => {
@@ -274,7 +443,7 @@ export function Chart(props: ChartProps) {
       plot.current = null;
       setHover(null);
     };
-  }, [data, height, theme, colorIdx, thresholdsKey, shadeKey, props.style, props.stacked]);
+  }, [data, height, theme, colorIdx, thresholdsKey, overlaysKey, shadeKey, props.style, props.stacked]);
 
   useLayoutEffect(() => {
     const el = box.current;

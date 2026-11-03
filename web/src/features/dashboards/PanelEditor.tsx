@@ -6,6 +6,7 @@
 
 import { BarChart3, Gauge, LineChart, PieChart, Table, SquareSigma, Plus, X } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import type {
   Dashboard,
@@ -27,6 +28,10 @@ import {
   Toggle,
 } from '../../components/controls';
 import { Card, layoutStyles as l, Notice, Tabs } from '../../components/layout';
+import { MultiSelect } from '../../components/MultiSelect';
+import { alerts as alertsApi } from '../../api/endpoints';
+import { useApi } from '../../app/services';
+import { conditionText } from '../alerts/rules';
 import { QueryEditor } from '../../components/QueryEditor';
 import { TqlText } from '../../components/TqlText';
 import { cx } from '../../lib/cx';
@@ -303,6 +308,34 @@ function Builder({
   );
 }
 
+/** Alert rules a panel may name besides the matching ones (SPEC §13.1, §14.4). */
+export const MAX_PANEL_ALERT_RULES = 5;
+
+function AlertRulesField({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
+  const api = useApi();
+  const list = useQuery({ queryKey: ['alerts'], queryFn: () => alertsApi.list(api) });
+  const items = (list.data ?? []).map((a) => ({ value: a.id, label: a.name, detail: conditionText(a.doc) }));
+  return (
+    <Field
+      label="Alert rules"
+      help={`Rules whose query matches this panel are drawn automatically; pick up to ${MAX_PANEL_ALERT_RULES} more.`}
+    >
+      {(id) => (
+        <MultiSelect
+          id={id}
+          label="Alert rules"
+          items={items}
+          value={value}
+          onChange={(next) => onChange(next.slice(0, MAX_PANEL_ALERT_RULES))}
+          loading={list.isPending}
+          placeholder="Matching rules only"
+          emptyText="No alert rules yet."
+        />
+      )}
+    </Field>
+  );
+}
+
 function OptionsCard({ panel, onChange }: { panel: Panel; onChange: (p: Panel) => void }) {
   const o = panel.options ?? {};
   const setO = (p: Partial<PanelOptions>): void => onChange({ ...panel, options: { ...o, ...p } });
@@ -413,6 +446,12 @@ function OptionsCard({ panel, onChange }: { panel: Panel; onChange: (p: Panel) =
             </div>
           )}
         </Field>
+        {panel.type === 'timeseries' ? (
+          <AlertRulesField
+            value={o.alertRules ?? []}
+            onChange={(alertRules) => setO({ alertRules: alertRules.length > 0 ? alertRules : undefined })}
+          />
+        ) : null}
       </div>
     </Card>
   );

@@ -56,6 +56,9 @@ func funcNames() []string {
 	return []string{fnContains, fnStartsWith, fnEndsWith, fnHas, fnMatch}
 }
 
+// aggStddev is the sample standard deviation (SPEC §10.5).
+const aggStddev = "stddev"
+
 // Histogram aggregates (SPEC §10.5): per-series deltas of histogram (and summary) points.
 const (
 	aggHistMean     = "hist_mean"
@@ -63,8 +66,8 @@ const (
 )
 
 func aggNames() []string {
-	return []string{"count", "count_distinct", "sum", "avg", "min", "max", "p50", "p75", "p90",
-		"p95", "p99", "rate", "first", "last", aggHistMean, aggHistQuantile}
+	return []string{"count", "count_distinct", "sum", "avg", "min", "max", aggStddev, "p50", "p75",
+		"p90", "p95", "p99", "rate", "first", "last", aggHistMean, aggHistQuantile}
 }
 
 // isHistAgg reports whether fn is a histogram aggregate.

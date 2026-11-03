@@ -74,15 +74,27 @@ type EvaluatorDeps struct {
 	Logger    *slog.Logger
 }
 
-// Evaluator runs due rules on every tick with a bounded worker pool.
-type Evaluator struct{ d EvaluatorDeps }
+// Evaluator runs due rules on every tick with a bounded worker pool. It caches the baselines of
+// deviation rules per rule until their baseline range moves (SPEC §14.1).
+type Evaluator struct {
+	d EvaluatorDeps
+
+	mu        sync.Mutex
+	baselines map[string]cachedBaseline // by rule id
+}
+
+// cachedBaseline is the baseline of one rule for one document, stream scope and range.
+type cachedBaseline struct {
+	key    string
+	groups map[string]*groupBaseline
+}
 
 // NewEvaluator returns an evaluator.
 func NewEvaluator(d EvaluatorDeps) *Evaluator {
 	if d.Workers <= 0 {
 		d.Workers = DefaultWorkers
 	}
-	return &Evaluator{d: d}
+	return &Evaluator{d: d, baselines: map[string]cachedBaseline{}}
 }
 
 // Run ticks every interval until ctx ends.
@@ -111,6 +123,7 @@ func (e *Evaluator) Tick(ctx context.Context) int {
 		return 0
 	}
 	now := e.d.Clock.Now().UTC()
+	e.forgetBaselines(rules)
 	sem := make(chan struct{}, e.d.Workers)
 	var wg sync.WaitGroup
 	ran := 0
@@ -160,7 +173,7 @@ func (e *Evaluator) Evaluate(ctx context.Context, r meta.AlertRule, now time.Tim
 	doc, err := ParseRule(r.Doc)
 	var samples []Sample
 	if err == nil {
-		samples, err = e.sample(ctx, doc, RuleScope(r.Streams), now)
+		samples, err = e.sample(ctx, r, doc, now)
 	}
 	if err != nil {
 		st, tr := prev.Fail(err, now)
@@ -206,9 +219,15 @@ func (e *Evaluator) evaluate(ctx context.Context, r meta.AlertRule, now time.Tim
 }
 
 func (e *Evaluator) notification(r meta.AlertRule, doc *RuleDoc, t Transition) Notification {
-	return Notification{RuleID: r.ID, RuleName: r.Name, Severity: doc.Severity, Description: doc.Description,
+	n := Notification{RuleID: r.ID, RuleName: r.Name, Severity: doc.Severity, Description: doc.Description,
 		State: string(t.To), PreviousState: string(t.From), Value: t.Value, Op: doc.Condition.Op,
 		Threshold: doc.Condition.Threshold, Group: t.Labels, At: t.At, URL: AlertURL(e.d.PublicURL, r.ID), Message: t.Message}
+	if doc.Condition.IsDeviation() {
+		n.Op, n.Threshold = doc.Condition.Bound(t.Value, t.Baseline)
+		n.ConditionNote = doc.Condition.deviationText()
+		n.Baseline = t.Baseline
+	}
+	return n
 }
 
 // AlertURL links to the rule in the UI.
@@ -228,8 +247,10 @@ func RuleScope(streams []string) model.StreamScope {
 	return model.OnlyStreams(streams...)
 }
 
-// sample runs the rule query over [now-window, now) in the rule's streams and converts the rows.
-func (e *Evaluator) sample(ctx context.Context, doc *RuleDoc, streams model.StreamScope, now time.Time) ([]Sample, error) {
+// sample runs the rule query over [now-window, now) in the rule's streams and converts the rows;
+// deviation rules also get their baselines (SPEC §14.1).
+func (e *Evaluator) sample(ctx context.Context, r meta.AlertRule, doc *RuleDoc, now time.Time) ([]Sample, error) {
+	streams := RuleScope(r.Streams)
 	var indexed map[model.Source]map[string]string
 	if e.d.Indexed != nil {
 		cols, err := e.d.Indexed.Columns(ctx)
@@ -251,7 +272,68 @@ func (e *Evaluator) sample(ctx context.Context, doc *RuleDoc, streams model.Stre
 	if err != nil {
 		return nil, fmt.Errorf("query: %w", err)
 	}
-	return Samples(res.Rows, doc.GroupBy), nil
+	samples := Samples(res.Rows, doc.GroupBy)
+	if !doc.Condition.IsDeviation() {
+		return samples, nil
+	}
+	base, err := e.baseline(qctx, r, doc, now, indexed, streams)
+	if err != nil {
+		return nil, err
+	}
+	return withBaselines(samples, base, doc.ZeroFills()), nil
+}
+
+// baseline returns the per-group baselines of a deviation rule at now, from the cache while
+// the rule document, its streams and the baseline range are unchanged.
+func (e *Evaluator) baseline(ctx context.Context, r meta.AlertRule, doc *RuleDoc, now time.Time,
+	indexed map[model.Source]map[string]string, streams model.StreamScope) (map[string]*groupBaseline, error) {
+	from, to := doc.BaselineRange(now)
+	canon, err := json.Marshal(doc)
+	if err != nil {
+		return nil, fmt.Errorf("baseline key: %w", err)
+	}
+	scope, err := json.Marshal(r.Streams)
+	if err != nil {
+		return nil, fmt.Errorf("baseline key: %w", err)
+	}
+	key := string(canon) + "\x00" + string(scope) + "\x00" + to.Format(time.RFC3339Nano)
+	e.mu.Lock()
+	cached, ok := e.baselines[r.ID]
+	e.mu.Unlock()
+	if ok && cached.key == key {
+		return cached.groups, nil
+	}
+	c, err := doc.CompileBaseline(now, e.d.Database, indexed, streams)
+	if err != nil {
+		return nil, err
+	}
+	res, err := e.d.Querier.Run(ctx, c)
+	if err != nil {
+		return nil, fmt.Errorf("baseline query: %w", err)
+	}
+	groups, err := baselines(res.Series, byColumns(c), doc.GroupBy, from, to, time.Duration(doc.Window), doc.ZeroFills())
+	if err != nil {
+		return nil, err
+	}
+	e.mu.Lock()
+	e.baselines[r.ID] = cachedBaseline{key: key, groups: groups}
+	e.mu.Unlock()
+	return groups, nil
+}
+
+// forgetBaselines drops cached baselines of rules that no longer exist.
+func (e *Evaluator) forgetBaselines(rules []meta.AlertRule) {
+	ids := make(map[string]bool, len(rules))
+	for _, r := range rules {
+		ids[r.ID] = true
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for id := range e.baselines {
+		if !ids[id] {
+			delete(e.baselines, id)
+		}
+	}
 }
 
 // Samples converts result rows (group columns then the value) into samples. Ungrouped rules

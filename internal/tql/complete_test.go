@@ -57,7 +57,7 @@ func TestComplete(t *testing.T) {
 		{q: "x | ", pos: -1, present: []string{"stage:stats", "stage:where", "stage:top"}},
 		{q: "x | st", pos: -1, present: []string{"stage:stats"}, absent: []string{"stage:sort"}},
 		{q: "x | stats ", pos: -1, present: []string{"function:count", "function:p95"}},
-		{q: "x | stats count(), ", pos: -1, present: []string{"function:avg"}},
+		{q: "x | stats count(), ", pos: -1, present: []string{"function:avg", "function:stddev"}},
 		{q: "x | stats ", pos: -1, present: []string{"function:count"}, absent: []string{"function:hist_mean"}},
 		{q: "source metrics | x | stats ", pos: -1, present: []string{"function:hist_mean", "function:rate"}},
 		{q: "source metrics | x | stats hist_mean(", pos: -1, exactSize: 0},

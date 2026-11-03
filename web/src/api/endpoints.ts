@@ -7,6 +7,8 @@ import type { ApiClient } from './client';
 import type {
   AccessSettings,
   Alert,
+  AlertOverlay,
+  AlertOverlaysRequest,
   AlertHistoryEntry,
   AlertTestResult,
   ApiToken,
@@ -217,6 +219,8 @@ export const alerts = {
     api.post<Alert>(`/alerts/${enc(id)}/mute`, { until }),
   history: (api: ApiClient, id: string, limit = 20) =>
     api.get<AlertHistoryEntry[]>(`/alerts/${enc(id)}/history`, { query: { limit } }),
+  overlays: (api: ApiClient, body: AlertOverlaysRequest, signal?: AbortSignal) =>
+    api.post<{ overlays: AlertOverlay[] }>('/alerts/overlays', body, { signal }),
 };
 
 export interface ChannelInput {

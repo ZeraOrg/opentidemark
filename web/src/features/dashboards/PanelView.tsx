@@ -5,7 +5,7 @@
 // visualization: time series, bar, stat, gauge, table, pie, logs, traces or markdown.
 
 import { useQuery } from '@tanstack/react-query';
-import type { ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { errorMessage } from '../../api/client';
 import { dashboards as dashApi, search } from '../../api/endpoints';
@@ -22,6 +22,7 @@ import type { TimeRange } from '../../lib/time';
 import { formatClock, formatDuration } from '../../lib/time';
 import { statValue, tableCategories, timeseriesToChart } from '../../lib/series';
 import { substitutePreview } from '../../tql/substitute';
+import { useAlertOverlays } from '../alerts/overlays';
 import { TableResult } from '../explorer/ResultsView';
 import { Message } from '../explorer/EventList';
 import s from './dashboards.module.css';
@@ -66,9 +67,20 @@ function thresholdsOf(panel: Panel) {
   }));
 }
 
-function TimeseriesBody({ panel, resp, height }: { panel: Panel; resp: QueryResponse; height: number }) {
+function TimeseriesBody({
+  panel,
+  q,
+  resp,
+  height,
+}: {
+  panel: Panel;
+  q: string;
+  resp: QueryResponse;
+  height: number;
+}) {
   const palette = usePalette();
-  const data = timeseriesToChart(resp);
+  const data = useMemo(() => timeseriesToChart(resp), [resp]);
+  const overlays = useAlertOverlays({ q, data, spanMs: resp.span ?? 0, rules: panel.options?.alertRules });
   const legend = panel.options?.legend ?? 'bottom';
   const colors = data.series.map((x) => palette.index(x.label));
   if (data.x.length === 0) return <div className={s.noData}>No data</div>;
@@ -80,6 +92,7 @@ function TimeseriesBody({ panel, resp, height }: { panel: Panel; resp: QueryResp
       style={panel.options?.style ?? 'line'}
       stacked={panel.options?.stack === true}
       thresholds={thresholdsOf(panel)}
+      overlays={overlays}
       unit={panel.options?.unit}
       decimals={panel.options?.decimals}
       legend={legend}
@@ -307,7 +320,7 @@ function QueryBody({
   switch (panel.type) {
     case 'timeseries':
       return resp.kind === 'timeseries' ? (
-        <TimeseriesBody panel={panel} resp={resp} height={height} />
+        <TimeseriesBody panel={panel} q={q} resp={resp} height={height} />
       ) : (
         <TableResult resp={resp} />
       );

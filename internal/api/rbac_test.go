@@ -70,6 +70,7 @@ var expectedAccess = map[string]Access{
 	"POST /dashboards/{id}/panels/{panelId}/query": Viewer,
 	"GET /alerts":                                  Viewer,
 	"POST /alerts":                                 Editor,
+	"POST /alerts/overlays":                        Viewer,
 	"GET /alerts/{id}":                             Viewer,
 	"PUT /alerts/{id}":                             Editor,
 	"DELETE /alerts/{id}":                          Editor,

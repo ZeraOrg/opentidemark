@@ -125,6 +125,7 @@ type PanelOptions struct {
 	Decimals   *int        `json:"decimals,omitempty"`
 	Legend     string      `json:"legend,omitempty"`
 	Thresholds []Threshold `json:"thresholds,omitempty"`
+	AlertRules []string    `json:"alertRules,omitempty"` // rules drawn on the chart (SPEC §13.1, §14.4)
 	Content    string      `json:"content,omitempty"`
 }
 
@@ -345,6 +346,8 @@ func (o PanelOptions) validate(field, panelType string) error {
 		return invalid(field+".thresholds", "at most 20 thresholds")
 	case len(o.Content) > maxMarkdownLen, o.Content != "" && panelType != PanelMarkdown:
 		return invalid(field+".content", "only markdown panels have content (at most 32 KiB)")
+	case !ValidOverlayIDs(o.AlertRules):
+		return invalid(field+".alertRules", "at most 5 unique rule ids")
 	}
 	for _, t := range o.Thresholds {
 		if !slices.Contains(colorTokens, t.Color) {

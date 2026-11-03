@@ -4,13 +4,19 @@ import { describe, expect, it } from 'vitest';
 import type { Alert, Span, Stream, SourceStats } from '../api/types';
 import { passwordProblem } from './auth/password';
 import {
+  baselineChoices,
+  baselineText,
+  conditionProblem,
   conditionText,
+  defaultDeviation,
   groupText,
+  historyValueText,
   isMuted,
   newRule,
   previewQuery,
   stateChip,
   stateVariant,
+  windowFitsDeviation,
   withGroupBy,
 } from './alerts/rules';
 import { refreshMs, valuesLabel, variablePatch, variableValues } from './dashboards/vars';
@@ -82,6 +88,44 @@ describe('alert rules', () => {
     );
     expect(conditionText(alert({ for: '0s' }).doc)).toBe('> 0');
     expect(groupText({ service: 'checkout-api', env: 'prod' })).toBe('service=checkout-api, env=prod');
+  });
+
+  it('formats and validates deviation conditions', () => {
+    const dev = {
+      type: 'deviation',
+      direction: 'below',
+      sigma: 3,
+      baseline: '24h0m0s',
+      minDelta: 0,
+    } as const;
+    expect(conditionText(alert({ condition: dev, for: '5m0s' }).doc)).toBe('< 3σ vs 24h for 5m');
+    expect(conditionText(alert({ condition: { ...dev, direction: 'both', baseline: '168h0m0s' } }).doc)).toBe(
+      '± 3σ vs 7d',
+    );
+    expect(windowFitsDeviation('5m')).toBe(true);
+    expect(windowFitsDeviation('7m')).toBe(false);
+    expect(baselineChoices('5m').map((b) => b.label)).toEqual(['1h', '6h', '24h']); // 7d = 2016 windows
+    expect(baselineChoices('1h').map((b) => b.label)).toEqual(['6h', '24h', '7d']); // 1h = 1 window
+    expect(defaultDeviation('5m')).toEqual({
+      type: 'deviation',
+      direction: 'both',
+      sigma: 3,
+      baseline: '24h',
+      minDelta: 0,
+    });
+    expect(conditionProblem(dev, '5m')).toBeNull();
+    expect(conditionProblem(dev, '7m')).toMatch(/divides 24h/);
+    expect(conditionProblem({ ...dev, sigma: 0 }, '5m')).toMatch(/σ/);
+    expect(conditionProblem({ ...dev, minDelta: -1 }, '5m')).toMatch(/Min delta/);
+    expect(conditionProblem({ ...dev, baseline: '168h' }, '5m')).toMatch(/baseline/);
+    expect(conditionProblem({ op: '>', threshold: Number.NaN }, '5m')).toMatch(/Threshold/);
+    expect(historyValueText(dev, { value: 12, toState: 'firing' })).toBe('value 12');
+    expect(historyValueText({ op: '>', threshold: 25 }, { value: 31, toState: 'firing' })).toBe(
+      'value 31 > 25',
+    );
+    expect(historyValueText({ op: '>', threshold: 25 }, { value: 3, toState: 'ok' })).toBe('value 3 ≤ 25');
+    expect(baselineText({ mean: 80, stdDev: 16.5, z: -4 }, String)).toBe('mean 80 · σ 16.5 · z -4');
+    expect(baselineText({ mean: 4, stdDev: 0 }, String)).toBe('mean 4 · σ 0');
   });
 
   it('adds span to the stats stage for the preview', () => {

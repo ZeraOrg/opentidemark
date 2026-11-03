@@ -58,6 +58,7 @@ export const FUNCTIONS = new Set([
   'avg',
   'min',
   'max',
+  'stddev',
   'p50',
   'p75',
   'p90',

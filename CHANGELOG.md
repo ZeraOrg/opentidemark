@@ -11,6 +11,23 @@ Release archives, checksums and container images are on the
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-03
+
+### Added
+
+- Deviation alert rules: instead of a fixed threshold, a rule can fire when its value leaves its
+  usual range, e.g. *3 standard deviations below the last 24 hours*. Choose the direction (above,
+  below or both), how many standard deviations (σ), the baseline (1 hour to 30 days) and a
+  minimum difference. Counts read quiet windows as 0, so a service that stops sending is caught.
+  Notifications, the webhook payload and *Test* show the baseline's mean, σ and z-score. In HA
+  mode, upgrade every node before creating such rules.
+- Charts show the alert rules that watch them: explorer and dashboard charts draw the rules whose
+  query matches (dashboard panels can add more under *Alert rules*), as a red threshold line or,
+  for deviation rules, a shaded band of the normal range over time, and shade the time where a
+  series breaks them. The rule editor's preview draws the band of the rule being edited.
+- TQL `stddev(f)`: the sample standard deviation of a numeric field, e.g.
+  `* | stats avg(elapsed), stddev(elapsed) by route span 5m`.
+
 ## [0.5.0] - 2026-11-02
 
 ### Added
@@ -310,7 +327,8 @@ First public release.
   windows/amd64 (systemd unit and Windows service installers), and a multi-arch container image
   with a Docker Compose setup.
 
-[Unreleased]: https://github.com/ZeraOrg/opentidemark/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/ZeraOrg/opentidemark/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/ZeraOrg/opentidemark/releases/tag/v0.6.0
 [0.5.0]: https://github.com/ZeraOrg/opentidemark/releases/tag/v0.5.0
 [0.4.0]: https://github.com/ZeraOrg/opentidemark/releases/tag/v0.4.0
 [0.3.0]: https://github.com/ZeraOrg/opentidemark/releases/tag/v0.3.0

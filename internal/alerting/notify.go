@@ -43,6 +43,8 @@ type Notification struct {
 	Value         *float64
 	Op            string
 	Threshold     float64
+	ConditionNote string    // deviation rules: "3σ below the 24h baseline"
+	Baseline      *Baseline // deviation rules (SPEC §14.1)
 	Group         map[string]string
 	At            time.Time
 	URL           string

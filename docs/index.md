@@ -51,8 +51,9 @@ panel or an alert. The screenshots use the web UI's built-in demo data.
 - ![Metrics browser charting request duration by service](images/metrics.png)
   **Metrics.** Browse metric names and chart any of them by service, ready to add to a dashboard.
 - ![Alert rules with the rule editor and a live preview](images/alerts.png)
-  **Alerts.** Rules on any query with a preview against recent data, grouping, and webhook,
-  Slack, Teams or email notifications.
+  **Alerts.** Rules on any query, with a fixed threshold or a deviation from the usual range in
+  standard deviations, a preview against recent data, grouping, and webhook, Slack, Teams or email
+  notifications.
 - ![A team's page with its members and granted streams](images/teams.png)
   **Teams and scope.** Admins grant each team the streams it may see; every search, trace,
   metric and alert respects it, and a scope picker narrows any view to some streams or an

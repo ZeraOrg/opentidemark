@@ -8,7 +8,7 @@
 > well. Any change to behaviour, APIs, schema, configuration, layout, UI or tooling **must**
 > update this spec in the same commit. Version history is in §21.
 
-**Spec version:** 0.34.5 · **Last updated:** 2026-11-02
+**Spec version:** 0.36.0 · **Last updated:** 2026-11-03
 
 ---
 
@@ -100,7 +100,8 @@ Goals:
 - Multi-tenant SaaS hosting, billing.
 - Editions, licence keys, feature gating or user limits (§19).
 - Being a full Elasticsearch API implementation (only the ingestion surface in §9.3).
-- Machine-learning anomaly detection.
+- Machine-learning anomaly detection (statistical deviation rules against a baseline, §14.1,
+  are supported).
 - Native ClickHouse on Windows (ClickHouse runs via Docker/WSL2 on Windows — §17).
 - Running a highly-available PostgreSQL for the operator (HA mode expects an existing HA
   PostgreSQL such as Patroni or a managed service — §17.5).
@@ -276,7 +277,7 @@ Node **22 LTS** for builds. The built SPA is embedded in the Go binary via `go:e
 │   ├── install/               # INSTALL-{linux,windows,docker}.md: the INSTALL.md of each release archive (§17.6)
 │   └── tidemark.service       # systemd unit
 ├── Dockerfile                 # multi-stage: node build → go build → distroless nonroot
-├── scripts/                   # with-clickhouse.sh, with-clickhouse-cluster.sh (integration tests, §18), notices.tpl + licence-exceptions.{sh,txt} (§19.1), ci-annotate.sh, release-notes.sh (§17.6)
+├── scripts/                   # with-clickhouse.sh, with-clickhouse-cluster.sh (integration tests, §18), notices.tpl + licence-exceptions.{sh,txt} (§19.1), ci-annotate.sh, release-notes.sh (§17.6), dependabot-copilot.sh (§17.4)
 ├── examples/                  # (not in the tree yet, §20) client configs: serilog, nlog, python, node, go, java, filebeat, fluent-bit, vector, logstash, otel-collector
 ├── docs/                      # user docs, derived from this spec (§18), published as the documentation site (§17.4):
 │   ├── index.md               #   landing page of the documentation site (template home.html): what OpenTidemark is, capabilities with screenshots, trust points, getting started, links into the docs
@@ -290,7 +291,7 @@ Node **22 LTS** for builds. The built SPA is embedded in the Go binary via `go:e
 │   ├── migrate-from-seq.md    #   moving from Seq with `tidemark import` (§9.9)
 │   ├── migrate-from-elastic.md #  moving from Elasticsearch/Kibana with `tidemark import` (§9.9)
 │   └── manual/                #   operations manual (§17.4), one chapter per file: index (overview, architecture, glossary), deploy, security-hardening, users-access, ingestion, integrations, metrics, streams-retention, querying, dashboards, alerting, operations, api, agents
-└── .github/                   # workflows/ci.yml (Go on Linux + Windows, integration, notices, web incl. e2e; calls release.yml), security.yml (§17.4), docs.yml (documentation site, §17.4), release.yml (§17.6); dependabot.yml; ISSUE_TEMPLATE/ (bug_report.yml form: version, installation, platform, steps, expected/actual, `tidemark doctor --json`, logs; config.yml links private vulnerability reporting and the docs)
+└── .github/                   # workflows/ci.yml (Go on Linux + Windows, integration, notices, web incl. e2e; calls release.yml), security.yml (§17.4), docs.yml (documentation site, §17.4), release.yml (§17.6), dependabot-copilot.yml and copilot-setup-steps.yml (Dependabot follow-up, §17.4); dependabot.yml; copilot-instructions.md (§17.4); ISSUE_TEMPLATE/ (bug_report.yml form: version, installation, platform, steps, expected/actual, `tidemark doctor --json`, logs; config.yml links private vulnerability reporting and the docs)
 ```
 
 Maintainer-only development tooling (publishing automation, offline dependency snapshots, design
@@ -1258,8 +1259,8 @@ agg_expr   = agg_term { ( "+" | "-" ) agg_term } ;
 agg_term   = agg_atom { ( "*" | "/" ) agg_atom } ;
 agg_atom   = agg_call | number | "(" agg_expr ")" ;
 agg_call   = agg_fn "(" [ field | number ] ")" ;
-agg_fn     = "count" | "count_distinct" | "sum" | "avg" | "min" | "max" | "p50" | "p75" | "p90"
-           | "p95" | "p99" | "rate" | "first" | "last" | "hist_mean" | "histogram_quantile" ;
+agg_fn     = "count" | "count_distinct" | "sum" | "avg" | "min" | "max" | "stddev" | "p50" | "p75"
+           | "p90" | "p95" | "p99" | "rate" | "first" | "last" | "hist_mean" | "histogram_quantile" ;
 sort       = "sort" ident [ "asc" | "desc" ] { "," ident [ "asc" | "desc" ] } ;
 limit      = "limit" integer ;
 fields     = "fields" field { "," field } ;   (* projection for event results *)
@@ -1343,7 +1344,8 @@ property. `@`-prefixed names are always built-ins; `props.<key>` / `attrs.<key>`
 - `@timestamp` comparisons accept ISO strings and relative literals; they intersect with the
   request time range.
 - **Stats:** `count()` ⇒ `count()`; `count_distinct(f)` ⇒ `uniq`; `sum/avg/min/max(f)` on numeric
-  value; `pNN(f)` ⇒ `quantileTDigest(0.NN)`; `rate()` ⇒ count per second over the bucket (or whole
+  value; `stddev(f)` ⇒ the sample standard deviation of the numeric value,
+  `if(count(x) > 1, stddevSamp(x), NULL)` (NULL for fewer than two values); `pNN(f)` ⇒ `quantileTDigest(0.NN)`; `rate()` ⇒ count per second over the bucket (or whole
   range); for metrics, `rate(value)` on cumulative monotonic sums ⇒ the per-series increase
   from point to point, summed across series per bucket and divided by the bucket seconds
   (details below); `first/last(f)` ⇒ `argMin/argMax` by time;
@@ -1438,7 +1440,7 @@ property. `@`-prefixed names are always built-ins; `props.<key>` / `attrs.<key>`
     its own rank and index aliases, numbered in written order across the columns). `where`/`sort`
     after stats see only the column's alias.
   - `count(f)` ⇒ `countIf(<f exists>)`; numeric aggregates of a property skip events without a
-    numeric value; `sum/avg/min/max/pNN` of `@timestamp` or `id` are errors; `first/last(f)` ⇒
+    numeric value; `sum/avg/min/max/stddev/pNN` of `@timestamp` or `id` are errors; `first/last(f)` ⇒
     `argMin/argMax(f, <time column>)`.
 
 ### 10.6 Compilation & safety
@@ -1725,9 +1727,10 @@ panel type (§13.1, e.g. a `timeseries` panel without `stats`) and every other d
 
 | Endpoint | Role | Notes |
 |---|---|---|
-| `GET /alerts`, `GET /alerts/{id}` | viewer | `{id, name, enabled, doc, streams, state, stateSince, lastEvalAt, lastValue, lastError, groups:[{labels, state, since, value}], version, createdAt, updatedAt}` (`streams` `null` = every stream). Only rules whose streams lie within the caller's scope are listed; others are 404 on every `/alerts/{id}` route (§14.1). |
+| `GET /alerts`, `GET /alerts/{id}` | viewer | `{id, name, enabled, doc, streams, state, stateSince, lastEvalAt, lastValue, lastError, groups:[{labels, state, since, value, baseline?}], version, createdAt, updatedAt}` (`streams` `null` = every stream). Only rules whose streams lie within the caller's scope are listed; others are 404 on every `/alerts/{id}` route (§14.1). |
 | `POST /alerts` `{name, enabled?, doc, streams?}`, `PUT /alerts/{id}` `{name, enabled?, doc, streams?, version}`, `DELETE /alerts/{id}` | editor | Channels in `doc.channels` must exist; invalid doc ⇒ 400 `details.field = doc.<field>` (or `invalid_query`); invalid `streams` ⇒ 400 `details.field = streams`. |
-| `POST /alerts/{id}/test` | editor | Evaluates now without persisting or notifying: `{state, error?, samples:[{labels, value}], groups, transitions:[{labels, from, to, message}]}`. |
+| `POST /alerts/overlays` `{q, from?, to?, rules?, doc?, streams?}` | viewer | The alert rules to draw on a chart of `q` and their rolling bands: `{overlays: [{ruleId?, name, draft?, condition, windowMs, bands, error?}]}` (§14.4). |
+| `POST /alerts/{id}/test` | editor | Evaluates now without persisting or notifying: `{state, error?, samples:[{labels, value, baseline?}], groups, transitions:[{labels, from, to, message}]}` (`baseline` for deviation rules, §14.1). |
 | `POST /alerts/{id}/mute` `{until: RFC3339 \| null}` | editor | Sets `doc.muteUntil` (future, ≤ 1 year; `null` unmutes); bumps `version`. |
 | `GET /alerts/{id}/history?limit=` | viewer | Newest first, default 100, max 1000: `[{id, at, fromState, toState, value, message, group}]`. |
 | `GET /channels`, `GET /channels/{id}` | viewer | `{id, name, kind, config, version, createdAt, updatedAt}` with secrets masked. |
@@ -1747,9 +1750,12 @@ Dashboard = { id: string, name: string, description: string, ownerId: string, sh
 Alert = { id: string, name: string, enabled: boolean, doc: RuleDoc /* §14.1 canonical */,
   state: "ok"|"pending"|"firing"|"error", stateSince: string?, lastEvalAt: string?, lastValue: number?,
   lastError: string /* "" when none */, groups: Group[], version: number, createdAt: string, updatedAt: string }
-Group = { labels: {[field: string]: string} /* {} when ungrouped */, state: string, since: string, value: number? }
+Group = { labels: {[field: string]: string} /* {} when ungrouped */, state: string, since: string, value: number?,
+  baseline?: Baseline /* deviation rules (§14.1) */ }
+Baseline = { mean: number, stdDev: number, samples: number, z?: number /* absent when stdDev is 0 */ }
 // POST /alerts/{id}/test → 200 (also when the query fails: `error` set, state from the failure policy)
-{ state: string, error?: string, samples: {labels: {[f: string]: string}, value: number? /* null = no data */}[],
+{ state: string, error?: string, samples: {labels: {[f: string]: string}, value: number? /* null = no data */,
+  baseline?: Baseline}[],
   groups: Group[], transitions: {labels: {[f: string]: string}, from: string, to: string, message: string}[] }
 // GET /alerts/{id}/history
 { id: string, at: string, fromState: string, toState: string, value: number?, message: string,
@@ -2032,7 +2038,8 @@ A paused stream rejects nothing at protocol level but drops its rows in the pipe
     required except for `markdown` (which has none); `options` = `{stack, style
     (line|area|bars), unit (^[A-Za-z0-9_/%.-]{1,32}$), decimals (0–10), legend
     (bottom|right|hidden), thresholds (≤ 20 × {value, color token accent|success|warning|danger|info|chart1–8}),
-    content (markdown only, ≤ 32 KiB)}`.
+    alertRules (≤ 5 unique alert rule ids drawn on the chart besides the matching rules, §14.4;
+    ids that do not exist or are not visible are ignored), content (markdown only, ≤ 32 KiB)}`.
   - Every query must parse, substitute with the variable defaults (`tql.Substitute`) and pass
     `tql.Check`. Kinds: `timeseries`, `bar`, `stat`, `gauge`, `pie` need a `stats` or `top`
     stage; `logs` needs a logs query without stats; `traces` a spans query without stats;
@@ -2100,6 +2107,11 @@ as *"error rate and p95 latency per service for checkout, last 24h"* into panels
   "muteUntil": null
 }
 ```
+- `condition` is a **threshold** condition `{op, threshold}` (the example above; `"type":
+  "threshold"` may be given and is not stored) or a **deviation** condition that compares the
+  value with its own recent history:
+  `{"type": "deviation", "direction": "above"|"below"|"both", "sigma": 3, "baseline": "24h", "minDelta": 0}`
+  (details below). The fields of the other form must be absent.
 - Query must yield a single numeric column (optionally grouped by `groupBy` ⇒ one state per group).
 - Evaluator: ticks every 10 s, runs due rules (bounded worker pool, 4), range `[now-window, now]`.
 - States: `ok → pending (condition true, < for) → firing → ok (resolved)`; `error` when the query
@@ -2112,7 +2124,39 @@ as *"error rate and p95 latency per service for checkout, last 24h"* into panels
   `alerting` (no data = condition true); ≤ 20 unique `channels`. The query (≤ 8 KiB) must have
   exactly one `stats` stage (no `top`, no `span`) with one aggregate of numeric type, and its
   by-fields must equal `groupBy` in order; at most 1,000 groups are evaluated. The stored document
-  is the canonical re-encoding (durations like `5m0s`).
+  is the canonical re-encoding (durations like `5m0s`; a threshold condition as `{op, threshold}`,
+  a deviation condition as `{type, direction, sigma, baseline, minDelta}`). Deviation conditions
+  also need: `direction` `above|below|both`; `sigma` finite, `0 < sigma ≤ 100`; `minDelta` finite,
+  `≥ 0` (default 0); `window` a whole number of seconds that divides 24 h (so its buckets line up
+  with the UTC day: `1m`, `5m`, `15m`, `1h`, `6h`, `24h`, …); `baseline` a multiple of `window`
+  giving 5–1,000 windows (`MinBaselineBuckets`, `MaxBaselineBuckets`) and at most 30 d; and a
+  query without `where` after `stats` and without `limit`, which would drop baseline buckets.
+- **Deviation rules** (z-score against a baseline; statistics, not machine learning). The value
+  `v` of a group is computed as for threshold rules over `[now−window, now)`. The **baseline** is
+  the same query with `span <window>` over `[b − n·window, b)`, where `n = baseline / window` and
+  `b` is `now − window` rounded down to a multiple of `window` since the Unix epoch (UTC), so the
+  baseline holds `n` whole windows that end before the current one starts. It returns at most
+  `MaxBaselineRows` = 100,000 rows (more ⇒ evaluation error, use a coarser window or fewer
+  groups); a bucket off that grid is an evaluation error. Per group:
+  - **Missing buckets:** when the aggregate is a single `count`, `count_distinct`, `sum` or
+    `rate()` call (no arithmetic), a bucket without a row counts as 0 from the group's first bucket
+    with a row onward (earlier buckets are skipped, so a new group or a stream younger than the
+    baseline is not compared with zeros), and a group with baseline buckets but no row in the
+    current window has `v = 0`, so a source that stops sending is detected. For other aggregates
+    missing buckets and NULL/NaN values are skipped, and a missing current row is no data.
+  - At least `MinBaselineSamples` = 5 baseline values are needed; otherwise the group is no data
+    (handled by `noData`).
+  - `mean` and the sample standard deviation `σ` (divisor `n − 1`) of the baseline values,
+    deviation `δ = v − mean`, `z = δ / σ` (absent when `σ = 0`). The condition holds for `above`
+    when `δ > 0`, `δ > sigma·σ` and `δ ≥ minDelta`; for `below` when `δ < 0`, `−δ > sigma·σ` and
+    `−δ ≥ minDelta`; for `both` when either holds. With `σ = 0` any deviation in the direction
+    beyond `minDelta` holds, so a flat baseline needs `minDelta` to ignore small changes.
+  - Groups are those of the current result plus, for the zero-fill aggregates, the baseline's
+    groups (current groups first, then baseline-only groups by key; at most 1,000).
+  The baseline is cached in memory per rule (key: rule id, canonical document, streams and `b`),
+  so it is recomputed once per `window`, not on every evaluation. Older binaries reject a
+  document with `type` (strict decoding): in HA mode upgrade every node before creating
+  deviation rules, or an older leader marks them `error`.
 - **Streams** (`alert_rules.streams`, outside the document so older binaries still parse it,
   §15.10): `null` (or absent) = the rule reads every stream, else 1…100 valid stream names
   (stored sorted, de-duplicated). `null` is accepted only from callers who see every stream; a
@@ -2166,12 +2210,59 @@ as *"error rate and p95 latency per service for checkout, last 24h"* into panels
   groups by one `error` group (single transition `<aggregate> → error`); further failures are
   silent. The next success restarts from `error` (grouped rules record `error → ok` for the rule
   and evaluate groups afresh).
-- Persisted per rule: `eval_state` `{failures, groups:{key:{state, since, labels, value}}}`,
+- Persisted per rule: `eval_state` `{failures, groups:{key:{state, since, labels, value, baseline?}}}`
+  (`baseline` `{mean, stdDev, samples, z?}` for deviation rules with enough baseline values),
   `state` = aggregate (error > firing > pending > ok), `state_since` (aggregate changes),
   `last_eval_at`, `last_value` (largest group value), `last_error`. Every transition is a history
   row; transitions to `firing` or `error` and from `firing|error` to `ok` notify (unless muted).
 - Notification fields: rule id/name/severity/description, state, previousState, value, condition
-  op/threshold, group labels, time, link `<PUBLIC_URL>/alerts/<id>` and message.
+  op/threshold, group labels, time, link `<PUBLIC_URL>/alerts/<id>` and message. For deviation
+  rules `op`/`threshold` are the bound on the value's side of the mean (`>` `mean + d`, `<`
+  `mean − d` with `d = max(sigma·σ, minDelta)`; `both` takes the side of the value; empty `op`
+  without a baseline), the notification carries `baseline {mean,
+  stdDev, samples, z?}` (webhook field `baseline`, absent for threshold rules), chat and email
+  facts show *Condition* `< 30.2 (3σ below the 24h baseline)` and *Baseline*
+  `mean 80, σ 16.6, 288 samples, z −4.1`, and the message reads
+  `firing: value 12 is 4.1σ below the 24h baseline (mean 80, σ 16.6, 288 samples)`.
+
+### 14.4 Alert rules on charts
+- **Which rules a chart draws:** `POST /alerts/overlays` `{q, from, to, rules?, doc?, streams?}`
+  (viewer) returns at most `MaxOverlays` = 5 rules: first a draft rule `doc` (the editor's
+  preview; validated like a rule, its `streams` checked against the caller's scope like a rule's
+  and used for its band), then the rules named in `rules` (≤ 5 ids; unknown or invisible ids are
+  ignored), then the rules whose query matches `q`, each group by name. A rule matches when its
+  query and `q` have the same canonical text after removing the span of the stats stage
+  (`alerting.CanonicalQuery`); a `q` that does not parse matches nothing. Only rules visible to
+  the caller (§14.1) count. `from`/`to` are RFC 3339 or relative (`now-3h`), default the last
+  hour, and must be ordered.
+- **Response:** `{overlays: [{ruleId?, name, draft?, condition, windowMs, bands, error?}]}`:
+  `condition` is the canonical condition (§14.1) and `windowMs` the rule's window; threshold
+  rules have `bands: null`. Deviation rules have `bands: [{labels, key, points}]`, one per group
+  of the band query (by-field values in `key`, in by order; at most `MaxBandGroups` = 20, in key
+  order) with `points: [[epoch ms, lower|null, mean, upper|null], …]`, one per window that
+  starts in `[from, to)` (aligned to the UTC window grid) and has at least 5 baseline values.
+  Each point is the **rolling band**: the mean of the `n` windows before it, computed exactly as
+  the evaluator does at the end of that window (§14.1, incl. zero-filled buckets), and the
+  bounds `mean ∓ max(sigma·σ, minDelta)` on the alerting sides (`lower` null for `above`, `upper`
+  null for `below`). One query computes it: the rule query with `span <window>` over
+  `[floor(from) − baseline, ceil(to))` in the rule's streams (the draft's for a draft), at most
+  `MaxBandWindows` (= the TQL bucket limit) windows and 100,000 rows. A range or group count too
+  large for the band (also more than 20,000,000 window statistics) sets `error` instead of
+  `bands`; the request still succeeds.
+- **Drawing (web):** time-series charts in the explorer and on dashboard panels ask for the
+  rules matching their executed query over the chart's own range (first bucket to the end of the
+  last), panels also for `options.alertRules`; the rule editor's preview asks for its draft when
+  the condition is a deviation. A threshold rule is a dashed danger line labelled
+  `<name> <op> <threshold>`; a deviation rule is, per group with a chart series (matched by its
+  by-field values as the series label, or the only series when ungrouped), a stepped band
+  `mean ± d` (`d` = the bound's distance) tinted in the series colour (fainter with several
+  bands), dashed bound lines on the alerting sides and a dotted mean, labelled
+  `<name> <condition>` in the plot's top-left corner. A chart bucket is shaded in the danger
+  colour when a series breaks a drawn threshold or lies outside its band at that time (the band
+  point whose window contains the bucket start). The y scale includes thresholds and upper
+  bounds. The explorer lists the drawn rules under the chart (*name condition*, and when a band
+  is missing, why); dashboard panels rely on the in-plot labels. The draft's name is
+  *this rule*.
 
 ---
 
@@ -2299,7 +2390,7 @@ migrations and admin services.
   vulnerable or malicious dependency (`TestSupplyChainScanPinned` keeps the four pins equal).
 - CI runs `govulncheck`, `gosec` (via golangci-lint), `npm audit --audit-level=high`,
   Trivy image scan and the Go licence allow-list (§19.1); dependencies pinned via lockfiles;
-  Dependabot enabled. Vulnerabilities are fixed by upgrading (modules, Go toolchain, base images),
+  Dependabot enabled (version updates with a 7-day cooldown, §17.4). Vulnerabilities are fixed by upgrading (modules, Go toolchain, base images),
   never by ignore lists.
 - **7-day rule:** dependency updates (Go modules and toolchain, npm packages incl. transitive ones,
   e.g. `npm install --before=<date>`, GitHub Actions, base images, pinned tools) take the newest
@@ -2657,7 +2748,13 @@ works from 360 px wide (explorer collapses rails into sheets).
   condition (the condition is never clipped); recent transitions are one grid row per entry
   (wrapping text grows the row, rows never overlap). The preview chart (rule query with `span <every>` over the last 3 h) draws lines when the
   rule is grouped, a dashed threshold line, and shades buckets where any group meets the
-  condition.
+  condition. The condition is a choice of **Threshold** (operator and threshold) or
+  **Deviation** (direction *above*, *below* or *both*; *σ*, default 3; *Baseline* `1h`, `6h`,
+  `24h` or `7d`, offering only those that give 5–1,000 windows; *Min delta*, default 0); for
+  deviation the window choice keeps only windows that divide 24 h, the preview draws the draft's
+  rolling band per group instead of a threshold line (§14.4) and says *shaded: each group's
+  normal range · red: outside it*, and *Test* shows each group's mean, σ and z. The rules table shows a deviation condition as `> 3σ vs 24h`,
+  `< 3σ vs 24h` or `± 3σ vs 24h`.
 - **Import page** follows the `/imports` API (§9.9, §11.5): JSON body `{kind, name?, config}` for
   `elastic`/`seq`; multipart with the `job` part first and one `file` part per file for
   `clef-file` (1–16 files ≤ 1 GiB) and `kibana` (one file ≤ 64 MiB); progress =
@@ -2838,8 +2935,9 @@ Normative details:
   Trivy scan (HIGH/CRITICAL, fixed only) of the image built from the Dockerfile.
   `.github/dependabot.yml`: gomod, npm (`/web`), GitHub Actions, Docker, **weekly on Monday**,
   all four in **one** pull request (multi-ecosystem group `dependencies`, `patterns: ["*"]`), so
-  a week of dependency updates costs a single CI run. Updates follow the 7-day rule of §15.9
-  when they are applied. The npm entry ignores `typescript >= 6.1.0` while typescript-eslint
+  a week of dependency updates costs a single CI run. Every ecosystem has `cooldown:
+  default-days: 7`, so Dependabot only proposes versions that satisfy the 7-day rule of §15.9
+  (transitive npm versions in the lockfile are checked again when the update is applied). The npm entry ignores `typescript >= 6.1.0` while typescript-eslint
   supports only TypeScript < 6.1 (the update would fail on the peer dependency every week);
   remove the rule when typescript-eslint supports TypeScript 7. It also ignores `msw >= 3.0.0`
   (Vitest's mocker needs msw 2; remove the rule when Vitest supports msw 3) and major updates of
@@ -2849,6 +2947,37 @@ Normative details:
   `@eslint/config-array` and typescript-eslint, which still require `^10`): GHSA-g3hv-75wg-m249
   is fixed only in 11.0.1, and §15.9 fixes vulnerabilities by upgrading. Remove the override when
   those packages require minimatch 11.
+- **Dependabot follow-up** (`.github/workflows/dependabot-copilot.yml`; schedule every six hours
+  and `workflow_dispatch`; concurrency `dependabot-copilot` without cancelling; job `hand-off`
+  with the guard of the other workflows but without the `workflow_dispatch` exception, so it
+  runs only in `ZeraOrg/opentidemark`; `timeout-minutes: 10`; permissions `contents: read`,
+  `issues: write`, `pull-requests`, `actions` and `checks: read`) runs
+  `scripts/dependabot-copilot.sh hand-off`: for every open Dependabot pull request into `main`
+  whose newest pull-request ci run has completed (cancelled runs wait) and failed, or whose
+  update is **not routine**, it opens one issue titled `Fix Dependabot update #<n>` (label
+  `dependabot-fix`, created when missing) with the failed jobs and their annotations (at most 15
+  per job, 1500 characters each) and the reasons, and assigns it to the Copilot coding agent
+  (`copilot-swe-agent[bot]`, `agent_assignment` with the Dependabot branch as `base_branch`), so
+  Copilot opens a pull request into the Dependabot branch. Each pull request is handed off once
+  (an issue with its title in any state counts); open `dependabot-fix` issues whose pull request
+  is closed are closed with a comment. The assignment needs the secret `COPILOT_ASSIGN_TOKEN`, a
+  user token (fine-grained: the repository with Issues, Pull requests, Contents and Actions read
+  and write), because the API rejects installation tokens; without it, or when the assignment
+  returns no assignee, the run fails with an error. `scripts/dependabot-copilot.sh follow-up`
+  reads a unified diff and prints the reasons an update is not routine, nothing when it is:
+  routine updates change only `go.mod` require lines, `go.sum`, `web/package.json`,
+  `web/package-lock.json` and `THIRD_PARTY_NOTICES.md`, with no `go`/`toolchain` directive change
+  and no major step (the first version number, or the second for `0.x`) of a `go.mod` requirement
+  or a `web/package.json` dependency. Green routine updates are applied by the maintainers as
+  proposed; everything else needs a fix or a reviewed change. `.github/workflows/copilot-setup-steps.yml`
+  (`workflow_dispatch` only; job `copilot-setup-steps`, `ubuntu-24.04`, `timeout-minutes: 30`,
+  `contents: read`) prepares the agent's environment: checkout, setup-go (`go-version-file`),
+  setup-node (Node 24, npm cache), `go mod download`, golangci-lint and govulncheck at the
+  versions of `ci.yml`, `npm ci` in `web/`. `.github/copilot-instructions.md` tells the agent how
+  to fix Dependabot updates (keep the proposed versions, the 7-day rule for re-resolved
+  lockfiles, `make notices` for a stale `THIRD_PARTY_NOTICES.md`, no licence exceptions, the
+  versions this spec pins, a spec version and changelog row per spec change) and the rules for
+  every change (`make check`, no weakened tests or checks, SPDX headers, code standards).
 - **Documentation site** (`mkdocs.yml`, `docs-site/`, `.github/workflows/docs.yml`): MkDocs
   `1.6.1` (BSD-2-Clause) with Material for MkDocs `9.7.7` (MIT), every transitive dependency
   pinned with hashes in `docs-site/requirements.txt` (generated from `docs-site/requirements.in`
@@ -3420,7 +3549,7 @@ with an unsupported-platform error.
 | Go unit | `go test -race ./...` (Linux), `go test ./...` (Windows). Table-driven. Coverage ≥ 85% for `internal/tql`, `internal/normalize`, `internal/ingest/...`, `internal/auth`, `internal/retention`; ≥ 70% overall. |
 | TQL | Golden tests: queries in `internal/tql/testdata/*.tql` (`%cursor`/`%streams a,b|none`/`%where` directives) ⇒ `*.golden` (canonical form, SQL + args + columns, or error with position and caret); regenerate with `go test ./internal/tql -run TestGolden -update`. Every §10.1 example is read from `docs/query-language.md` (`TestDocExamplesParseAndCompile`) and must parse and compile, and so must every query line of the reference's `tql` code blocks (`TestDocQueriesParseAndCompile`, at least 150 queries; queries meant to fail use `text` blocks); `internal/repotest` (`TestTQLDocExamplesMatchSpec`) asserts that block equals the §10.1 block of this file. Fuzz test `FuzzParse` (no panics, positioned errors, stable canonical round trip, no user text in SQL); found inputs are kept in `testdata/fuzz`. SQL-injection table (quotes, backticks, `--`, `;`, unicode, keys with `'`) and a max-size pathological-input timing test. |
 | Ingestion | Fixture bodies in `testdata/` captured from real clients: Serilog Seq sink (CLEF), NLog Seq target (legacy JSON), Filebeat/Fluent Bit/Vector/Logstash `_bulk`, OTLP JSON + protobuf logs/traces/metrics. |
-| Integration | Build tag `integration`; needs `TIDEMARK_TEST_CLICKHOUSE_ADDR` (+ `TIDEMARK_TEST_CLICKHOUSE_{DATABASE,WRITER_USER,WRITER_PASSWORD,READER_USER,READER_PASSWORD}`). `scripts/with-clickhouse.sh <cmd>` starts a throw-away local server (binary from `$CLICKHOUSE_BIN`, `/opt/clickhouse/clickhouse` or `PATH`; temp dir; free loopback port; users from `deploy/clickhouse/users.d` with random passwords; a `backups` disk in the temp dir), exports those variables, runs the command and stops the server; with the variable already set it just runs the command. Packages run with `-p 1` because they share the `tidemark` database. Covers migrations (incl. the upgrade of a 0006 database by `TestIntegrationMetricStartTimeUpgrade`), the reader against real data (`internal/store/clickhouse`; histogram aggregates in `TestIntegrationHistogramAggregates`: `hist_mean` and `histogram_quantile` through the read-only user against hand-computed values for a cumulative series with a lookback point and a restart by start time, one without start time written out of order with a restart by decrease, delta temporality, mixed bucket bounds in one group, a bucket without observations (`NULL`), buckets without points (no row), summaries with changing quantile values and a pre-upgrade summary that is skipped, `where` after stats, and arithmetic between aggregates on raw points and histogram aggregates incl. negative results and division by zero (`NULL`); `rate(value)` in `TestIntegrationMetricRate`: increases across bucket boundaries and from a lookback point, restarts by start time and by decrease, delta points, a series started inside the range, `rate(value) * 60` and `where` after stats), and end to end (`internal/app`): connection keys created via the API, rejection without a key / with a wrong-protocol key, Seq, ES `_bulk`, OTLP HTTP (JSON + protobuf) and native fixtures, then `POST /query` (events + cursor paging, table, timeseries), histogram, facets, fields, event by id + context, trace + trace search, metric names, export and live tail; stream access (`TestIntegrationStreamAccess`: logs, spans and metrics in two streams; a team member of one stream sees none of the other on every §15.10 path — queries incl. `stats count() by stream`, histogram, facets, fields, completion, event by id and context, CSV and NDJSON export, tail, trace search, a cross-stream trace, metric names and queries, streams list and fields; the selection never widens the scope; environments filter logs only; alert rules must name streams within the editor's scope, are hidden outside it and keep their streams after the author leaves the team; a team-less user sees every stream until deny-by-default is on and then sees nothing, without errors; an event naming a stream outside its connection's allowed streams lands in the default stream); retention TTL DDL. CI uses a ClickHouse service container (Linux job). Also covers insert deduplication of a replayed WAL batch and of a replayed import job (`tidemark import clef` of 12,345 lines, then the whole job re-run from an empty checkpoint: the row count is unchanged), address failover, operator commands (backup/restore/doctor) and the importers against fake sources. The replicated-schema test additionally needs `TIDEMARK_TEST_CLICKHOUSE_CLUSTER` and `TIDEMARK_TEST_CLICKHOUSE_CLUSTER_ADDRS` (a 1-shard, 3-replica cluster with Keeper, e.g. `deploy/ha/clickhouse/`); `scripts/with-clickhouse-cluster.sh <cmd>` starts such a cluster on loopback (three servers, each embedding Keeper with IPv6 disabled, free ports, users from `deploy/ha/clickhouse/users.d`, cluster `tidemark_cluster`), exports `TIDEMARK_TEST_CLICKHOUSE_{ADDR,CLUSTER,CLUSTER_ADDRS,WRITER_PASSWORD,READER_PASSWORD}` and removes it afterwards; PostgreSQL contract, bus and restore tests need `TIDEMARK_TEST_POSTGRES_DSN`. |
+| Integration | Build tag `integration`; needs `TIDEMARK_TEST_CLICKHOUSE_ADDR` (+ `TIDEMARK_TEST_CLICKHOUSE_{DATABASE,WRITER_USER,WRITER_PASSWORD,READER_USER,READER_PASSWORD}`). `scripts/with-clickhouse.sh <cmd>` starts a throw-away local server (binary from `$CLICKHOUSE_BIN`, `/opt/clickhouse/clickhouse` or `PATH`; temp dir; free loopback port; users from `deploy/clickhouse/users.d` with random passwords; a `backups` disk in the temp dir), exports those variables, runs the command and stops the server; with the variable already set it just runs the command. Packages run with `-p 1` because they share the `tidemark` database. Covers migrations (incl. the upgrade of a 0006 database by `TestIntegrationMetricStartTimeUpgrade`), the reader against real data (`internal/store/clickhouse`; histogram aggregates in `TestIntegrationHistogramAggregates`: `hist_mean` and `histogram_quantile` through the read-only user against hand-computed values for a cumulative series with a lookback point and a restart by start time, one without start time written out of order with a restart by decrease, delta temporality, mixed bucket bounds in one group, a bucket without observations (`NULL`), buckets without points (no row), summaries with changing quantile values and a pre-upgrade summary that is skipped, `where` after stats, and arithmetic between aggregates on raw points and histogram aggregates incl. negative results and division by zero (`NULL`); `rate(value)` in `TestIntegrationMetricRate`: increases across bucket boundaries and from a lookback point, restarts by start time and by decrease, delta points, a series started inside the range, `rate(value) * 60` and `where` after stats; deviation alert rules in `TestIntegrationDeviationAlert`: the baseline buckets of `span <window>` lie on the evaluator's UTC grid, a service that stops sending reads 0 and fires below its baseline while a steady one stays ok, the rolling band of the current window equals that baseline, and `stddev` equals the sample standard deviation, `NULL` for one value), and end to end (`internal/app`): connection keys created via the API, rejection without a key / with a wrong-protocol key, Seq, ES `_bulk`, OTLP HTTP (JSON + protobuf) and native fixtures, then `POST /query` (events + cursor paging, table, timeseries), histogram, facets, fields, event by id + context, trace + trace search, metric names, export and live tail; stream access (`TestIntegrationStreamAccess`: logs, spans and metrics in two streams; a team member of one stream sees none of the other on every §15.10 path — queries incl. `stats count() by stream`, histogram, facets, fields, completion, event by id and context, CSV and NDJSON export, tail, trace search, a cross-stream trace, metric names and queries, streams list and fields; the selection never widens the scope; environments filter logs only; alert rules must name streams within the editor's scope, are hidden outside it and keep their streams after the author leaves the team; a team-less user sees every stream until deny-by-default is on and then sees nothing, without errors; an event naming a stream outside its connection's allowed streams lands in the default stream); retention TTL DDL. CI uses a ClickHouse service container (Linux job). Also covers insert deduplication of a replayed WAL batch and of a replayed import job (`tidemark import clef` of 12,345 lines, then the whole job re-run from an empty checkpoint: the row count is unchanged), address failover, operator commands (backup/restore/doctor) and the importers against fake sources. The replicated-schema test additionally needs `TIDEMARK_TEST_CLICKHOUSE_CLUSTER` and `TIDEMARK_TEST_CLICKHOUSE_CLUSTER_ADDRS` (a 1-shard, 3-replica cluster with Keeper, e.g. `deploy/ha/clickhouse/`); `scripts/with-clickhouse-cluster.sh <cmd>` starts such a cluster on loopback (three servers, each embedding Keeper with IPv6 disabled, free ports, users from `deploy/ha/clickhouse/users.d`, cluster `tidemark_cluster`), exports `TIDEMARK_TEST_CLICKHOUSE_{ADDR,CLUSTER,CLUSTER_ADDRS,WRITER_PASSWORD,READER_PASSWORD}` and removes it afterwards; PostgreSQL contract, bus and restore tests need `TIDEMARK_TEST_POSTGRES_DSN`. |
 | Security | Tests for auth on every route (table of routes × roles), CSRF, rate limits, key restrictions (protocol, CIDR, expiry, revoke), SSRF dialer, the update client (off-list and `http` redirects refused, more than 3 hops refused, private destinations blocked without a proxy, CONNECT through an explicit proxy, proxy credentials absent from errors), headers, SQL-injection attempts through TQL (fuzz corpus). |
 | Updates | `internal/update`: SemVer parsing and precedence table, selection table (drafts, tag shapes, stable/pre-release rules, no downgrade, server-built notes URL), the GitHub source against `httptest` (request path and headers, ETag/`304`, `403` with reset, `429` with `Retry-After`, `404`, `5xx`, oversize body, invalid JSON), the checker schedule with a fake clock and fixed jitter (first check, daily, hourly retries, six attempts, rate-limit wait), no request when disabled or a development build, the 60 s gap, apply reasons and install-kind detection per OS; minisign verification against fixtures made by minisign 0.12 with a throwaway test key (`testdata/minisign`: prehashed and legacy, CRLF) and a per-test generated key (valid, either trusted key, wrong key id, tampered file, tampered trusted comment, wrong version, legacy `Ed`, malformed input); the `checksums.txt` grammar; extraction from tar.gz and zip (traversal, absolute, backslash and drive names, symlinks, hard links, missing, duplicate, oversize); staging against a fake HTTP client (request order, fixed URLs, size caps, untrusted or older signature, checksum mismatch, nothing kept on rejection); the install state machine in temporary directories on Linux and Windows (install, idempotent repeat, rollback, second update, no downgrade, tampered or replaced staged files, symlinked or non-regular staged files, held and stale lock, confirmation polling and timeout); the helper flow (confirmed, rollback without confirmation and after a failed restart, resumed wait without restart, nothing staged, failed request not retried, a request staged during the wait installed in the same run against the newly installed version, at most 3 rounds); the applier refusing a second apply while the helper waits for a confirmation; the applier with a fake stager and clock (installed ⇒ `restarting`, failures per stage incl. disk space, helper start, pickup timeout and helper failure, one update at a time, states and progress), the manager's refusal order and `lastResult` from `state.json`, the reporter reporting each outcome once, staging hooks (reserved size, progress, refusal keeps nothing), helper detection per OS; `internal/api` apply handler (`202` with the audit entry, `400` field `version`, `409` reasons, unknown fields); the watcher with a fake clock (confirmation after an uninterrupted 30 s, none when not ready or for another version, restart only on a changed state that installed another version or rolled back the running one); file modes on Linux; `internal/repotest` `TestUpdateHelperUnitHardened` (helper and path unit settings, exit status 3 in the service unit); on Windows the fixed locations, rename retries while a handle is held, the update service DACL (parsed, round-tripped, start and query only for the service SID) and the stop/start sequence against a fake SCM service (running, not active, already running, refused, timeout, failed start); `tidemark update check` output and usage; `internal/config` parsing of both variables; `internal/api` status and check handlers (`409` reasons, `429` with `Retry-After`); `tidemark_update_available` in `internal/selfmetrics`. |
 | Web | `tsc --noEmit`, ESLint (0 warnings), Prettier, Vitest with coverage ≥ 80 % statements/lines/functions and ≥ 70 % branches for `src/tql/**`, `src/lib/**` and `src/api/client.ts` (TQL highlighter incl. arithmetic between aggregates, template renderer, builder↔TQL round-trip incl. histogram measures (quantile kept as written, the mixing/source/quantile warnings), the metric browser's aggregate options and defaults per kind and the `histogram_quantile(0.95)` query on *p95*, `null` aggregate values as chart gaps and empty table cells, client CSRF/errors/offsets, components; the scope helpers and `useDataScope` URL ↔ state round trip, the scope picker with one, many and no streams and its keyboard flow, the Teams pages and the endpoint parameters of the selection and team routes; the update card's one-click flow: typed confirmation for a minor bump and none for a patch, the states and the download progress, the restart tolerated, the success, a rollback, `409 in-progress`, `draining` and `wal-failed`, the `400` refetch, a remembered target resumed, and the helper-missing guide), production build + static CSP check, `npm audit --audit-level=high`, Playwright smoke against the mock build served with the production CSP (login + default-credentials banner, query, autocomplete, detail, analytics + add to dashboard, signal save, traces, metrics (a histogram charted as *Mean* by default and as `histogram_quantile(0.95)` on *p95*, a summary with only the mean, an up-down sum as `avg` with five aggregates, a counter as *rate/s* with six, light theme, 390 px), the panel builder with histogram measures (quantile input, the mixing and quantile warnings disabling *Apply*, light theme, 390 px), dashboard create/edit, alerts drawer with the streams field, streams purge dry run, connection create with allowed streams, settings pages, the update chip and the System update card for an admin (check now, the 429 answer, the container commands, the helper-missing guide, light theme, 390 px) and their absence without any request for an editor, one-click update against the mock timeline (the dialog with Escape returning focus and the typed confirmation, the progress with the "Updating…" chip, the restart gap, the installed result with its toast, a rollback in the light theme and at 390 px), the scope picker, an admin creating a team and granting a stream to a viewer who then sees only that stream with a static chip and an orphaned span, deny by default leading to the empty state without queries, light theme, keyboard, 390 px with the scope sheet); every e2e test fails on a CSP violation or page error and writes design-review screenshots. |
@@ -3537,7 +3666,8 @@ Definition of done for any change: spec updated · tests added/updated · `make 
   applied by the maintainers (§19.2), then closed with a link to the sync commit.
 - **The public tree is standalone:** `go build`, `go vet` (with and without `integration`) and
   `go test ./...` pass with exactly the files of §6.1, and `ci.yml`, `security.yml`, `release.yml`,
-  `docs.yml` and `dependabot.yml` run there unchanged. Maintainer-only development tooling (publishing
+  `docs.yml`, `dependabot-copilot.yml`, `copilot-setup-steps.yml` and `dependabot.yml` run there
+  unchanged. Maintainer-only development tooling (publishing
   automation, offline dependency snapshots, design review material) is kept outside the public
   tree, is specified separately and is never referenced by public files.
 - **Docs:** `docs/query-language.md`, `docs/ingestion.md` and `docs/configuration.md` are the user
@@ -3591,6 +3721,8 @@ items of M0–M3b:
 
 | Version | Date | Change |
 |---|---|---|
+| 0.36.0 | 2026-11-03 | Deviation alerting and `stddev` (§2, §10.3, §10.5, §11.4, §14.1, §14.3, §16.6, §18): TQL `stddev(f)`, the sample standard deviation (`if(count(x) > 1, stddevSamp(x), NULL)`), a numeric aggregate offered by completion, the editor and the panel builder. Alert rules may use a **deviation** condition `{type: "deviation", direction, sigma, baseline, minDelta}` instead of `{op, threshold}`: the value is compared with the mean and sample standard deviation of the same query in `window` buckets over `baseline` before the current window (UTC grid; window divides 24 h; 5–1,000 windows, ≤ 30 d; ≥ 5 values; count-like aggregates read empty buckets and silent groups as 0), fires when it is more than `sigma`·σ and at least `minDelta` away in the direction, caches the baseline per window, persists `baseline {mean, stdDev, samples, z?}` per group, returns it from `GET /alerts` and `/test`, and notifies with the crossed bound and the baseline (webhook `baseline`). The rule editor offers Threshold or Deviation (σ). Non-goals clarified: statistics, not machine learning. Alert rules on charts (§11.4, §13.1, §14.4, §16.6): `POST /alerts/overlays` returns the rules matching a chart query (canonical text without span), those a panel names in the new option `alertRules` (≤ 5), or the editor's draft, with the rolling band of deviation rules per window and group; explorer charts, dashboard panels and the rule preview draw threshold lines, tinted bands with dashed bounds and a dotted mean, and shade buckets that break them. Integration test `TestIntegrationDeviationAlert` (incl. the band). |
+| 0.35.0 | 2026-11-03 | Dependabot follow-up (§6.1, §15.9, §17.4, §19.3): `dependabot.yml` gives every ecosystem a 7-day cooldown, so proposed versions already satisfy the 7-day rule. New workflow `dependabot-copilot.yml` (every six hours, public repository only) hands each failing or non-routine Dependabot pull request to the Copilot coding agent through one `dependabot-fix` issue with the failed jobs' annotations, using `scripts/dependabot-copilot.sh` (also the routine-update classifier) and the secret `COPILOT_ASSIGN_TOKEN`; `copilot-setup-steps.yml` prepares the agent's environment and `.github/copilot-instructions.md` holds its rules. |
 | 0.34.5 | 2026-11-02 | Web dev dependencies (§17.4, §15.9): an npm `overrides` entry pins `minimatch` 11.0.1 for ESLint and typescript-eslint (GHSA-g3hv-75wg-m249, fixed only in 11.x, development only), so the OSV-Scanner supply-chain gate passes; to be removed once they require minimatch 11. It brings the development-only `@isaacs/nonrecursive-glob-match` 1.0.3 (BlueOak-1.0.0). Taken 6 days after the release of 11.0.1 as an owner-approved security exception to the 7-day rule of §15.9. |
 | 0.34.4 | 2026-10-25 | Monotonic sums (§11.3, §16.1, §18): `GET /metrics/names` reports `monotonic` (true when a point of the metric in the range is a monotonic sum, from `is_monotonic`; `store.MetricName.Monotonic`, `metricNameView`). The metric browser charts *rate/s* by default and offers the button only for counters (`sum`/`counter` with `monotonic` true); an up-down sum is averaged with the plain aggregates like a gauge (0.34.2 defaulted every sum to the rate). The mock's `http.server.active_requests` is an up-down sum; Vitest and the e2e metrics test cover both. |
 | 0.34.3 | 2026-10-25 | TQL limits (§10.3, §18): the 8 KiB query limit also applies to the canonical form, so a query that `String()` writes longer (adjacent `''` become `"" and ""`) is rejected with a positioned error instead of yielding canonical TQL that does not parse (e.g. a resolved dashboard panel query); found by `FuzzParse`, input kept in `testdata/fuzz`. |

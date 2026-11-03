@@ -122,3 +122,36 @@
   font-feature-settings: 'tnum';
   color: var(--tm-color-fg);
 }
+
+/* Alert rules drawn on a chart (SPEC §14.4). */
+.overlayLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--tm-text-xs);
+  color: var(--tm-color-fg-muted);
+}
+
+.overlayLegend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.overlaySwatch {
+  width: 14px;
+  height: 0;
+  border-top: 2px dashed var(--tm-color-danger);
+}
+
+.overlayName {
+  color: var(--tm-color-fg);
+  font-weight: var(--tm-font-weight-semibold);
+}
+
+.overlayError {
+  color: var(--tm-color-warning);
+}

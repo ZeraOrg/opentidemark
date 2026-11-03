@@ -20,6 +20,7 @@ type AlertsAPI struct {
 	Alerts   *service.Alerts
 	Channels *service.Channels
 	ClientIP func(*http.Request) netip.Addr
+	Now      func() time.Time // for relative from/to of POST /alerts/overlays
 }
 
 // Routes implements Registrar.
@@ -27,6 +28,7 @@ func (a *AlertsAPI) Routes() []Route {
 	return []Route{
 		{http.MethodGet, "/alerts", Viewer, a.list},
 		{http.MethodPost, "/alerts", Editor, a.create},
+		{http.MethodPost, "/alerts/overlays", Viewer, a.overlays},
 		{http.MethodGet, "/alerts/{id}", Viewer, a.get},
 		{http.MethodPut, "/alerts/{id}", Editor, a.update},
 		{http.MethodDelete, "/alerts/{id}", Editor, a.delete},
@@ -55,10 +57,11 @@ func (r alertRequest) input() service.AlertInput {
 }
 
 type groupView struct {
-	Labels map[string]string `json:"labels"`
-	State  string            `json:"state"`
-	Since  time.Time         `json:"since"`
-	Value  *float64          `json:"value"`
+	Labels   map[string]string  `json:"labels"`
+	State    string             `json:"state"`
+	Since    time.Time          `json:"since"`
+	Value    *float64           `json:"value"`
+	Baseline *alerting.Baseline `json:"baseline,omitempty"` // deviation rules (SPEC §14.1)
 }
 
 type alertView struct {
@@ -85,7 +88,8 @@ func toGroupViews(s alerting.RuleState) []groupView {
 		if labels == nil {
 			labels = map[string]string{}
 		}
-		out = append(out, groupView{Labels: labels, State: string(g.State), Since: g.Since, Value: g.Value})
+		out = append(out, groupView{Labels: labels, State: string(g.State), Since: g.Since, Value: g.Value,
+			Baseline: g.Baseline})
 	}
 	sort.Slice(out, func(i, j int) bool { return alerting.GroupKey(out[i].Labels) < alerting.GroupKey(out[j].Labels) })
 	return out
@@ -154,8 +158,9 @@ func (a *AlertsAPI) delete(w http.ResponseWriter, r *http.Request) error {
 }
 
 type sampleView struct {
-	Labels map[string]string `json:"labels"`
-	Value  *float64          `json:"value"`
+	Labels   map[string]string  `json:"labels"`
+	Value    *float64           `json:"value"`
+	Baseline *alerting.Baseline `json:"baseline,omitempty"`
 }
 
 type transitionView struct {
@@ -184,7 +189,7 @@ func (a *AlertsAPI) test(w http.ResponseWriter, r *http.Request) error {
 		v.Error = out.Err.Error()
 	}
 	for _, s := range out.Samples {
-		v.Samples = append(v.Samples, sampleView{Labels: nonNilLabels(s.Labels), Value: s.Value})
+		v.Samples = append(v.Samples, sampleView{Labels: nonNilLabels(s.Labels), Value: s.Value, Baseline: s.Baseline})
 	}
 	for _, t := range out.Transitions {
 		v.Transitions = append(v.Transitions, transitionView{Labels: nonNilLabels(t.Labels), From: string(t.From),
@@ -344,5 +349,81 @@ func (a *AlertsAPI) testChannel(w http.ResponseWriter, r *http.Request) error {
 		out["error"] = res.Error
 	}
 	writeJSON(w, http.StatusOK, out)
+	return nil
+}
+
+type overlaysRequest struct {
+	Q       string          `json:"q"`
+	From    string          `json:"from"`
+	To      string          `json:"to"`
+	Rules   []string        `json:"rules"`
+	Doc     json.RawMessage `json:"doc"`     // a draft rule (the editor's preview)
+	Streams []string        `json:"streams"` // the draft's streams; null: every stream
+}
+
+type bandView struct {
+	Labels map[string]string `json:"labels"`
+	Key    []string          `json:"key"`    // by-field values in by order (the series label)
+	Points [][]any           `json:"points"` // [epoch ms, lower|null, mean, upper|null]
+}
+
+type overlayView struct {
+	RuleID    string             `json:"ruleId,omitempty"`
+	Name      string             `json:"name"`
+	Draft     bool               `json:"draft,omitempty"`
+	Condition alerting.Condition `json:"condition"`
+	WindowMs  int64              `json:"windowMs"`
+	Bands     []bandView         `json:"bands"` // null for threshold rules
+
+	Error string `json:"error,omitempty"`
+}
+
+// overlays returns the alert rules to draw on a chart (SPEC §11.4, §14.4).
+func (a *AlertsAPI) overlays(w http.ResponseWriter, r *http.Request) error {
+	var req overlaysRequest
+	if err := decode(r, &req); err != nil {
+		return err
+	}
+	now := a.Now().UTC()
+	rng := service.Range{From: now.Add(-time.Hour), To: now}
+	var err error
+	if req.From != "" {
+		if rng.From, err = ParseTimeParam(req.From, now); err != nil {
+			return err
+		}
+	}
+	if req.To != "" {
+		if rng.To, err = ParseTimeParam(req.To, now); err != nil {
+			return err
+		}
+	}
+	in := service.OverlayRequest{Query: req.Q, Range: rng, RuleIDs: req.Rules}
+	if len(req.Doc) > 0 {
+		in.Draft = &service.OverlayDraft{Doc: req.Doc, Streams: req.Streams}
+	}
+	out, err := a.Alerts.Overlays(r.Context(), principal(r), in)
+	if err != nil {
+		return err
+	}
+	views := make([]overlayView, 0, len(out))
+	for _, o := range out {
+		v := overlayView{RuleID: o.RuleID, Name: o.Name, Draft: o.Draft, Condition: o.Condition,
+			WindowMs: o.Window.Milliseconds(), Error: o.Error}
+		if o.Condition.IsDeviation() && o.Error == "" {
+			v.Bands = []bandView{}
+		}
+		for _, b := range o.Bands {
+			bv := bandView{Labels: nonNilLabels(b.Labels), Key: b.Values, Points: make([][]any, 0, len(b.Points))}
+			if bv.Key == nil {
+				bv.Key = []string{}
+			}
+			for _, p := range b.Points {
+				bv.Points = append(bv.Points, []any{p.T.UnixMilli(), p.Lower, p.Mean, p.Upper})
+			}
+			v.Bands = append(v.Bands, bv)
+		}
+		views = append(views, v)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"overlays": views})
 	return nil
 }

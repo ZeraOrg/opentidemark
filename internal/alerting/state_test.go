@@ -77,7 +77,7 @@ func TestStepExhaustive(t *testing.T) {
 	for k, exp := range want {
 		prev := prevs[k.prev]
 		doc := ruleDoc(">", 10, forDur, k.noData)
-		got := Step(prev, values[k.value], doc, now)
+		got := Step(prev, Sample{Value: values[k.value]}, doc, now)
 		var wantState GroupState
 		switch exp {
 		case "same":
@@ -95,7 +95,7 @@ func TestStepExhaustive(t *testing.T) {
 func TestStepWithoutFor(t *testing.T) {
 	doc := ruleDoc(">", 10, 0, NoDataOK)
 	for _, prev := range []State{StateOK, StateError} {
-		if got := Step(GroupState{State: prev}, fptr(11), doc, t0); got.State != StateFiring {
+		if got := Step(GroupState{State: prev}, Sample{Value: fptr(11)}, doc, t0); got.State != StateFiring {
 			t.Errorf("%s with for=0: %s", prev, got.State)
 		}
 	}

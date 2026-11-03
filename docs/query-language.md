@@ -754,6 +754,7 @@ The columns are named as written (`RequestPath`, `props.user`). `level` returns 
 | `sum(f)` | numeric | sum | `sum_f` |
 | `avg(f)` | numeric | average | `avg_f` |
 | `min(f)`, `max(f)` | numeric | smallest / largest value | `min_f`, `max_f` |
+| `stddev(f)` | numeric | sample standard deviation (empty for fewer than two values) | `stddev_f` |
 | `p50(f)`, `p75(f)`, `p90(f)`, `p95(f)`, `p99(f)` | numeric | percentile (approximate) | `p95_f`, … |
 | `rate()` | none | rows per second of the bucket, or of the whole range without `span` | `rate` |
 | `rate(value)` | `value`, metrics only | per-second rate of a counter | `rate_value` |
@@ -761,7 +762,7 @@ The columns are named as written (`RequestPath`, `props.user`). `level` returns 
 | `hist_mean()` | none, metrics only | mean of the values recorded by histograms and summaries in the bucket (or range) | `hist_mean` |
 | `histogram_quantile(q)` | a number between 0 and 1, metrics only | quantile `q` of the values recorded by histograms in the bucket (or range) | `histogram_quantile_0_95`, … |
 
-- **Numeric aggregates** (`sum`, `avg`, `min`, `max`, percentiles) skip rows where the field is
+- **Numeric aggregates** (`sum`, `avg`, `min`, `max`, `stddev`, percentiles) skip rows where the field is
   missing or not a number. Text fields are converted where possible; `@timestamp` and `id` cannot
   be summed or averaged. `avg(level)` averages the level ordinal.
 - **Span durations** aggregate in milliseconds: `source spans | * | stats p95(duration)` is in ms.
@@ -777,6 +778,10 @@ The columns are named as written (`RequestPath`, `props.user`). `level` returns 
   reset (a new start time, or a value that went down) counts the new value. Filter on the series
   (name, service, attributes), not on `value`.
 - **`first`/`last`** return the field's value from the earliest / latest row of each group.
+- **`stddev`** is the sample standard deviation: how far the values typically spread around
+  their average. Together with `avg` it shows whether a few slow requests or a general slowdown
+  move the average. To alert when a value leaves its usual range, use a deviation alert rule
+  (see the operations manual, *Alerting*).
 - **Histogram aggregates** (`hist_mean()`, `histogram_quantile(q)`) are described in
   [Histograms and summaries](#histograms-and-summaries).
 
@@ -784,6 +789,7 @@ The columns are named as written (`RequestPath`, `props.user`). `level` returns 
 * | stats count(), count(exception) as with_exception by service
 * | stats count_distinct(user.id) as users by service
 * | stats avg(elapsed), p50(elapsed), p95(elapsed), p99(elapsed), max(elapsed) by route
+* | stats avg(elapsed), stddev(elapsed) as spread_ms by route span 5m
 source spans | * | stats p95(duration) as p95_ms by service, name | sort p95_ms desc | limit 20
 level:error | stats rate() span 1m
 source metrics | name:http.server.requests | stats rate(value) by service span 1m
@@ -1460,8 +1466,8 @@ agg_expr   = agg_term { ( "+" | "-" ) agg_term } ;
 agg_term   = agg_atom { ( "*" | "/" ) agg_atom } ;
 agg_atom   = agg_call | number | "(" agg_expr ")" ;
 agg_call   = agg_fn "(" [ field | number ] ")" ;
-agg_fn     = "count" | "count_distinct" | "sum" | "avg" | "min" | "max" | "p50" | "p75" | "p90"
-           | "p95" | "p99" | "rate" | "first" | "last" | "hist_mean" | "histogram_quantile" ;
+agg_fn     = "count" | "count_distinct" | "sum" | "avg" | "min" | "max" | "stddev" | "p50" | "p75"
+           | "p90" | "p95" | "p99" | "rate" | "first" | "last" | "hist_mean" | "histogram_quantile" ;
 sort       = "sort" ident [ "asc" | "desc" ] { "," ident [ "asc" | "desc" ] } ;
 limit      = "limit" integer ;
 fields     = "fields" field { "," field } ;

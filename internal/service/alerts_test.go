@@ -30,6 +30,15 @@ func (r *recordingTester) Test(_ context.Context, ch meta.Channel, _ string) err
 
 type stubEvaluator struct{}
 
+// Bands returns one flat band at the start of the range for deviation rules.
+func (stubEvaluator) Bands(_ context.Context, doc *alerting.RuleDoc, _ model.StreamScope, from, _ time.Time) ([]alerting.GroupBand, error) {
+	if !doc.Condition.IsDeviation() {
+		return nil, nil
+	}
+	lo := 8.0
+	return []alerting.GroupBand{{Labels: map[string]string{}, Points: []alerting.BandPoint{{T: from, Mean: 10, Lower: &lo}}}}, nil
+}
+
 func (stubEvaluator) Evaluate(_ context.Context, r meta.AlertRule, now time.Time) alerting.Outcome {
 	return alerting.Outcome{State: alerting.RuleState{Groups: map[string]alerting.GroupState{"": {State: alerting.StateOK, Since: now}}},
 		Samples: []alerting.Sample{{Key: r.ID}}}
@@ -299,5 +308,58 @@ func TestAlertStreams(t *testing.T) {
 	e.scope.err = errors.New("meta down")
 	if _, err := e.alerts.List(ctx, viewerUser); err == nil {
 		t.Error("list without a scope")
+	}
+}
+
+func TestAlertOverlays(t *testing.T) {
+	e := newAlertEnv(t)
+	ctx := context.Background()
+	mk := func(name, doc string, streams []string) meta.AlertRule {
+		t.Helper()
+		r, err := e.alerts.Create(ctx, SystemActor, adminUser, AlertInput{Name: name, Doc: json.RawMessage(doc), Streams: streams})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	errorsRule := mk("errors", `{"query":"level:error | stats count()","condition":{"op":">","threshold":5},"window":"5m","every":"1m"}`, nil)
+	volume := mk("volume", `{"query":"x | stats count() by service","groupBy":["service"],"condition":{"type":"deviation",`+
+		`"direction":"below","sigma":3,"baseline":"1h"},"window":"5m","every":"1m"}`, nil)
+	mk("other", `{"query":"level:warning | stats count()","condition":{"op":">","threshold":5},"window":"5m","every":"1m"}`, nil)
+	scoped := mk("scoped", `{"query":"level:error | stats count()","condition":{"op":">","threshold":9},"window":"5m","every":"1m"}`, []string{"payments"})
+	rng := Range{From: e.now.Add(-3 * time.Hour), To: e.now}
+
+	got, err := e.alerts.Overlays(ctx, adminUser, OverlayRequest{Query: "level:error|stats count() span 1m", Range: rng,
+		RuleIDs: []string{volume.ID, "missing"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 || got[0].RuleID != volume.ID || len(got[0].Bands) != 1 || got[1].RuleID != errorsRule.ID ||
+		got[1].Condition.Threshold != 5 || got[2].RuleID != scoped.ID {
+		t.Fatalf("overlays %+v", got)
+	}
+	e.scope.set(model.OnlyStreams("web"))
+	got, err = e.alerts.Overlays(ctx, adminUser, OverlayRequest{Query: "level:error | stats count()", Range: rng, RuleIDs: []string{scoped.ID}})
+	if err != nil || len(got) != 0 {
+		t.Errorf("rules outside the caller's scope: %+v %v", got, err)
+	}
+	draft := OverlayDraft{Doc: json.RawMessage(`{"query":"x | stats count()","condition":{"type":"deviation","direction":"both",` +
+		`"sigma":2,"baseline":"1h"},"window":"5m","every":"1m"}`), Streams: []string{"web"}}
+	got, err = e.alerts.Overlays(ctx, adminUser, OverlayRequest{Query: "x | stats count()", Range: rng, Draft: &draft})
+	if err != nil || len(got) != 1 || !got[0].Draft || len(got[0].Bands) != 1 {
+		t.Errorf("draft %+v %v", got, err)
+	}
+	draft.Streams = []string{"payments"}
+	if _, err := e.alerts.Overlays(ctx, adminUser, OverlayRequest{Query: "x", Range: rng, Draft: &draft}); err == nil {
+		t.Error("draft over streams outside the scope accepted")
+	}
+	if _, err := e.alerts.Overlays(ctx, adminUser, OverlayRequest{Query: "x", Range: Range{From: e.now, To: e.now}}); err == nil {
+		t.Error("empty range accepted")
+	}
+	if _, err := e.alerts.Overlays(ctx, adminUser, OverlayRequest{Query: "x", Range: rng, RuleIDs: []string{"a", "b", "c", "d", "e", "f"}}); err == nil {
+		t.Error("six rule ids accepted")
+	}
+	if !ValidOverlayIDs([]string{"a", "b"}) || ValidOverlayIDs([]string{"a", "a"}) || ValidOverlayIDs([]string{""}) {
+		t.Error("ValidOverlayIDs")
 	}
 }

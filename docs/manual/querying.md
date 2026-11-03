@@ -91,7 +91,13 @@ source spans | duration > 2s
 
 # From log properties
 elapsed:* | stats p95(elapsed), avg(elapsed) by service, route span 1m
+
+# Spread around the average (sample standard deviation): a general slowdown moves avg,
+# a few slow outliers mostly widen stddev
+source spans | kind:server | stats avg(duration), stddev(duration) by service span 5m
 ```
+
+To be told when a value leaves its usual range, use a [deviation alert rule](alerting.md#deviation-rules).
 
 Default aggregate names are `fn` or `fn_field` (`p95_duration`); rename with `as`.
 

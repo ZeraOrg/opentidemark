@@ -20,7 +20,15 @@ import { cx } from '../../lib/cx';
 import { formatNumber } from '../../lib/format';
 import { formatAge, formatClock } from '../../lib/time';
 import { AlertDrawer } from './AlertDrawer';
-import { conditionText, groupText, isMuted, stateChip, stateVariant, type RuleFilter } from './rules';
+import {
+  conditionText,
+  groupText,
+  historyValueText,
+  isMuted,
+  stateChip,
+  stateVariant,
+  type RuleFilter,
+} from './rules';
 import s from './alerts.module.css';
 
 const HISTORY_PER_RULE = 10;
@@ -235,9 +243,7 @@ export default function AlertsPage() {
                     <span className={s.tText}>
                       <strong>{rule.name}</strong>
                       {group !== '' ? ` · ${group}` : ''}
-                      {h.value !== null
-                        ? ` · value ${formatNumber(h.value)} ${h.toState === 'ok' ? '≤' : rule.doc.condition.op} ${formatNumber(rule.doc.condition.threshold)}`
-                        : ''}
+                      {h.value !== null ? ` · ${historyValueText(rule.doc.condition, h)}` : ''}
                     </span>
                     <span className={s.tNotified}>
                       {notifies(h) && rule.doc.channels.length > 0

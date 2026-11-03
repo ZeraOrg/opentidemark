@@ -210,6 +210,26 @@ args:
   10: int 10000
 columns: @bucket:time, service:string, route:string, p95_elapsed:number, avg_elapsed:number
 
+=== elapsed:* | stats stddev(elapsed), stddev(props.size) as spread by service
+kind: table  source: logs  limit: 10000
+canonical: elapsed:* | stats stddev(elapsed), stddev(props.size) as spread by service
+sql: SELECT service AS g0, if(count(if(mapContains(props_num, ?), props_num[?], NULL)) > 1, stddevSamp(if(mapContains(props_num, ?), props_num[?], NULL)), NULL) AS a0, if(count(if(mapContains(props_num, ?), props_num[?], NULL)) > 1, stddevSamp(if(mapContains(props_num, ?), props_num[?], NULL)), NULL) AS a1 FROM tidemark.events WHERE timestamp >= ? AND timestamp < ? AND ((mapContains(props, ?) AND props[?] != '')) GROUP BY g0 ORDER BY a0 DESC, g0 ASC LIMIT ?
+args:
+  0: string "elapsed"
+  1: string "elapsed"
+  2: string "elapsed"
+  3: string "elapsed"
+  4: string "size"
+  5: string "size"
+  6: string "size"
+  7: string "size"
+  8: time 2026-10-13T11:00:00Z
+  9: time 2026-10-13T12:00:00Z
+  10: string "elapsed"
+  11: string "elapsed"
+  12: int 10000
+columns: service:string, stddev_elapsed:number, spread:number
+
 === *
 kind: events  source: logs  limit: 200
 canonical: *

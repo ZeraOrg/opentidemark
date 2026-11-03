@@ -29,10 +29,11 @@ const maxMessageLen = 512
 
 // GroupState is the state of one group (key "" for ungrouped rules).
 type GroupState struct {
-	State  State             `json:"state"`
-	Since  time.Time         `json:"since"`
-	Labels map[string]string `json:"labels,omitempty"`
-	Value  *float64          `json:"value,omitempty"`
+	State    State             `json:"state"`
+	Since    time.Time         `json:"since"`
+	Labels   map[string]string `json:"labels,omitempty"`
+	Value    *float64          `json:"value,omitempty"`
+	Baseline *Baseline         `json:"baseline,omitempty"` // deviation rules (SPEC §14.1)
 }
 
 // RuleState is the persisted evaluation state of a rule (alert_rules.eval_state).
@@ -41,22 +42,25 @@ type RuleState struct {
 	Groups   map[string]GroupState `json:"groups"`
 }
 
-// Sample is one evaluated value; Value nil means no data.
+// Sample is one evaluated value; Value nil means no data. Baseline is set for deviation rules
+// whose group has enough baseline values; without it a deviation rule has no data.
 type Sample struct {
-	Key    string
-	Labels map[string]string
-	Value  *float64
+	Key      string
+	Labels   map[string]string
+	Value    *float64
+	Baseline *Baseline
 }
 
 // Transition is one state change of a group.
 type Transition struct {
-	Key     string
-	Labels  map[string]string
-	From    State
-	To      State
-	Value   *float64
-	At      time.Time
-	Message string
+	Key      string
+	Labels   map[string]string
+	From     State
+	To       State
+	Value    *float64
+	Baseline *Baseline
+	At       time.Time
+	Message  string
 }
 
 // Notify reports whether the transition is announced: entering firing or error, and
@@ -129,11 +133,11 @@ func (s RuleState) Apply(samples []Sample, doc *RuleDoc, now time.Time) (RuleSta
 		if !ok {
 			prev = GroupState{State: StateOK, Labels: smp.Labels}
 		}
-		out = next.record(smp.Key, prev, smp.Labels, smp.Value, doc, now, out)
+		out = next.record(smp.Key, prev, smp, doc, now, out)
 	}
 	for key, prev := range prevGroups {
 		if !seen[key] {
-			out = next.record(key, prev, prev.Labels, nil, doc, now, out)
+			out = next.record(key, prev, Sample{Key: key, Labels: prev.Labels}, doc, now, out)
 		}
 	}
 	if grouped {
@@ -147,24 +151,39 @@ func (s RuleState) Apply(samples []Sample, doc *RuleDoc, now time.Time) (RuleSta
 }
 
 // record steps one group and appends its transition.
-func (s RuleState) record(key string, prev GroupState, labels map[string]string, v *float64, doc *RuleDoc,
-	now time.Time, out []Transition) []Transition {
-	ns := Step(prev, v, doc, now)
-	ns.Labels, ns.Value = labels, v
+func (s RuleState) record(key string, prev GroupState, smp Sample, doc *RuleDoc, now time.Time,
+	out []Transition) []Transition {
+	ns := Step(prev, smp, doc, now)
+	ns.Labels, ns.Value, ns.Baseline = smp.Labels, smp.Value, smp.Baseline
 	s.Groups[key] = ns
 	if ns.State == prev.State {
 		return out
 	}
-	return append(out, Transition{Key: key, Labels: labels, From: prev.State, To: ns.State, Value: v, At: now,
-		Message: describe(ns.State, v, doc)})
+	return append(out, Transition{Key: key, Labels: smp.Labels, From: prev.State, To: ns.State, Value: smp.Value,
+		Baseline: smp.Baseline, At: now, Message: describe(ns.State, smp, doc)})
 }
 
-// Step computes the next state of one group for value v (nil = no data).
-func Step(prev GroupState, v *float64, doc *RuleDoc, now time.Time) GroupState {
-	var met bool
+// holds reports whether the condition holds for smp, and whether smp has data: a value, and for
+// deviation rules a baseline (SPEC §14.1).
+func holds(smp Sample, doc *RuleDoc) (met, data bool) {
 	switch {
-	case v != nil:
-		met = doc.Condition.Met(*v)
+	case smp.Value == nil:
+		return false, false
+	case doc.Condition.IsDeviation():
+		if smp.Baseline == nil {
+			return false, false
+		}
+		return doc.Condition.deviationMet(*smp.Value, smp.Baseline), true
+	}
+	return doc.Condition.Met(*smp.Value), true
+}
+
+// Step computes the next state of one group for sample smp (no value, or for deviation rules
+// no baseline = no data).
+func Step(prev GroupState, smp Sample, doc *RuleDoc, now time.Time) GroupState {
+	met, data := holds(smp, doc)
+	switch {
+	case data:
 	case doc.NoData == NoDataKeep:
 		return prev
 	default:
@@ -192,9 +211,15 @@ func Step(prev GroupState, v *float64, doc *RuleDoc, now time.Time) GroupState {
 	}
 }
 
-func describe(st State, v *float64, doc *RuleDoc) string {
-	if v == nil {
+func describe(st State, smp Sample, doc *RuleDoc) string {
+	v := smp.Value
+	switch {
+	case v == nil:
 		return fmt.Sprintf("%s: no data (noData=%s)", st, doc.NoData)
+	case doc.Condition.IsDeviation() && smp.Baseline == nil:
+		return fmt.Sprintf("%s: value %s, not enough baseline data (noData=%s)", st, FormatValue(*v), doc.NoData)
+	case doc.Condition.IsDeviation():
+		return describeDeviation(st, *v, smp.Baseline, doc.Condition)
 	}
 	return fmt.Sprintf("%s: value %s, condition %s %s", st, FormatValue(*v), doc.Condition.Op,
 		FormatValue(doc.Condition.Threshold))

@@ -223,7 +223,7 @@ func needsField(fn string) bool {
 
 func isNumericAgg(fn string) bool {
 	switch fn {
-	case "sum", "avg", "min", "max", "p50", "p75", "p90", "p95", "p99":
+	case "sum", "avg", "min", "max", aggStddev, "p50", "p75", "p90", "p95", "p99":
 		return true
 	}
 	return false

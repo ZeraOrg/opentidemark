@@ -1,17 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
 //
-// Alert rule editor drawer (SPEC §14.1, §15.10, §16.4, DESIGN §9.7): name, query with validation,
-// the streams the rule reads (every stream, or chosen ones; required for editors who see only
-// some streams), condition / threshold / window / for, a live preview of the last 3 hours with
-// the threshold line and the region where the condition holds, severity, no-data policy, group
-// by, channels, test, mute and delete.
+// Alert rule editor drawer (SPEC §14.1, §15.10, §16.4, §16.6, DESIGN §9.7): name, query with
+// validation, the streams the rule reads (every stream, or chosen ones; required for editors who
+// see only some streams), the condition (a threshold, or a deviation from the value's baseline in
+// σ) with window and for, a live preview of the last 3 hours (with the threshold line and the
+// region where a threshold condition holds), severity, no-data policy, group by, channels, test
+// (with each group's baseline for deviation rules), mute and delete.
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BellOff, ChevronDown, FlaskConical } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { errorMessage } from '../../api/client';
 import { alerts as alertsApi, channels as channelsApi, search } from '../../api/endpoints';
-import type { Alert, AlertTestResult, ConditionOp, NoDataPolicy, RuleDoc, Severity } from '../../api/types';
+import type {
+  Alert,
+  AlertTestResult,
+  ConditionOp,
+  DeviationCondition,
+  DeviationDirection,
+  NoDataPolicy,
+  RuleDoc,
+  Severity,
+  ThresholdCondition,
+} from '../../api/types';
 import { useVisibleStreams } from '../../app/scope';
 import { useApi, useServices } from '../../app/services';
 import { useMe } from '../../app/session';
@@ -37,21 +48,34 @@ import { formatNumber } from '../../lib/format';
 import { timeseriesToChart } from '../../lib/series';
 import { formatClock } from '../../lib/time';
 import { useQueryCheck } from '../query/useQueryCheck';
+import { useAlertOverlays } from './overlays';
 import { streamNameProblem } from '../settings/TeamPage';
 import {
+  baselineChoices,
+  baselineText,
+  conditionProblem,
+  defaultDeviation,
+  defaultThreshold,
   EVERY,
   FOR,
+  isDeviation,
   isMuted,
   newRule,
   PREVIEW_RANGE,
   previewQuery,
   stateChip,
+  windowFitsDeviation,
   WINDOWS,
   withGroupBy,
 } from './rules';
 import s from './alerts.module.css';
 
 const OPS: readonly ConditionOp[] = ['>', '>=', '<', '<=', '==', '!='];
+const DIRECTIONS: readonly { value: DeviationDirection; label: string }[] = [
+  { value: 'both', label: 'above or below' },
+  { value: 'above', label: 'above' },
+  { value: 'below', label: 'below' },
+];
 const HOUR_MS = 3_600_000;
 
 const durationOptions = (xs: readonly string[], current: string) => {
@@ -76,7 +100,7 @@ export function holdingSince(
   return since;
 }
 
-function Preview({ doc }: { doc: RuleDoc }) {
+function Preview({ doc, streams, valid }: { doc: RuleDoc; streams: string[] | null; valid: boolean }) {
   const api = useApi();
   const q = previewQuery(doc.query, doc.every);
   const res = useQuery({
@@ -89,10 +113,19 @@ function Preview({ doc }: { doc: RuleDoc }) {
     [res.data],
   );
   const first = data?.series[0];
+  const threshold: ThresholdCondition | null = isDeviation(doc.condition) ? null : doc.condition;
+  // Deviation rules draw the draft's rolling band, computed by the server from its baseline.
+  const overlays = useAlertOverlays({
+    q: '',
+    data,
+    spanMs: res.data?.span ?? 0,
+    draft: { doc, streams },
+    enabled: threshold === null && valid,
+  });
   const since =
-    data === null || first === undefined
+    data === null || first === undefined || threshold === null
       ? null
-      : holdingSince(data.x, first.values, doc.condition.op, doc.condition.threshold);
+      : holdingSince(data.x, first.values, threshold.op, threshold.threshold);
   return (
     <section className={s.preview} aria-label="Preview">
       <header className={s.previewHead}>
@@ -100,6 +133,9 @@ function Preview({ doc }: { doc: RuleDoc }) {
         <span className={l.subtle}>last 3 h · evaluated every {shortDuration(doc.every)}</span>
         {since !== null ? (
           <span className={s.since}>above threshold since {formatClock(since, false).slice(0, 5)} →</span>
+        ) : null}
+        {threshold === null ? (
+          <span className={l.subtle}>shaded: each group&apos;s normal range · red: outside it</span>
         ) : null}
       </header>
       {res.isPending ? <Spinner /> : null}
@@ -112,14 +148,19 @@ function Preview({ doc }: { doc: RuleDoc }) {
           style={data.series.length > 1 ? 'line' : 'area'}
           legend={data.series.length > 1 ? 'bottom' : 'hidden'}
           colors={data.series.map((_, i) => (i === 0 ? 1 : i + 1))}
-          thresholds={[
-            {
-              value: doc.condition.threshold,
-              color: 'danger',
-              label: `threshold ${formatNumber(doc.condition.threshold)}`,
-            },
-          ]}
-          shade={{ op: doc.condition.op, value: doc.condition.threshold }}
+          thresholds={
+            threshold === null
+              ? []
+              : [
+                  {
+                    value: threshold.threshold,
+                    color: 'danger',
+                    label: `threshold ${formatNumber(threshold.threshold)}`,
+                  },
+                ]
+          }
+          shade={threshold === null ? null : { op: threshold.op, value: threshold.threshold }}
+          overlays={overlays}
         />
       ) : null}
     </section>
@@ -233,7 +274,14 @@ function TestResult({ r }: { r: AlertTestResult }) {
     <Notice kind={r.error !== undefined ? 'danger' : 'info'}>
       Evaluated now: <strong>{r.state}</strong>
       {r.error !== undefined ? ` · ${r.error}` : ''}
-      {r.samples.length > 0 ? ` · ${r.samples.map((x) => formatNumber(x.value)).join(', ')}` : ''}
+      {r.samples.length > 0
+        ? ` · ${r.samples
+            .map(
+              (x) =>
+                `${formatNumber(x.value)}${x.baseline !== undefined ? ` (${baselineText(x.baseline, formatNumber)})` : ''}`,
+            )
+            .join(', ')}`
+        : ''}
       {r.transitions.length > 0
         ? ` · would transition ${r.transitions.map((t) => `${t.from} → ${t.to}`).join(', ')}`
         : ''}
@@ -305,11 +353,22 @@ export function AlertDrawer({ alert, onClose }: { alert: Alert | null; onClose: 
   const chip = alert === null ? null : stateChip(alert, now());
   const muted = alert !== null && isMuted(alert, now());
   const forOk = parseGoDuration(doc.for) !== null;
+  const cond = doc.condition;
+  const dev: DeviationCondition | null = isDeviation(cond) ? cond : null;
+  const problem = conditionProblem(cond, doc.window);
+  const setDev = (p: Partial<DeviationCondition>): void => {
+    if (dev !== null) set({ condition: { ...dev, ...p } });
+  };
+  const setWindow = (window: string): void => {
+    if (dev === null) return set({ window });
+    const fits = baselineChoices(window).some((b) => b.value === shortDuration(dev.baseline));
+    set({ window, condition: fits ? dev : { ...dev, baseline: defaultDeviation(window).baseline } });
+  };
   const invalid =
     name.trim() === '' ||
     check.error !== null ||
     !forOk ||
-    !Number.isFinite(doc.condition.threshold) ||
+    problem !== null ||
     streamsProblem(streams, me.allStreams) !== null;
   return (
     <Drawer
@@ -392,34 +451,87 @@ export function AlertDrawer({ alert, onClose }: { alert: Alert | null; onClose: 
         )}
       </Field>
       <StreamsField value={streams} onChange={setStreams} />
+      <Field label="Condition type">
+        {() => (
+          <Segmented<'threshold' | 'deviation'>
+            label="Condition type"
+            value={dev === null ? 'threshold' : 'deviation'}
+            onChange={(t) =>
+              set({
+                condition:
+                  t === 'deviation'
+                    ? defaultDeviation(windowFitsDeviation(doc.window) ? doc.window : '5m')
+                    : defaultThreshold(),
+                window: t === 'deviation' && !windowFitsDeviation(doc.window) ? '5m' : doc.window,
+              })
+            }
+            options={[
+              { value: 'threshold', label: 'Threshold' },
+              { value: 'deviation', label: 'Deviation (σ)' },
+            ]}
+          />
+        )}
+      </Field>
       <div className={s.conditionRow}>
-        <Field label="Condition">
-          {(id) => (
-            <Select
-              id={id}
-              options={OPS.map((o) => ({ value: o, label: o }))}
-              value={doc.condition.op}
-              onChange={(e) => set({ condition: { ...doc.condition, op: e.target.value as ConditionOp } })}
-            />
-          )}
-        </Field>
-        <Field label="Threshold">
-          {(id) => (
-            <TextInput
-              id={id}
-              type="number"
-              value={String(doc.condition.threshold)}
-              onChange={(e) => set({ condition: { ...doc.condition, threshold: Number(e.target.value) } })}
-            />
-          )}
-        </Field>
+        {dev === null && !isDeviation(cond) ? (
+          <>
+            <Field label="Condition">
+              {(id) => (
+                <Select
+                  id={id}
+                  options={OPS.map((o) => ({ value: o, label: o }))}
+                  value={cond.op}
+                  onChange={(e) => set({ condition: { ...cond, op: e.target.value as ConditionOp } })}
+                />
+              )}
+            </Field>
+            <Field label="Threshold">
+              {(id) => (
+                <TextInput
+                  id={id}
+                  type="number"
+                  value={String(cond.threshold)}
+                  onChange={(e) => set({ condition: { ...cond, threshold: Number(e.target.value) } })}
+                />
+              )}
+            </Field>
+          </>
+        ) : (
+          <>
+            <Field label="Direction">
+              {(id) => (
+                <Select
+                  id={id}
+                  options={DIRECTIONS}
+                  value={dev?.direction ?? 'both'}
+                  onChange={(e) => setDev({ direction: e.target.value as DeviationDirection })}
+                />
+              )}
+            </Field>
+            <Field label="Sigma (σ)">
+              {(id) => (
+                <TextInput
+                  id={id}
+                  type="number"
+                  min={0}
+                  step={0.5}
+                  value={String(dev?.sigma ?? 3)}
+                  onChange={(e) => setDev({ sigma: Number(e.target.value) })}
+                />
+              )}
+            </Field>
+          </>
+        )}
         <Field label="Window">
           {(id) => (
             <Select
               id={id}
-              options={durationOptions(WINDOWS, doc.window)}
+              options={durationOptions(
+                dev === null ? WINDOWS : WINDOWS.filter(windowFitsDeviation),
+                doc.window,
+              )}
               value={shortDuration(doc.window)}
-              onChange={(e) => set({ window: e.target.value })}
+              onChange={(e) => setWindow(e.target.value)}
             />
           )}
         </Field>
@@ -434,6 +546,32 @@ export function AlertDrawer({ alert, onClose }: { alert: Alert | null; onClose: 
           )}
         </Field>
       </div>
+      {dev !== null ? (
+        <div className={s.conditionRow}>
+          <Field label="Baseline" help="The windows before the current one that set the normal range.">
+            {(id) => (
+              <Select
+                id={id}
+                options={baselineChoices(doc.window)}
+                value={shortDuration(dev.baseline)}
+                onChange={(e) => setDev({ baseline: e.target.value })}
+              />
+            )}
+          </Field>
+          <Field label="Min delta" help="Ignore deviations smaller than this (for flat baselines).">
+            {(id) => (
+              <TextInput
+                id={id}
+                type="number"
+                min={0}
+                value={String(dev.minDelta)}
+                onChange={(e) => setDev({ minDelta: Number(e.target.value) })}
+              />
+            )}
+          </Field>
+        </div>
+      ) : null}
+      {problem !== null ? <Notice kind="danger">{problem}</Notice> : null}
       <Field label="Evaluate every">
         {(id) => (
           <Select
@@ -444,7 +582,7 @@ export function AlertDrawer({ alert, onClose }: { alert: Alert | null; onClose: 
           />
         )}
       </Field>
-      <Preview doc={doc} />
+      <Preview doc={doc} streams={streams} valid={check.error === null && problem === null} />
       <div className={s.twoCols}>
         <Field label="Severity">
           {() => (

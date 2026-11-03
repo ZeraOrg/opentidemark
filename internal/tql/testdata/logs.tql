@@ -20,6 +20,7 @@ level:error | stats count() by service | sort count desc
 level:error | top 10 exception_type
 * | stats count() by level span 5m
 elapsed:* | stats p95(elapsed), avg(elapsed) by service, route span 1m
+elapsed:* | stats stddev(elapsed), stddev(props.size) as spread by service
 # filters
 *
 source logs | level:warn

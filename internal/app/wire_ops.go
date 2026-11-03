@@ -100,5 +100,5 @@ func (a *App) wireAlerting(d opsDeps, indexed alerting.IndexedColumns) (*api.Ale
 		dispatcher.Run,
 		func(ctx context.Context) { evaluator.Run(ctx, alerting.TickInterval) },
 	}
-	return &api.AlertsAPI{Alerts: alerts, Channels: channels, ClientIP: d.clientIP}, jobs, nil
+	return &api.AlertsAPI{Alerts: alerts, Channels: channels, ClientIP: d.clientIP, Now: time.Now}, jobs, nil
 }

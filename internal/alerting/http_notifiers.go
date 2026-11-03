@@ -81,6 +81,7 @@ type WebhookPayload struct {
 	PreviousState string            `json:"previousState"`
 	Value         *float64          `json:"value"`
 	Threshold     float64           `json:"threshold"`
+	Baseline      *Baseline         `json:"baseline,omitempty"`
 	Group         map[string]string `json:"group"`
 	At            time.Time         `json:"at"`
 	URL           string            `json:"url"`
@@ -112,7 +113,7 @@ func (w Webhook) Notify(ctx context.Context, ch meta.Channel, n Notification) er
 		group = map[string]string{}
 	}
 	body, err := json.Marshal(WebhookPayload{Rule: WebhookRule{ID: n.RuleID, Name: n.RuleName, Severity: n.Severity},
-		State: n.State, PreviousState: n.PreviousState, Value: n.Value, Threshold: n.Threshold, Group: group,
+		State: n.State, PreviousState: n.PreviousState, Value: n.Value, Threshold: n.Threshold, Baseline: n.Baseline, Group: group,
 		At: n.At.UTC(), URL: n.URL, Message: n.Message})
 	if err != nil {
 		return &PermanentError{Err: err}
@@ -139,7 +140,20 @@ func facts(n Notification) [][2]string {
 		out = append(out, [2]string{"Value", FormatValue(*n.Value)})
 	}
 	if n.Op != "" {
-		out = append(out, [2]string{"Condition", n.Op + " " + FormatValue(n.Threshold)})
+		cond := n.Op + " " + shortNumber(n.Threshold)
+		if n.ConditionNote != "" {
+			cond += " (" + n.ConditionNote + ")"
+		} else {
+			cond = n.Op + " " + FormatValue(n.Threshold)
+		}
+		out = append(out, [2]string{"Condition", cond})
+	}
+	if n.Baseline != nil {
+		b := n.Baseline.Summary()
+		if n.Baseline.Z != nil {
+			b += ", z " + shortNumber(*n.Baseline.Z)
+		}
+		out = append(out, [2]string{"Baseline", b})
 	}
 	if g := GroupKey(n.Group); g != "" {
 		out = append(out, [2]string{"Group", g})

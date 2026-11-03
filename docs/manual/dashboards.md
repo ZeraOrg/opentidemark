@@ -68,7 +68,7 @@ fields are errors):
 | `variables` | ≤ 20; `name` `^[A-Za-z_][A-Za-z0-9_]{0,63}$` unique; `label` ≤ 200; `type` `field-values` (needs `source` + `field`), `custom` (needs `options`) or `text`; `multi`; `default` (one value unless `multi`) |
 | `panels` | ≤ 100; `id` `^[A-Za-z0-9_-]{1,64}$` unique; `title` ≤ 200; `grid` 12 columns: `x ≥ 0`, `w ≥ 1`, `x + w ≤ 12`, `0 ≤ y ≤ 10000`, `1 ≤ h ≤ 100` (row height 40 px) |
 | `query` | ≤ 8 KiB, required except for `markdown`; must parse and check with the variable defaults |
-| `options` | `stack`, `style` (`line`/`area`/`bars`), `unit` (`^[A-Za-z0-9_/%.-]{1,32}$`), `decimals` (0–10), `legend` (`bottom`/`right`/`hidden`), `thresholds` (≤ 20 × `{value, color}`; colours `accent`, `success`, `warning`, `danger`, `info`, `chart1`–`chart8`), `content` (markdown only, ≤ 32 KiB) |
+| `options` | `stack`, `style` (`line`/`area`/`bars`), `unit` (`^[A-Za-z0-9_/%.-]{1,32}$`), `decimals` (0–10), `legend` (`bottom`/`right`/`hidden`), `thresholds` (≤ 20 × `{value, color}`; colours `accent`, `success`, `warning`, `danger`, `info`, `chart1`–`chart8`), `alertRules` (≤ 5 alert rule ids drawn on the chart besides the rules whose query matches; see [Rules on charts](alerting.md#rules-on-charts)), `content` (markdown only, ≤ 32 KiB) |
 
 ### Panel types and the queries they need
 

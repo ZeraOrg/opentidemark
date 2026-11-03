@@ -342,6 +342,58 @@ test.describe('signed in', () => {
     await expect(page.getByRole('button', { name: 'Save rule' })).toBeEnabled();
   });
 
+  test('deviation alert rule', async ({ page }) => {
+    await page.goto('/alerts/a-volume');
+    const drawer = page.getByRole('dialog', { name: 'Edit rule Payments volume drop' });
+    await expect(drawer).toBeVisible();
+    const type = drawer.getByRole('group', { name: 'Condition type' });
+    await expect(type.getByRole('button', { name: 'Deviation (σ)' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(drawer.getByLabel('Direction')).toHaveValue('below');
+    await expect(drawer.getByLabel('Baseline')).toHaveValue('24h');
+    await expect(drawer.getByText(/each group's normal range/)).toBeVisible();
+    await drawer.getByRole('button', { name: 'Test' }).click();
+    await expect(drawer.getByText(/mean 430 · σ 26\.5/)).toBeVisible();
+    // The rules table never clips the condition, also the longer deviation text.
+    const cond = page.getByRole('cell', { name: '< 3σ vs 24h for 5m' });
+    await expect(cond).toBeVisible();
+    expect(
+      await cond.evaluate(
+        (el) =>
+          el.scrollWidth <= el.clientWidth + 1 &&
+          el.getBoundingClientRect().right <=
+            (el.closest('table')?.parentElement?.getBoundingClientRect().right ?? 0) + 1,
+      ),
+    ).toBe(true);
+    // A 7-minute window does not divide 24h, so it is not offered for deviation rules.
+    await expect(drawer.getByLabel('Window').locator('option', { hasText: '7m' })).toHaveCount(0);
+    await type.getByRole('button', { name: 'Threshold' }).click();
+    await expect(drawer.getByLabel('Threshold')).toBeVisible();
+    await expect(drawer.getByLabel('Baseline')).toHaveCount(0);
+  });
+
+  test('alert rules drawn on charts', async ({ page }) => {
+    // The explorer chart of a rule's query draws that rule: a threshold line or a baseline band.
+    const q = 'service:payments-api | stats count() by service span 5m';
+    await page.goto(`/events?q=${encodeURIComponent(q)}&from=now-6h&to=now`);
+    const rules = page.getByRole('list', { name: 'Alert rules on this chart' });
+    await expect(rules).toContainText('Payments volume drop');
+    await expect(rules).toContainText('< 3σ vs 24h');
+    await settle(page);
+    await page.screenshot({});
+    const t = 'service:checkout-api and level >= error | stats count() by service span 1m';
+    await page.goto(`/events?q=${encodeURIComponent(t)}&from=now-1h&to=now`);
+    await expect(page.getByRole('list', { name: 'Alert rules on this chart' })).toContainText(
+      'Checkout errors spike',
+    );
+    await expect(page.getByRole('list', { name: 'Alert rules on this chart' })).toContainText('> 25');
+    await settle(page);
+    await page.screenshot({});
+    await page.goto('/alerts/a-volume');
+    await expect(page.getByText(/each group's normal range/)).toBeVisible();
+    await settle(page);
+    await page.screenshot({});
+  });
+
   test('streams: retention, mappings and purge dry run', async ({ page }) => {
     await page.goto('/streams/api');
     await expect(page.getByRole('region', { name: 'Stream api' })).toBeVisible();

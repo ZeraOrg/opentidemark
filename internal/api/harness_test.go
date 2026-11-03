@@ -123,7 +123,7 @@ func newEnv(t *testing.T) *env {
 	alerts := service.NewAlerts(service.AlertsDeps{Repo: ruleRepo, Channels: channels, Evaluator: evaluator,
 		Access: service.NewAccess(meta.NewTeams(db), meta.NewSettings(db)), Audit: audit, Now: time.Now})
 	rt.Register(
-		&AlertsAPI{Alerts: alerts, Channels: channels, ClientIP: ip},
+		&AlertsAPI{Alerts: alerts, Channels: channels, ClientIP: ip, Now: time.Now},
 		&DashboardsAPI{Dashboards: dashboards, ClientIP: ip},
 		&StreamsAPI{Streams: streamAdmin, Indexed: indexed, Purges: purges, ClientIP: ip},
 		&AuthAPI{Login: login, Sessions: sm, Users: users, Access: service.NewAccess(meta.NewTeams(db), settings), Teams: teams,

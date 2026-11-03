@@ -248,6 +248,13 @@ func (c *compiler) agg(b *sqlBuf, a Agg, span time.Duration) {
 	case "rate":
 		b.w("count() / ")
 		b.arg(c.rangeSeconds(span))
+	case aggStddev:
+		// stddevSamp is NaN (or infinite) for fewer than two values; NULL reads as no data.
+		b.w("if(count(")
+		acc.aggNum(b)
+		b.w(") > 1, stddevSamp(")
+		acc.aggNum(b)
+		b.w("), NULL)")
 	case "first", "last":
 		fn := "argMin("
 		if a.Fn == "last" {

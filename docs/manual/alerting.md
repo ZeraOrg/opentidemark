@@ -111,6 +111,7 @@ Deleting a channel that a rule uses returns `409`.
 |---|---|---|
 | `query` | ≤ 8 KiB; exactly **one** `stats` stage with **one** numeric aggregate; no `top`, no `span`; by-fields must equal `groupBy` in order | *Query* |
 | `condition.op` / `threshold` | `>`, `>=`, `<`, `<=`, `==`, `!=`; finite number | *Condition*, *Threshold* |
+| `condition` (deviation) | `{"type": "deviation", "direction", "sigma", "baseline", "minDelta"}` instead of `op`/`threshold`; see [Deviation rules](#deviation-rules) | *Condition type: Deviation (σ)* |
 | `window` | 10 s – 7 d (Go duration); the query range is `[now − window, now]` | *Window* |
 | `every` | 10 s – 24 h; **required** | *Evaluate every* |
 | `for` | 0 – 24 h; how long the condition must hold before `firing` | *For* |
@@ -138,6 +139,79 @@ caller lists, reads, tests, mutes, changes and deletes a rule only when its stre
 the caller's scope (a `null` rule only when they see every stream); otherwise the rule is `404`.
 Rules created before teams existed have `null`. Rule objects returned by the API carry `streams`;
 `alert.create` and `alert.update` audit it ([Users and access](users-access.md#teams)).
+
+## Deviation rules
+
+A fixed threshold needs a number that fits every hour of the day. A **deviation rule** instead
+compares the value with its own recent history and fires when it leaves its usual range by more
+than *k* standard deviations (σ): a drop in intended traffic, a spike of errors, a latency that is
+unusual for this service. It is plain statistics on the rule query, not machine learning.
+
+```json
+{"description": "Payments traffic far below normal",
+ "query": "service:payments-api | stats count() by service",
+ "condition": {"type": "deviation", "direction": "below", "sigma": 3, "baseline": "24h", "minDelta": 20},
+ "window": "5m", "every": "1m", "for": "5m",
+ "severity": "critical", "channels": ["<CHANNEL_ID>"], "noData": "ok", "groupBy": ["service"]}
+```
+
+| Field | Rules | UI label |
+|---|---|---|
+| `direction` | `above`, `below` or `both` | *Direction* |
+| `sigma` | how many standard deviations count as unusual; `0 < sigma ≤ 100`, typically 2–4 | *σ* |
+| `baseline` | how much history sets the normal range: a multiple of `window` giving 5–1,000 windows, at most 30 days (`1h`, `6h`, `24h`, `168h` for 7 days) | *Baseline* |
+| `minDelta` | ignore deviations smaller than this many units (default 0) | *Min delta* |
+| `window` | must divide 24 h (`1m`, `5m`, `15m`, `1h`, `6h`, `24h`, …) | *Window* |
+
+How a group is evaluated:
+
+1. The **value** is the rule query over the last `window`, as for threshold rules.
+2. The **baseline** is the same query in `window`-sized buckets over the `baseline` that ends
+   before the current window starts (buckets aligned to UTC). OpenTidemark keeps it in memory and
+   recomputes it once per window.
+3. For `count`, `count_distinct`, `sum` and `rate()` an empty bucket counts as **0** (from the
+   group's first bucket with data on), and a group that had data but has none now has the value
+   **0**, so a service that stops sending is caught. For other aggregates (`avg`, `p95`, `max`,
+   `stddev`, …) empty buckets are skipped.
+4. From at least 5 baseline values: the mean, the standard deviation σ, and the z-score
+   `(value − mean) / σ`. The rule fires (after `for`) when the value is more than `sigma`·σ away
+   from the mean in the chosen direction **and** at least `minDelta` away. Fewer than 5 values is
+   "no data" and follows `noData`.
+5. When σ is 0 (a perfectly flat baseline) any change in the direction counts, so set `minDelta`
+   for metrics that are usually constant.
+
+Notifications show the bound that was crossed and the baseline: *Condition* `< 371.5 (3σ below
+the 24h baseline, by at least 20)`, *Baseline* `mean 430, σ 19.5, 288 samples, z -8.3`; the
+webhook payload adds `"baseline": {"mean": 430, "stdDev": 19.5, "samples": 288, "z": -8.3}` and
+`threshold` is that bound. *Test* in the editor shows each group's mean, σ and z, and the
+preview chart has no threshold line because the bounds differ per group.
+
+Choosing values: start with `sigma` 3 and a `24h` baseline on a `5m` window; use `both` to catch
+spikes and drops; raise `for` to ride out single noisy windows. Traffic with a strong daily cycle
+(quiet nights) widens σ; a shorter baseline such as `6h` follows the current part of the day more
+closely.
+
+### Rules on charts
+
+Charts show the alert rules that watch them. A time-series chart in the explorer or on a
+dashboard draws every rule whose query is the same as the chart's (ignoring `span`), and a
+dashboard panel can add up to five more under *Panel options › Alert rules*:
+
+- a **threshold** rule is a dashed red line labelled with the rule's name and condition;
+- a **deviation** rule is a shaded band per group: the normal range as it was at each moment
+  (the evaluator's baseline for that window), with dashed bounds on the side that alerts and a
+  dotted line for the mean;
+- time where a series breaks a threshold or leaves its band is shaded red.
+
+The rule editor's preview draws the band of the rule you are editing, before you save it. A
+band needs the baseline before the chart's range too, so for very long ranges on small windows
+the explorer notes *band unavailable*; shorten the range or use a larger window. The same
+request is available to scripts as `POST /api/v1/alerts/overlays` with
+`{"q": "<chart query>", "from": "now-6h", "to": "now"}` ([API](api.md)).
+
+Queries of deviation rules may not use `where` after `stats` or `limit`. In HA mode, upgrade
+every node before creating deviation rules: older versions reject the new condition and mark the
+rule `error`.
 
 ## Create, test, mute
 
@@ -193,6 +267,8 @@ curl -sS "$TM/api/v1/alerts/$RULE/history?limit=20" -H "Authorization: Bearer $T
 
 - `state` is `firing`, `ok` (resolved), `error`, or `test` from the channel test.
 - `value` is `null` when there was no data; `group` is `{}` for ungrouped rules.
+- Deviation rules add `baseline` `{mean, stdDev, samples, z}` (`z` absent when `stdDev` is 0),
+  and `threshold` is the bound that was crossed ([Deviation rules](#deviation-rules)).
 - `url` uses `TIDEMARK_PUBLIC_URL`.
 
 When the channel has a `secret`, the request carries
@@ -242,8 +318,9 @@ stale or replayed deliveries (for example older than 5 minutes) and deduplicate 
 ## Example rules for SRE signals
 
 Each `doc` below is a complete rule document; wrap it as `{"name": …, "enabled": true, "doc": …}`
-and add `"streams": […]` when the rule should read (or may only read) some streams. All seven
-were accepted by `POST /alerts` on a test installation. The HMAC snippets above were executed for
+and add `"streams": […]` when the rule should read (or may only read) some streams. The seven
+threshold rules were accepted by `POST /alerts` on a test installation; the deviation rule here
+and the one in [Deviation rules](#deviation-rules) pass the same rule validation. The HMAC snippets above were executed for
 Python; the Go and Node.js versions and the SMTP, Slack and Teams channel examples were written
 from the source and not run.
 
@@ -287,6 +364,14 @@ from the source and not run.
  "query": "source metrics | name:queue.depth | stats max(value) by service",
  "condition": {"op": ">", "threshold": 10000}, "window": "5m", "every": "1m", "for": "10m",
  "severity": "warning", "channels": ["<CHANNEL_ID>"], "noData": "keep", "groupBy": ["service"]}
+```
+
+```json
+{"description": "Error spike unusual for this service (deviation)",
+ "query": "level >= error | stats count() by service",
+ "condition": {"type": "deviation", "direction": "above", "sigma": 4, "baseline": "24h", "minDelta": 10},
+ "window": "5m", "every": "1m", "for": "5m",
+ "severity": "warning", "channels": ["<CHANNEL_ID>"], "noData": "ok", "groupBy": ["service"]}
 ```
 
 ```json

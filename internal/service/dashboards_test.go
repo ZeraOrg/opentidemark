@@ -21,7 +21,7 @@ const validDoc = `{"version":1,"timeRange":{"from":"now-6h","to":"now"},"refresh
  "variables":[{"name":"service","type":"field-values","source":"logs","field":"service","multi":true,"default":["*"]}],
  "panels":[{"id":"p1","title":"Errors","type":"timeseries","grid":{"x":0,"y":0,"w":6,"h":4},
   "query":"level >= error and service:$service | stats count() by service span auto",
-  "options":{"stack":true,"unit":"short","legend":"bottom","thresholds":[{"value":100,"color":"danger"}]}}]}`
+  "options":{"stack":true,"unit":"short","legend":"bottom","thresholds":[{"value":100,"color":"danger"}],"alertRules":["r1"]}}]}`
 
 // mutate applies a JSON patch-like edit to validDoc.
 func mutate(t *testing.T, edit func(m map[string]any)) string {
@@ -96,6 +96,9 @@ func TestDashboardDocValidation(t *testing.T) {
 		{"decimals", mutate(t, func(m map[string]any) { panel0(m)["options"].(map[string]any)["decimals"] = 11 })},
 		{"threshold color", mutate(t, func(m map[string]any) {
 			panel0(m)["options"].(map[string]any)["thresholds"] = []any{map[string]any{"value": 1, "color": "#f00"}}
+		})},
+		{"alert rules", mutate(t, func(m map[string]any) {
+			panel0(m)["options"].(map[string]any)["alertRules"] = []any{"a", "a"}
 		})},
 		{"var name", mutate(t, func(m map[string]any) { var0(m)["name"] = "1x" })},
 		{"var dup", mutate(t, func(m map[string]any) { m["variables"] = append(m["variables"].([]any), var0(m)) })},

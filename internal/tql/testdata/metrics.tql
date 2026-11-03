@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Metrics (source metrics): attrs only (no numeric map), rate(value) per series.
 source metrics | name:http.server.request.duration | stats avg(value) by service span 1m
+source metrics | name:http.server.request.duration | stats stddev(value) by service span 1m
 source metrics | name:http.server.request.count | stats rate(value) by service span 1m
 source metrics | name:http.server.request.count | stats rate(value)
 source metrics | name:x | stats rate(value) as rps by service span 5m | where rps > 1 | sort rps desc

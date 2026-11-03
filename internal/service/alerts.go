@@ -43,9 +43,11 @@ type ChannelGetter interface {
 	Get(ctx context.Context, id string) (meta.Channel, error)
 }
 
-// RuleEvaluator evaluates a rule without side effects (POST /alerts/{id}/test).
+// RuleEvaluator evaluates a rule without side effects (POST /alerts/{id}/test) and computes
+// the rolling bands of deviation rules for charts (POST /alerts/overlays).
 type RuleEvaluator interface {
 	Evaluate(ctx context.Context, r meta.AlertRule, now time.Time) alerting.Outcome
+	Bands(ctx context.Context, doc *alerting.RuleDoc, streams model.StreamScope, from, to time.Time) ([]alerting.GroupBand, error)
 }
 
 // AlertsDeps are the collaborators of Alerts.

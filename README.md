@@ -80,7 +80,8 @@ columns in the event list.*
 - **Access by team.** Admins group users into teams and grant each team the streams it may see;
   every search, trace, metric and alert respects it, and a scope picker narrows any view to some
   of your streams or environments.
-- **Dashboards and alerts.** Add query results to dashboards; alert on any query with webhook,
+- **Dashboards and alerts.** Add query results to dashboards; alert on any query, against a fixed
+  threshold or when it leaves its usual range by a number of standard deviations, with webhook,
   Slack, Teams or email notifications.
 - **Index management.** Streams, retention rules, storage stats, field mappings, indexed fields and
   purge.

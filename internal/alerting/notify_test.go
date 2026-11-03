@@ -208,6 +208,19 @@ func TestWebhookNotifier(t *testing.T) {
 		!strings.Contains(string(got.body), `"group":{}`) {
 		t.Errorf("unsigned: %v %v %s", err, got.hdr, got.body)
 	}
+	if strings.Contains(string(got.body), `"baseline"`) {
+		t.Errorf("threshold payload has a baseline: %s", got.body)
+	}
+	dev := sampleNotification()
+	dev.Baseline = &Baseline{Mean: 80, StdDev: 16.5, Samples: 288}
+	if err := wh.Notify(context.Background(), plain, dev); err != nil {
+		t.Fatal(err)
+	}
+	var withBase WebhookPayload
+	if err := json.Unmarshal(got.body, &withBase); err != nil || withBase.Baseline == nil || withBase.Baseline.Mean != 80 ||
+		withBase.Baseline.Samples != 288 || strings.Contains(string(got.body), `"z"`) {
+		t.Errorf("deviation payload %s (%v)", got.body, err)
+	}
 	if err := wh.Notify(context.Background(), meta.Channel{Config: json.RawMessage(`{"nope":1}`)}, Notification{}); err == nil {
 		t.Error("bad config accepted")
 	}

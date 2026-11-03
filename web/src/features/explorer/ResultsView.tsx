@@ -7,7 +7,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import type { QueryResponse } from '../../api/types';
 import { usePalette } from '../../app/services';
-import { Chart, Legend, type ChartStyle } from '../../components/Chart';
+import { Chart, Legend, OverlayLegend, type ChartStyle } from '../../components/Chart';
 import { Button, Segmented, Tag } from '../../components/controls';
 import { Card, layoutStyles as l } from '../../components/layout';
 import { useToast } from '../../components/overlay';
@@ -17,6 +17,7 @@ import { formatDelta, formatNumber } from '../../lib/format';
 import { cellText, measureColumns, timeseriesRows, timeseriesToChart } from '../../lib/series';
 import { formatDateTime, formatSpan } from '../../lib/time';
 import { splitPipes } from '../../tql/tokenize';
+import { useAlertOverlays } from '../alerts/overlays';
 import s from './ResultsView.module.css';
 
 type ViewStyle = 'line' | 'area' | 'bars' | 'stacked';
@@ -218,6 +219,7 @@ export function ResultsView({
     () => (data === null ? [] : data.series.map((x) => palette.index(x.label))),
     [data, palette],
   );
+  const overlays = useAlertOverlays({ q, data, spanMs: resp.span ?? 0 });
   const rowCount = resp.kind === 'timeseries' ? timeseriesRows(resp).length : (resp.rows ?? []).length;
   const measures = measureColumns(resp)
     .map((m) => m.name)
@@ -260,9 +262,11 @@ export function ResultsView({
               stacked={view === 'stacked'}
               legend="hidden"
               colors={colors}
+              overlays={overlays}
               ariaLabel={chartTitle(q)}
             />
           )}
+          <OverlayLegend overlays={overlays} />
         </Card>
       ) : null}
       <Card

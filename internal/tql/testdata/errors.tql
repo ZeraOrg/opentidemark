@@ -101,3 +101,5 @@ foo | stats sum(@timestamp) - 1 as x
 source metrics | x | stats rate(value) * 2 + rate(value) as x
 source metrics | x | stats rate(value) / count() as x
 source metrics | x | stats hist_mean() / count() as x
+foo | stats stddev(@timestamp)
+foo | stats stddev()

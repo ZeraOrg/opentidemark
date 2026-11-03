@@ -64,6 +64,32 @@ func TestChannelsAndAlertsFlow(t *testing.T) {
 	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "invalid_query") {
 		t.Errorf("invalid query %d %s", w.Code, w.Body.String())
 	}
+	devDoc := `{"query":"level:error | stats count()","condition":{"type":"deviation","direction":"above","sigma":3,` +
+		`"baseline":"1h"},"window":"5m","every":"1m"}`
+	w = e.do(editor, "POST", "/alerts", map[string]any{"name": "deviation", "doc": json.RawMessage(devDoc)})
+	if dev := decodeBody[alertView](t, w); w.Code != http.StatusCreated ||
+		!strings.Contains(string(dev.Doc), `"condition":{"type":"deviation","direction":"above","sigma":3,"baseline":"1h0m0s","minDelta":0}`) {
+		t.Errorf("create deviation alert %d %s", w.Code, w.Body.String())
+	} else if w := e.do(editor, "DELETE", "/alerts/"+dev.ID, nil); w.Code != http.StatusNoContent {
+		t.Errorf("delete deviation alert %d", w.Code)
+	}
+	w = e.do(editor, "POST", "/alerts", map[string]any{"name": "bad", "doc": json.RawMessage(strings.Replace(devDoc, `"sigma":3`, `"sigma":0`, 1))})
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), `"field":"doc.condition.sigma"`) {
+		t.Errorf("invalid deviation %d %s", w.Code, w.Body.String())
+	}
+	ov := decodeBody[map[string][]overlayView](t, e.do(viewer, "POST", "/alerts/overlays",
+		map[string]any{"q": "level:error | stats count() span 1m", "from": "now-3h", "to": "now"}))
+	if len(ov["overlays"]) != 1 || ov["overlays"][0].RuleID != rule.ID || ov["overlays"][0].Condition.Threshold != 5 {
+		t.Errorf("overlays %+v", ov)
+	}
+	w = e.do(viewer, "POST", "/alerts/overlays", map[string]any{"q": "x", "doc": json.RawMessage(strings.Replace(devDoc, "level:error", "x", 1))})
+	if draft := decodeBody[map[string][]overlayView](t, w); w.Code != http.StatusOK || len(draft["overlays"]) != 1 ||
+		!draft["overlays"][0].Draft || draft["overlays"][0].Bands == nil || !strings.Contains(w.Body.String(), `"bands":[]`) {
+		t.Errorf("draft overlay %d %s", w.Code, w.Body.String())
+	}
+	if w := e.do(viewer, "POST", "/alerts/overlays", map[string]any{"q": "x", "from": "yesterday-ish"}); w.Code != http.StatusBadRequest {
+		t.Errorf("bad from %d", w.Code)
+	}
 	tv := decodeBody[testView](t, e.do(editor, "POST", "/alerts/"+rule.ID+"/test", nil))
 	if tv.State != "firing" || len(tv.Samples) != 1 || *tv.Samples[0].Value != 42 || len(tv.Transitions) != 1 {
 		t.Errorf("test %+v", tv)
