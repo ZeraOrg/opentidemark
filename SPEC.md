@@ -3491,8 +3491,8 @@ Definition of done for any change: spec updated · tests added/updated · `make 
   `github.com/segmentio/asm` (from v1.2.1, required by `ClickHouse/ch-go`) is under **MIT-0**
   (MIT No Attribution): the MIT text without the condition to keep the notice, so it is more
   permissive than MIT; the classifier of go-licenses v2.0.1 has no MIT-0 template and reports "did
-  not find license". `github.com/ncruces/go-sqlite3-wasm/v6` (from v6.3.35304, required by
-  `ncruces/go-sqlite3` from v0.35) is under **MIT-0** for the same reason and holds the SQLite
+  not find license". `github.com/ncruces/go-sqlite3-wasm/v6` (from v6.4.35401, required by
+  `ncruces/go-sqlite3` v0.36) is under **MIT-0** for the same reason and holds the SQLite
   build of the metadata driver: SQLite compiled to WASM and translated to Go; SQLite is in the
   public domain and the WASI libc linked into it is under permissive licences, so no conditions
   beyond the module's notice apply. Adding a
