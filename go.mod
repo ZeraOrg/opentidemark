@@ -9,7 +9,7 @@ require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.50.0
 	github.com/go-faster/city v1.0.1
 	github.com/google/uuid v1.6.0
-	github.com/jackc/pgx/v5 v5.11.0
+	github.com/jackc/pgx/v5 v5.12.0
 	github.com/klauspost/compress v1.20.3
 	github.com/ncruces/go-sqlite3 v0.36.0
 	github.com/prometheus/client_golang v1.25.0
