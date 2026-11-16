@@ -108,7 +108,10 @@ type itRange struct{ from, to string }
 
 func newITRange() itRange {
 	now := time.Now().UTC()
-	return itRange{from: now.Add(-30 * 24 * time.Hour).Format(time.RFC3339), to: now.Add(30 * 24 * time.Hour).Format(time.RFC3339)}
+	return itRange{
+		from: now.Add(-time.Duration(fixtureRetentionDays) * 24 * time.Hour).Format(time.RFC3339),
+		to:   now.Add(30 * 24 * time.Hour).Format(time.RFC3339),
+	}
 }
 
 func (r itRange) query(a *apiClient, q string, extra map[string]any) queryResult {
@@ -129,7 +132,7 @@ func (r itRange) params(extra string) string {
 }
 
 func TestIntegrationSearchEndToEnd(t *testing.T) {
-	a, _ := startApp(t)
+	a, env := startApp(t)
 	defer func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -140,7 +143,7 @@ func TestIntegrationSearchEndToEnd(t *testing.T) {
 	addrs := a.Addrs()
 	base := "http://" + addrs[ListenerHTTP]
 	admin := loginAdmin(t, base)
-	keepFixtures(t, admin)
+	keepFixtures(t, admin, env)
 	key := admin.createKey("it-all", []string{"seq", "elastic", "otlp", "native"})
 	seqOnly := admin.createKey("it-seq-only", []string{"seq"})
 
@@ -317,7 +320,7 @@ func checkStats(t *testing.T, a *apiClient, rng itRange) {
 			t.Errorf("protocol %v: %v", row[0], row[1])
 		}
 	}
-	r = rng.query(a, "* | stats count() by level span auto", map[string]any{"span": "1h"})
+	r = rng.query(a, "* | stats count() by level span auto", map[string]any{"span": "24h"})
 	var total float64
 	for _, s := range r.Series {
 		for _, p := range s.Points {
@@ -340,7 +343,7 @@ func checkExplorer(t *testing.T, a *apiClient, rng itRange) {
 			Counts map[string]float64 `json:"counts"`
 		} `json:"buckets"`
 	}
-	if code := a.do(http.MethodGet, "/histogram?q=*&buckets=80&"+rng.params(""), nil, &h); code != 200 {
+	if code := a.do(http.MethodGet, "/histogram?q=*&buckets=1000&"+rng.params(""), nil, &h); code != 200 {
 		t.Fatalf("histogram %d", code)
 	}
 	var total, errs float64
@@ -350,7 +353,7 @@ func checkExplorer(t *testing.T, a *apiClient, rng itRange) {
 			total += n
 		}
 	}
-	if total != wantEvents || errs == 0 || len(h.Buckets) > 80 || h.Span <= 0 {
+	if total != wantEvents || errs == 0 || len(h.Buckets) > 1000 || h.Span <= 0 {
 		t.Errorf("histogram total=%v errors=%v buckets=%d span=%d", total, errs, len(h.Buckets), h.Span)
 	}
 	var facets []struct {

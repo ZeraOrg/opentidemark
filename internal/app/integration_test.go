@@ -102,7 +102,7 @@ func TestIntegrationEndToEnd(t *testing.T) {
 	bearer := map[string]string{"Authorization": "Bearer " + bootstrapKey}
 	basic := map[string]string{"Authorization": "ApiKey " + bootstrapKey}
 	checkStartupRetention(t, env)
-	keepFixtures(t, loginAdmin(t, base))
+	keepFixtures(t, loginAdmin(t, base), env)
 
 	steps := []struct {
 		name, url, ct, file string
@@ -237,18 +237,26 @@ func verifyRows(t *testing.T, env testutil.ClickHouseEnv) {
 }
 
 // fixtureRetentionDays outlives the fixed timestamps of the ingest fixtures; the default TTLs
-// (spans 7 days, SPEC §12.3) would expire their rows on insert a week after they were recorded.
+// would otherwise expire their rows before the integration tests can inspect them.
 // It stays well below retention.MaxDays, whose interval overflows ClickHouse's DateTime range.
 const fixtureRetentionDays = 3650
 
 // keepFixtures sets the retention defaults to fixtureRetentionDays through the settings API,
-// which applies the TTLs before it answers.
-func keepFixtures(t *testing.T, admin *apiClient) {
+// which applies the TTLs before it answers, and extends the field catalog's fixed TTL.
+func keepFixtures(t *testing.T, admin *apiClient, env testutil.ClickHouseEnv) {
 	t.Helper()
 	d := fixtureRetentionDays
 	body := map[string]any{service.SettingRetention: service.RetentionSettings{LogsDays: d, SpansDays: d, MetricsDays: d}}
 	if code := admin.do(http.MethodPatch, "/settings", body, nil); code != http.StatusOK {
 		t.Fatalf("PATCH /settings retention: %d", code)
+	}
+	conn, err := ch.Open(context.Background(), ch.Options{Addrs: env.Addrs, Database: env.Database, Username: env.WriterUser, Password: env.WriterPassword})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if err := conn.Exec(context.Background(), "ALTER TABLE field_catalog MODIFY TTL hour + INTERVAL 3650 DAY"); err != nil {
+		t.Fatal(err)
 	}
 }
 
