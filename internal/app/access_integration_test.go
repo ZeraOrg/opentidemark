@@ -203,7 +203,7 @@ func checkScopedQueries(t *testing.T, alice *apiClient, rng itRange) {
 	onlyStreamA(t, "logs by stream", rng.query(alice, "* | stats count() by stream", nil), perStream)
 	onlyStreamA(t, "spans by stream", rng.query(alice, "source spans | * | stats count() by stream", nil), 1)
 	onlyStreamA(t, "metrics by stream", rng.query(alice, "source metrics | * | stats count() by stream", nil), 1)
-	ts := rng.query(alice, "* | stats count() by stream span auto", map[string]any{"span": "1h"})
+	ts := rng.query(alice, "* | stats count() by stream span auto", map[string]any{"span": "24h"})
 	if ts.Kind != "timeseries" || len(ts.Series) != 1 || ts.Series[0].Key["stream"] != streamA {
 		t.Errorf("timeseries %+v", ts.Series)
 	}
