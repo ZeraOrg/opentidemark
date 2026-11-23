@@ -11,6 +11,10 @@ Release archives, checksums and container images are on the
 
 ## [Unreleased]
 
+### Security
+
+- Built with Go 1.27.4, which fixes an HTTP/1 server crash in `net/http` (GO-2026-6859).
+
 ## [0.6.0] - 2026-11-03
 
 ### Added

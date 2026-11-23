@@ -10,6 +10,21 @@
 #       THIRD_PARTY_NOTICES.md change, with no major version step in go.mod or web/package.json
 #       and no change of the go or toolchain directive.
 #
+#   scripts/dependabot-copilot.sh refresh-notices
+#       For every open Dependabot pull request of $GITHUB_REPOSITORY from a branch of the same
+#       repository, regenerates THIRD_PARTY_NOTICES.md on the branch (make notices) and pushes a
+#       commit when it changed, so a version bump no longer fails ci job "licences and notices".
+#       Run in a checkout whose credentials may push (a user token, so the push starts ci).
+#       A failing `make notices` (e.g. a licence outside the allow-list) is reported as a
+#       warning and left to ci and the hand-off.
+#
+#   scripts/dependabot-copilot.sh auto-merge
+#       Merges every open pull request into main whose newest pull-request ci run succeeded and
+#       that is either a routine Dependabot update (see follow-up) or a Go toolchain security
+#       fix opened by scripts/go-toolchain-fix.sh (label security-autofix, branch
+#       security/go-toolchain-*, same repository). Needs GH_TOKEN (read) and COPILOT_TOKEN, a
+#       user token, so the merge starts the push workflows of main (ci, security).
+#
 #   scripts/dependabot-copilot.sh hand-off
 #       For every open Dependabot pull request of $GITHUB_REPOSITORY whose ci run failed, or
 #       whose update is not routine, opens one issue (label dependabot-fix) with the failed jobs'
@@ -148,6 +163,70 @@ close_finished() { # <repo>: close open dependabot-fix issues whose pull request
 		--jq '.[] | select(.pull_request == null) | "\(.number)\t\(.title)"')
 }
 
+refresh_notices() {
+	: "${GITHUB_REPOSITORY:?}" "${GH_TOKEN:?}"
+	local repo="$GITHUB_REPOSITORY" pr branch head_repo
+	while IFS=$'\t' read -r pr branch head_repo; do
+		[[ -n "$pr" ]] || continue
+		if [[ "$head_repo" != "$repo" ]]; then
+			echo "#$pr: branch is not in $repo, skipped"
+			continue
+		fi
+		git fetch --quiet --depth=1 origin "refs/heads/$branch"
+		git checkout --quiet --force -B "$branch" FETCH_HEAD
+		if ! make notices; then
+			echo "::warning title=dependabot-copilot::make notices failed on #$pr ($branch); left to ci and the hand-off"
+			git reset --quiet --hard
+			continue
+		fi
+		if git diff --quiet -- THIRD_PARTY_NOTICES.md; then
+			echo "#$pr: THIRD_PARTY_NOTICES.md is up to date"
+			continue
+		fi
+		git add THIRD_PARTY_NOTICES.md
+		git -c user.name="github-actions[bot]" \
+			-c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+			commit --quiet -m "Regenerate THIRD_PARTY_NOTICES.md" \
+			-m "make notices for the dependency versions of this Dependabot update (SPEC §17.4, §19.1)."
+		git push --quiet origin "HEAD:refs/heads/$branch"
+		echo "#$pr: THIRD_PARTY_NOTICES.md regenerated and pushed"
+	done < <(gh api --paginate "repos/$repo/pulls?state=open&base=main&per_page=100" \
+		--jq '.[] | select(.user.login == "dependabot[bot]") | "\(.number)\t\(.head.ref)\t\(.head.repo.full_name)"')
+}
+
+auto_merge() {
+	: "${GITHUB_REPOSITORY:?}" "${GH_TOKEN:?}" "${COPILOT_TOKEN:?secret COPILOT_ASSIGN_TOKEN is not set}"
+	local repo="$GITHUB_REPOSITORY" pr author branch head_repo sha labels state run status conclusion reasons
+	while IFS=$'\t' read -r pr author branch head_repo sha labels; do
+		[[ -n "$pr" ]] || continue
+		if [[ "$head_repo" != "$repo" ]]; then
+			continue
+		fi
+		if [[ "$author" == "dependabot[bot]" ]]; then
+			reasons="$(gh api "repos/$repo/pulls/$pr" -H "Accept: application/vnd.github.diff" | follow_up)"
+			if [[ -n "$reasons" ]]; then
+				echo "#$pr: not routine, left for review"
+				continue
+			fi
+		elif [[ "$branch" != security/go-toolchain-* || ",$labels," != *",security-autofix,"* ]]; then
+			continue
+		fi
+		state="$(ci_state "$repo" "$sha")"
+		read -r run status conclusion <<<"$state"
+		if [[ "$status" != completed || "$conclusion" != success ]]; then
+			echo "#$pr: ci $status $conclusion, not merged"
+			continue
+		fi
+		if GH_TOKEN="$COPILOT_TOKEN" gh api -X PUT "repos/$repo/pulls/$pr/merge" -f sha="$sha" \
+			-f merge_method=merge >/dev/null; then
+			echo "#$pr: merged (ci run $run green)"
+		else
+			echo "::warning title=dependabot-copilot::#$pr is green but could not be merged (conflict or new commits)"
+		fi
+	done < <(gh api --paginate "repos/$repo/pulls?state=open&base=main&per_page=100" \
+		--jq '.[] | select(.draft | not) | "\(.number)\t\(.user.login)\t\(.head.ref)\t\(.head.repo.full_name)\t\(.head.sha)\t\([.labels[].name] | join(","))"')
+}
+
 hand_off() {
 	: "${GITHUB_REPOSITORY:?}" "${GH_TOKEN:?}"
 	if [[ -z "${COPILOT_TOKEN:-}" ]]; then
@@ -169,9 +248,11 @@ hand_off() {
 
 case "${1:-}" in
 follow-up) follow_up ;;
+refresh-notices) refresh_notices ;;
+auto-merge) auto_merge ;;
 hand-off) hand_off ;;
 *)
-	echo "usage: $0 follow-up < diff | hand-off" >&2
+	echo "usage: $0 follow-up < diff | refresh-notices | auto-merge | hand-off" >&2
 	exit 2
 	;;
 esac
