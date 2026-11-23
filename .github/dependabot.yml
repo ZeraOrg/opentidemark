@@ -2,7 +2,10 @@
 # Dependency update PRs (SPEC §15.9, §17.4): once a week (Monday), all ecosystems together in ONE
 # pull request (multi-ecosystem group), so a week costs a single CI run. Every ecosystem has a
 # 7-day cooldown, so Dependabot only proposes versions that already satisfy the 7-day rule.
-# Security updates are still raised immediately by Dependabot alerts (cooldown does not apply).
+# Security updates are raised immediately (cooldown does not apply) when "Dependabot security
+# updates" is enabled in the repository settings. Green routine updates, security updates included,
+# are merged automatically by .github/workflows/dependabot-copilot.yml; the Go release itself is
+# kept patched by .github/workflows/go-toolchain-fix.yml.
 version: 2
 multi-ecosystem-groups:
   dependencies:

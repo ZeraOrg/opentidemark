@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Go toolchain security fixes (SPEC §15.9, §17.4): daily, govulncheck checks the pinned Go release;
+# when a newer patch release fixes its standard-library vulnerabilities,
+# scripts/go-toolchain-fix.sh opens a pull request (label security-autofix) that moves go.mod
+# `toolchain`, the Dockerfile golang image, SPEC.md and CHANGELOG.md to it. The dependabot-copilot
+# workflow merges it once ci is green. Dependabot does not update the Go release. Runs only in the
+# main public repository ZeraOrg/opentidemark; elsewhere its job is skipped. Secret
+# COPILOT_ASSIGN_TOKEN (see dependabot-copilot.yml): pushes and pull requests made with
+# GITHUB_TOKEN do not start ci.
+name: go-toolchain-fix
+
+on:
+  schedule:
+    - cron: "41 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: go-toolchain-fix
+  cancel-in-progress: false
+
+env:
+  GOVULNCHECK_VERSION: v1.9.0 # same as ci.yml and security.yml
+
+jobs:
+  fix:
+    name: fix Go standard-library vulnerabilities
+    if: github.repository == 'ZeraOrg/opentidemark'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          token: ${{ secrets.COPILOT_ASSIGN_TOKEN }}
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: govulncheck
+        run: go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
+      - name: fix
+        env:
+          COPILOT_TOKEN: ${{ secrets.COPILOT_ASSIGN_TOKEN }}
+        run: scripts/go-toolchain-fix.sh run

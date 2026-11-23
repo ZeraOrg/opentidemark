@@ -8,7 +8,7 @@
 > well. Any change to behaviour, APIs, schema, configuration, layout, UI or tooling **must**
 > update this spec in the same commit. Version history is in §21.
 
-**Spec version:** 0.36.2 · **Last updated:** 2026-11-23
+**Spec version:** 0.36.3 · **Last updated:** 2026-11-23
 
 ---
 
@@ -277,7 +277,7 @@ Node **22 LTS** for builds. The built SPA is embedded in the Go binary via `go:e
 │   ├── install/               # INSTALL-{linux,windows,docker}.md: the INSTALL.md of each release archive (§17.6)
 │   └── tidemark.service       # systemd unit
 ├── Dockerfile                 # multi-stage: node build → go build → distroless nonroot
-├── scripts/                   # with-clickhouse.sh, with-clickhouse-cluster.sh (integration tests, §18), notices.tpl + licence-exceptions.{sh,txt} (§19.1), ci-annotate.sh, release-notes.sh (§17.6), dependabot-copilot.sh (§17.4)
+├── scripts/                   # with-clickhouse.sh, with-clickhouse-cluster.sh (integration tests, §18), notices.tpl + licence-exceptions.{sh,txt} (§19.1), ci-annotate.sh, release-notes.sh (§17.6), dependabot-copilot.sh, go-toolchain-fix.sh (§17.4)
 ├── examples/                  # (not in the tree yet, §20) client configs: serilog, nlog, python, node, go, java, filebeat, fluent-bit, vector, logstash, otel-collector
 ├── docs/                      # user docs, derived from this spec (§18), published as the documentation site (§17.4):
 │   ├── index.md               #   landing page of the documentation site (template home.html): what OpenTidemark is, capabilities with screenshots, trust points, getting started, links into the docs
@@ -291,7 +291,7 @@ Node **22 LTS** for builds. The built SPA is embedded in the Go binary via `go:e
 │   ├── migrate-from-seq.md    #   moving from Seq with `tidemark import` (§9.9)
 │   ├── migrate-from-elastic.md #  moving from Elasticsearch/Kibana with `tidemark import` (§9.9)
 │   └── manual/                #   operations manual (§17.4), one chapter per file: index (overview, architecture, glossary), deploy, security-hardening, users-access, ingestion, integrations, metrics, streams-retention, querying, dashboards, alerting, operations, api, agents
-└── .github/                   # workflows/ci.yml (Go on Linux + Windows, integration, notices, web incl. e2e; calls release.yml), security.yml (§17.4), docs.yml (documentation site, §17.4), release.yml (§17.6), dependabot-copilot.yml and copilot-setup-steps.yml (Dependabot follow-up, §17.4); dependabot.yml; copilot-instructions.md (§17.4); ISSUE_TEMPLATE/ (bug_report.yml form: version, installation, platform, steps, expected/actual, `tidemark doctor --json`, logs; config.yml links private vulnerability reporting and the docs)
+└── .github/                   # workflows/ci.yml (Go on Linux + Windows, integration, notices, web incl. e2e; calls release.yml), security.yml (§17.4), docs.yml (documentation site, §17.4), release.yml (§17.6), dependabot-copilot.yml and copilot-setup-steps.yml (Dependabot follow-up, §17.4), go-toolchain-fix.yml (Go toolchain security fixes, §17.4); dependabot.yml; copilot-instructions.md (§17.4); ISSUE_TEMPLATE/ (bug_report.yml form: version, installation, platform, steps, expected/actual, `tidemark doctor --json`, logs; config.yml links private vulnerability reporting and the docs)
 ```
 
 Maintainer-only development tooling (publishing automation, offline dependency snapshots, design
@@ -2947,16 +2947,23 @@ Normative details:
   `@eslint/config-array` and typescript-eslint, which still require `^10`): GHSA-g3hv-75wg-m249
   is fixed only in 11.0.1, and §15.9 fixes vulnerabilities by upgrading. Remove the override when
   those packages require minimatch 11.
-- **Dependabot follow-up** (`.github/workflows/dependabot-copilot.yml`; schedule every six hours,
-  Mondays at 10:13 UTC (shortly after the weekly update) and `workflow_dispatch`; concurrency
-  `dependabot-copilot` without cancelling). Job `notices` (the guard of `hand-off`; `timeout-minutes: 20`;
+- **Dependabot follow-up** (`.github/workflows/dependabot-copilot.yml`; schedule hourly and
+  `workflow_dispatch`; concurrency `dependabot-copilot` without cancelling). Job `notices` (the guard of `hand-off`; `timeout-minutes: 20`;
   `contents` and `pull-requests: read`; checkout with `COPILOT_ASSIGN_TOKEN`, because pushes made
   with `GITHUB_TOKEN` do not start ci; setup-go from `go.mod`, Node 24) runs
   `scripts/dependabot-copilot.sh refresh-notices`: for every open Dependabot pull request into
   `main` whose branch is in the repository it runs `make notices` on the branch and, when
   `THIRD_PARTY_NOTICES.md` changed, pushes a commit "Regenerate THIRD_PARTY_NOTICES.md" (author
   `github-actions[bot]`) so ci runs again; a failing `make notices` is a warning and is left to
-  ci and the hand-off. Job `hand-off` (`needs: notices`, runs unless cancelled)
+  ci and the hand-off. Job `merge` (`needs: notices`, runs unless cancelled, same guard;
+  `timeout-minutes: 10`; `contents`, `pull-requests` and `actions: read`) runs
+  `scripts/dependabot-copilot.sh auto-merge`: every open, non-draft pull request into `main` from
+  a branch of the repository whose newest pull-request ci run on its head commit succeeded is
+  merged (merge commit, `sha` pinned) when it is a **routine** Dependabot update (below) or a Go
+  toolchain security fix (label `security-autofix`, branch `security/go-toolchain-go*`, see
+  below). It merges with `COPILOT_ASSIGN_TOKEN`, because merges made with `GITHUB_TOKEN` do not
+  start the push workflows of `main` (ci, security); a merge that fails (conflict, new commits)
+  is a warning. Job `hand-off` (`needs: [notices, merge]`, runs unless cancelled)
   with the guard of the other workflows but without the `workflow_dispatch` exception, so it
   runs only in `ZeraOrg/opentidemark`; `timeout-minutes: 10`; permissions `contents: read`,
   `issues: write`, `pull-requests`, `actions` and `checks: read`) runs
@@ -2976,8 +2983,10 @@ Normative details:
   routine updates change only `go.mod` require lines, `go.sum`, `web/package.json`,
   `web/package-lock.json` and `THIRD_PARTY_NOTICES.md`, with no `go`/`toolchain` directive change
   and no major step (the first version number, or the second for `0.x`) of a `go.mod` requirement
-  or a `web/package.json` dependency. Green routine updates are applied by the maintainers as
-  proposed; everything else needs a fix or a reviewed change. `.github/workflows/copilot-setup-steps.yml`
+  or a `web/package.json` dependency. Green routine updates are merged automatically by job
+  `merge`; everything else needs a fix or a reviewed change. Dependabot security updates
+  (repository setting, together with Dependabot alerts) are raised as soon as an advisory is
+  published, without the cooldown, and are merged the same way when they are routine and green. `.github/workflows/copilot-setup-steps.yml`
   (`workflow_dispatch` only; job `copilot-setup-steps`, `ubuntu-24.04`, `timeout-minutes: 30`,
   `contents: read`) prepares the agent's environment: checkout, setup-go (`go-version-file`),
   setup-node (Node 24, npm cache), `go mod download`, golangci-lint and govulncheck at the
@@ -2986,6 +2995,21 @@ Normative details:
   lockfiles, `make notices` for a stale `THIRD_PARTY_NOTICES.md`, no licence exceptions, the
   versions this spec pins, a spec version and changelog row per spec change) and the rules for
   every change (`make check`, no weakened tests or checks, SPDX headers, code standards).
+- **Go toolchain security fixes** (`.github/workflows/go-toolchain-fix.yml`; daily 04:41 UTC and
+  `workflow_dispatch`; concurrency `go-toolchain-fix` without cancelling; job `fix` only in
+  `ZeraOrg/opentidemark`; `timeout-minutes: 15`; `contents: read`; checkout with
+  `COPILOT_ASSIGN_TOKEN`; setup-go from `go.mod`; govulncheck at the version of `ci.yml`) runs
+  `scripts/go-toolchain-fix.sh run`, because Dependabot does not update the Go release: when
+  govulncheck (`-format json`) reports findings in module `stdlib` or `toolchain` and the newest
+  stable patch release of the pinned minor (go.dev/dl) is at least the highest fixed version and
+  its `golang:<version>-bookworm` image is published, it moves go.mod `toolchain`, the Dockerfile
+  build image and this spec (§5, §17.2, the next patch spec version and a changelog row naming the
+  advisories) to it, adds a CHANGELOG.md entry under *Security*, pushes branch
+  `security/go-toolchain-go<version>` (unless it exists) and opens a pull request labelled
+  `security-autofix` (created when missing), which job `merge` above merges once ci is green.
+  A fix that needs a new minor release is an error for a deliberate move (§5); an advisory
+  without a fixed release is a warning. `scripts/go-toolchain-fix.sh apply <version>
+  <advisories>` makes the same file changes locally.
 - **Documentation site** (`mkdocs.yml`, `docs-site/`, `.github/workflows/docs.yml`): MkDocs
   `1.6.1` (BSD-2-Clause) with Material for MkDocs `9.7.7` (MIT), every transitive dependency
   pinned with hashes in `docs-site/requirements.txt` (generated from `docs-site/requirements.in`
@@ -3729,7 +3753,8 @@ items of M0–M3b:
 
 | Version | Date | Change |
 |---|---|---|
-| 0.36.2 | 2026-11-23 | Dependabot follow-up (§17.4): new job `notices` of `dependabot-copilot.yml` (also Mondays 10:13 UTC) regenerates `THIRD_PARTY_NOTICES.md` on open Dependabot branches with `scripts/dependabot-copilot.sh refresh-notices` and pushes it with `COPILOT_ASSIGN_TOKEN`, so routine weekly updates no longer fail ci job "licences and notices"; `hand-off` runs after it. |
+| 0.36.3 | 2026-11-23 | Automatic security and dependency updates (§15.9, §17.4): `dependabot-copilot.yml` runs hourly; new job `merge` (`scripts/dependabot-copilot.sh auto-merge`) merges green routine Dependabot updates (security updates included) and green Go toolchain fixes with `COPILOT_ASSIGN_TOKEN`. New workflow `go-toolchain-fix.yml` (daily, `scripts/go-toolchain-fix.sh`) opens a `security-autofix` pull request moving the Go toolchain, Dockerfile image, spec and changelog to the newest patch release when govulncheck reports standard-library vulnerabilities it fixes. |
+| 0.36.2 | 2026-11-23 | Dependabot follow-up (§17.4): new job `notices` of `dependabot-copilot.yml` regenerates `THIRD_PARTY_NOTICES.md` on open Dependabot branches with `scripts/dependabot-copilot.sh refresh-notices` and pushes it with `COPILOT_ASSIGN_TOKEN`, so routine weekly updates no longer fail ci job "licences and notices"; `hand-off` runs after it. |
 | 0.36.1 | 2026-11-23 | Go toolchain go1.27.4 (Dockerfile `golang:1.27.4-bookworm`, §5, §17) for the `net/http` advisory GO-2026-6859 reported by govulncheck; applied before the 7-day rule (§15.9) because it fixes a vulnerability and the fix is only available by upgrading. |
 | 0.36.0 | 2026-11-03 | Deviation alerting and `stddev` (§2, §10.3, §10.5, §11.4, §14.1, §14.3, §16.6, §18): TQL `stddev(f)`, the sample standard deviation (`if(count(x) > 1, stddevSamp(x), NULL)`), a numeric aggregate offered by completion, the editor and the panel builder. Alert rules may use a **deviation** condition `{type: "deviation", direction, sigma, baseline, minDelta}` instead of `{op, threshold}`: the value is compared with the mean and sample standard deviation of the same query in `window` buckets over `baseline` before the current window (UTC grid; window divides 24 h; 5–1,000 windows, ≤ 30 d; ≥ 5 values; count-like aggregates read empty buckets and silent groups as 0), fires when it is more than `sigma`·σ and at least `minDelta` away in the direction, caches the baseline per window, persists `baseline {mean, stdDev, samples, z?}` per group, returns it from `GET /alerts` and `/test`, and notifies with the crossed bound and the baseline (webhook `baseline`). The rule editor offers Threshold or Deviation (σ). Non-goals clarified: statistics, not machine learning. Alert rules on charts (§11.4, §13.1, §14.4, §16.6): `POST /alerts/overlays` returns the rules matching a chart query (canonical text without span), those a panel names in the new option `alertRules` (≤ 5), or the editor's draft, with the rolling band of deviation rules per window and group; explorer charts, dashboard panels and the rule preview draw threshold lines, tinted bands with dashed bounds and a dotted mean, and shade buckets that break them. Integration test `TestIntegrationDeviationAlert` (incl. the band). |
 | 0.35.0 | 2026-11-03 | Dependabot follow-up (§6.1, §15.9, §17.4, §19.3): `dependabot.yml` gives every ecosystem a 7-day cooldown, so proposed versions already satisfy the 7-day rule. New workflow `dependabot-copilot.yml` (every six hours, public repository only) hands each failing or non-routine Dependabot pull request to the Copilot coding agent through one `dependabot-fix` issue with the failed jobs' annotations, using `scripts/dependabot-copilot.sh` (also the routine-update classifier) and the secret `COPILOT_ASSIGN_TOKEN`; `copilot-setup-steps.yml` prepares the agent's environment and `.github/copilot-instructions.md` holds its rules. |
