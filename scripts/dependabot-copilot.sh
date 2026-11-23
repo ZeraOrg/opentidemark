@@ -10,6 +10,14 @@
 #       THIRD_PARTY_NOTICES.md change, with no major version step in go.mod or web/package.json
 #       and no change of the go or toolchain directive.
 #
+#   scripts/dependabot-copilot.sh refresh-notices
+#       For every open Dependabot pull request of $GITHUB_REPOSITORY from a branch of the same
+#       repository, regenerates THIRD_PARTY_NOTICES.md on the branch (make notices) and pushes a
+#       commit when it changed, so a version bump no longer fails ci job "licences and notices".
+#       Run in a checkout whose credentials may push (a user token, so the push starts ci).
+#       A failing `make notices` (e.g. a licence outside the allow-list) is reported as a
+#       warning and left to ci and the hand-off.
+#
 #   scripts/dependabot-copilot.sh hand-off
 #       For every open Dependabot pull request of $GITHUB_REPOSITORY whose ci run failed, or
 #       whose update is not routine, opens one issue (label dependabot-fix) with the failed jobs'
@@ -148,6 +156,37 @@ close_finished() { # <repo>: close open dependabot-fix issues whose pull request
 		--jq '.[] | select(.pull_request == null) | "\(.number)\t\(.title)"')
 }
 
+refresh_notices() {
+	: "${GITHUB_REPOSITORY:?}" "${GH_TOKEN:?}"
+	local repo="$GITHUB_REPOSITORY" pr branch head_repo
+	while IFS=$'\t' read -r pr branch head_repo; do
+		[[ -n "$pr" ]] || continue
+		if [[ "$head_repo" != "$repo" ]]; then
+			echo "#$pr: branch is not in $repo, skipped"
+			continue
+		fi
+		git fetch --quiet --depth=1 origin "refs/heads/$branch"
+		git checkout --quiet --force -B "$branch" FETCH_HEAD
+		if ! make notices; then
+			echo "::warning title=dependabot-copilot::make notices failed on #$pr ($branch); left to ci and the hand-off"
+			git reset --quiet --hard
+			continue
+		fi
+		if git diff --quiet -- THIRD_PARTY_NOTICES.md; then
+			echo "#$pr: THIRD_PARTY_NOTICES.md is up to date"
+			continue
+		fi
+		git add THIRD_PARTY_NOTICES.md
+		git -c user.name="github-actions[bot]" \
+			-c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+			commit --quiet -m "Regenerate THIRD_PARTY_NOTICES.md" \
+			-m "make notices for the dependency versions of this Dependabot update (SPEC §17.4, §19.1)."
+		git push --quiet origin "HEAD:refs/heads/$branch"
+		echo "#$pr: THIRD_PARTY_NOTICES.md regenerated and pushed"
+	done < <(gh api --paginate "repos/$repo/pulls?state=open&base=main&per_page=100" \
+		--jq '.[] | select(.user.login == "dependabot[bot]") | "\(.number)\t\(.head.ref)\t\(.head.repo.full_name)"')
+}
+
 hand_off() {
 	: "${GITHUB_REPOSITORY:?}" "${GH_TOKEN:?}"
 	if [[ -z "${COPILOT_TOKEN:-}" ]]; then
@@ -169,9 +208,10 @@ hand_off() {
 
 case "${1:-}" in
 follow-up) follow_up ;;
+refresh-notices) refresh_notices ;;
 hand-off) hand_off ;;
 *)
-	echo "usage: $0 follow-up < diff | hand-off" >&2
+	echo "usage: $0 follow-up < diff | refresh-notices | hand-off" >&2
 	exit 2
 	;;
 esac

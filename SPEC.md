@@ -8,7 +8,7 @@
 > well. Any change to behaviour, APIs, schema, configuration, layout, UI or tooling **must**
 > update this spec in the same commit. Version history is in §21.
 
-**Spec version:** 0.36.0 · **Last updated:** 2026-11-03
+**Spec version:** 0.36.2 · **Last updated:** 2026-11-23
 
 ---
 
@@ -160,7 +160,7 @@ Versions are minimums; lockfiles (`go.sum`, `web/package-lock.json`) pin exact v
 ### Backend
 | Concern | Choice | License |
 |---|---|---|
-| Language | Go **1.27** toolchain (`go 1.26.0` as the minimum language version, required by `ncruces/go-sqlite3`; `toolchain go1.27.3`: the newest patch release, free of the stdlib advisories reported by govulncheck/Trivy) | BSD |
+| Language | Go **1.27** toolchain (`go 1.26.0` as the minimum language version, required by `ncruces/go-sqlite3`; `toolchain go1.27.4`: the newest patch release, free of the stdlib advisories reported by govulncheck/Trivy) | BSD |
 | HTTP | `net/http` (Go 1.22+ pattern routing), no framework | — |
 | Logging | `log/slog` (JSON handler) | — |
 | ClickHouse client | `github.com/ClickHouse/clickhouse-go/v2` (native protocol) | Apache-2.0 |
@@ -2822,7 +2822,7 @@ Normative details:
 - `deploy/docker-compose.dev.yml` (used only by `make dev`) publishes ClickHouse on
   `127.0.0.1:${TIDEMARK_DEV_CLICKHOUSE_PORT:-19000}`.
 - Dockerfile: `node:24-bookworm-slim` builds `web/` (skipped without `package.json`),
-  `golang:1.27.3-bookworm` (same Go release as the `toolchain` directive, §5) builds with `CGO_ENABLED=0` and copies `LICENSE`, `NOTICE`,
+  `golang:1.27.4-bookworm` (same Go release as the `toolchain` directive, §5) builds with `CGO_ENABLED=0` and copies `LICENSE`, `NOTICE`,
   `THIRD_PARTY_NOTICES.md` to `/licenses/`, runtime `gcr.io/distroless/static-debian12:nonroot`
   (UID 65532, `/data` volume, `TIDEMARK_DATA_DIR=/data`, entrypoint `tidemark`, cmd `serve`).
   Both build stages run on the build platform (`FROM --platform=$BUILDPLATFORM`) and the Go
@@ -2947,8 +2947,16 @@ Normative details:
   `@eslint/config-array` and typescript-eslint, which still require `^10`): GHSA-g3hv-75wg-m249
   is fixed only in 11.0.1, and §15.9 fixes vulnerabilities by upgrading. Remove the override when
   those packages require minimatch 11.
-- **Dependabot follow-up** (`.github/workflows/dependabot-copilot.yml`; schedule every six hours
-  and `workflow_dispatch`; concurrency `dependabot-copilot` without cancelling; job `hand-off`
+- **Dependabot follow-up** (`.github/workflows/dependabot-copilot.yml`; schedule every six hours,
+  Mondays at 10:13 UTC (shortly after the weekly update) and `workflow_dispatch`; concurrency
+  `dependabot-copilot` without cancelling). Job `notices` (the guard of `hand-off`; `timeout-minutes: 20`;
+  `contents` and `pull-requests: read`; checkout with `COPILOT_ASSIGN_TOKEN`, because pushes made
+  with `GITHUB_TOKEN` do not start ci; setup-go from `go.mod`, Node 24) runs
+  `scripts/dependabot-copilot.sh refresh-notices`: for every open Dependabot pull request into
+  `main` whose branch is in the repository it runs `make notices` on the branch and, when
+  `THIRD_PARTY_NOTICES.md` changed, pushes a commit "Regenerate THIRD_PARTY_NOTICES.md" (author
+  `github-actions[bot]`) so ci runs again; a failing `make notices` is a warning and is left to
+  ci and the hand-off. Job `hand-off` (`needs: notices`, runs unless cancelled)
   with the guard of the other workflows but without the `workflow_dispatch` exception, so it
   runs only in `ZeraOrg/opentidemark`; `timeout-minutes: 10`; permissions `contents: read`,
   `issues: write`, `pull-requests`, `actions` and `checks: read`) runs
@@ -3721,6 +3729,8 @@ items of M0–M3b:
 
 | Version | Date | Change |
 |---|---|---|
+| 0.36.2 | 2026-11-23 | Dependabot follow-up (§17.4): new job `notices` of `dependabot-copilot.yml` (also Mondays 10:13 UTC) regenerates `THIRD_PARTY_NOTICES.md` on open Dependabot branches with `scripts/dependabot-copilot.sh refresh-notices` and pushes it with `COPILOT_ASSIGN_TOKEN`, so routine weekly updates no longer fail ci job "licences and notices"; `hand-off` runs after it. |
+| 0.36.1 | 2026-11-23 | Go toolchain go1.27.4 (Dockerfile `golang:1.27.4-bookworm`, §5, §17) for the `net/http` advisory GO-2026-6859 reported by govulncheck; applied before the 7-day rule (§15.9) because it fixes a vulnerability and the fix is only available by upgrading. |
 | 0.36.0 | 2026-11-03 | Deviation alerting and `stddev` (§2, §10.3, §10.5, §11.4, §14.1, §14.3, §16.6, §18): TQL `stddev(f)`, the sample standard deviation (`if(count(x) > 1, stddevSamp(x), NULL)`), a numeric aggregate offered by completion, the editor and the panel builder. Alert rules may use a **deviation** condition `{type: "deviation", direction, sigma, baseline, minDelta}` instead of `{op, threshold}`: the value is compared with the mean and sample standard deviation of the same query in `window` buckets over `baseline` before the current window (UTC grid; window divides 24 h; 5–1,000 windows, ≤ 30 d; ≥ 5 values; count-like aggregates read empty buckets and silent groups as 0), fires when it is more than `sigma`·σ and at least `minDelta` away in the direction, caches the baseline per window, persists `baseline {mean, stdDev, samples, z?}` per group, returns it from `GET /alerts` and `/test`, and notifies with the crossed bound and the baseline (webhook `baseline`). The rule editor offers Threshold or Deviation (σ). Non-goals clarified: statistics, not machine learning. Alert rules on charts (§11.4, §13.1, §14.4, §16.6): `POST /alerts/overlays` returns the rules matching a chart query (canonical text without span), those a panel names in the new option `alertRules` (≤ 5), or the editor's draft, with the rolling band of deviation rules per window and group; explorer charts, dashboard panels and the rule preview draw threshold lines, tinted bands with dashed bounds and a dotted mean, and shade buckets that break them. Integration test `TestIntegrationDeviationAlert` (incl. the band). |
 | 0.35.0 | 2026-11-03 | Dependabot follow-up (§6.1, §15.9, §17.4, §19.3): `dependabot.yml` gives every ecosystem a 7-day cooldown, so proposed versions already satisfy the 7-day rule. New workflow `dependabot-copilot.yml` (every six hours, public repository only) hands each failing or non-routine Dependabot pull request to the Copilot coding agent through one `dependabot-fix` issue with the failed jobs' annotations, using `scripts/dependabot-copilot.sh` (also the routine-update classifier) and the secret `COPILOT_ASSIGN_TOKEN`; `copilot-setup-steps.yml` prepares the agent's environment and `.github/copilot-instructions.md` holds its rules. |
 | 0.34.5 | 2026-11-02 | Web dev dependencies (§17.4, §15.9): an npm `overrides` entry pins `minimatch` 11.0.1 for ESLint and typescript-eslint (GHSA-g3hv-75wg-m249, fixed only in 11.x, development only), so the OSV-Scanner supply-chain gate passes; to be removed once they require minimatch 11. It brings the development-only `@isaacs/nonrecursive-glob-match` 1.0.3 (BlueOak-1.0.0). Taken 6 days after the release of 11.0.1 as an owner-approved security exception to the 7-day rule of §15.9. |

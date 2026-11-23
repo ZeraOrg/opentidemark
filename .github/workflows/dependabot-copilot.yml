@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# Dependabot follow-up (SPEC §17.4): every six hours, each open Dependabot pull request whose ci
-# failed, or whose update is not routine (a changed workflow, Dockerfile or Go release, or a
+# Dependabot follow-up (SPEC §17.4): every six hours (and shortly after the weekly Monday update),
+# THIRD_PARTY_NOTICES.md is regenerated on each open Dependabot branch and pushed when it changed
+# (with COPILOT_ASSIGN_TOKEN, so the push starts ci again). Then each open Dependabot pull request
+# whose ci failed, or whose update is not routine (a changed workflow, Dockerfile or Go release, or a
 # major version step), gets one issue (label dependabot-fix) that is assigned to the Copilot
 # coding agent; Copilot works on the Dependabot branch and opens a pull request into it. Issues
 # of closed Dependabot pull requests are closed. Runs only in the main public repository
@@ -13,6 +15,7 @@ name: dependabot-copilot
 on:
   schedule:
     - cron: "23 */6 * * *"
+    - cron: "13 10 * * 1" # ~25 min after the weekly Dependabot pull request (Monday, dependabot.yml)
   workflow_dispatch:
 
 permissions:
@@ -22,10 +25,38 @@ concurrency:
   group: dependabot-copilot
   cancel-in-progress: false # never hand the same pull request off twice
 
+env:
+  NODE_VERSION: "24"
+
 jobs:
+  notices:
+    name: regenerate notices on Dependabot branches
+    if: github.repository == 'ZeraOrg/opentidemark'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # A user token: pushes made with GITHUB_TOKEN do not start ci.
+          token: ${{ secrets.COPILOT_ASSIGN_TOKEN }}
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: refresh notices
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/dependabot-copilot.sh refresh-notices
+
   hand-off:
     name: hand failing Dependabot updates to Copilot
-    if: github.repository == 'ZeraOrg/opentidemark'
+    needs: notices
+    if: ${{ !cancelled() && github.repository == 'ZeraOrg/opentidemark' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
