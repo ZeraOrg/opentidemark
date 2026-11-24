@@ -8,7 +8,7 @@
 > well. Any change to behaviour, APIs, schema, configuration, layout, UI or tooling **must**
 > update this spec in the same commit. Version history is in §21.
 
-**Spec version:** 0.36.0 · **Last updated:** 2026-11-03
+**Spec version:** 0.37.0 · **Last updated:** 2026-11-24
 
 ---
 
@@ -160,7 +160,7 @@ Versions are minimums; lockfiles (`go.sum`, `web/package-lock.json`) pin exact v
 ### Backend
 | Concern | Choice | License |
 |---|---|---|
-| Language | Go **1.27** toolchain (`go 1.26.0` as the minimum language version, required by `ncruces/go-sqlite3`; `toolchain go1.27.3`: the newest patch release, free of the stdlib advisories reported by govulncheck/Trivy) | BSD |
+| Language | Go **1.27** toolchain (`go 1.26.0` as the minimum language version, required by `ncruces/go-sqlite3`; `toolchain go1.27.4`: fixes the stdlib HTTP advisory GO-2026-6859) | BSD |
 | HTTP | `net/http` (Go 1.22+ pattern routing), no framework | — |
 | Logging | `log/slog` (JSON handler) | — |
 | ClickHouse client | `github.com/ClickHouse/clickhouse-go/v2` (native protocol) | Apache-2.0 |
@@ -2822,7 +2822,7 @@ Normative details:
 - `deploy/docker-compose.dev.yml` (used only by `make dev`) publishes ClickHouse on
   `127.0.0.1:${TIDEMARK_DEV_CLICKHOUSE_PORT:-19000}`.
 - Dockerfile: `node:24-bookworm-slim` builds `web/` (skipped without `package.json`),
-  `golang:1.27.3-bookworm` (same Go release as the `toolchain` directive, §5) builds with `CGO_ENABLED=0` and copies `LICENSE`, `NOTICE`,
+  `golang:1.27.4-bookworm` (same Go release as the `toolchain` directive, §5) builds with `CGO_ENABLED=0` and copies `LICENSE`, `NOTICE`,
   `THIRD_PARTY_NOTICES.md` to `/licenses/`, runtime `gcr.io/distroless/static-debian12:nonroot`
   (UID 65532, `/data` volume, `TIDEMARK_DATA_DIR=/data`, entrypoint `tidemark`, cmd `serve`).
   Both build stages run on the build platform (`FROM --platform=$BUILDPLATFORM`) and the Go
@@ -3721,6 +3721,7 @@ items of M0–M3b:
 
 | Version | Date | Change |
 |---|---|---|
+| 0.37.0 | 2026-11-24 | Dependabot update #24 (§5, §17.2, §19.1): retain the proposed dependency versions and regenerate `THIRD_PARTY_NOTICES.md`; pin Go 1.27.4 in `go.mod` and Docker (fixes govulncheck advisory GO-2026-6859). ClickHouse integration fixtures use a matching retention and query window so their fixed timestamps remain searchable. |
 | 0.36.0 | 2026-11-03 | Deviation alerting and `stddev` (§2, §10.3, §10.5, §11.4, §14.1, §14.3, §16.6, §18): TQL `stddev(f)`, the sample standard deviation (`if(count(x) > 1, stddevSamp(x), NULL)`), a numeric aggregate offered by completion, the editor and the panel builder. Alert rules may use a **deviation** condition `{type: "deviation", direction, sigma, baseline, minDelta}` instead of `{op, threshold}`: the value is compared with the mean and sample standard deviation of the same query in `window` buckets over `baseline` before the current window (UTC grid; window divides 24 h; 5–1,000 windows, ≤ 30 d; ≥ 5 values; count-like aggregates read empty buckets and silent groups as 0), fires when it is more than `sigma`·σ and at least `minDelta` away in the direction, caches the baseline per window, persists `baseline {mean, stdDev, samples, z?}` per group, returns it from `GET /alerts` and `/test`, and notifies with the crossed bound and the baseline (webhook `baseline`). The rule editor offers Threshold or Deviation (σ). Non-goals clarified: statistics, not machine learning. Alert rules on charts (§11.4, §13.1, §14.4, §16.6): `POST /alerts/overlays` returns the rules matching a chart query (canonical text without span), those a panel names in the new option `alertRules` (≤ 5), or the editor's draft, with the rolling band of deviation rules per window and group; explorer charts, dashboard panels and the rule preview draw threshold lines, tinted bands with dashed bounds and a dotted mean, and shade buckets that break them. Integration test `TestIntegrationDeviationAlert` (incl. the band). |
 | 0.35.0 | 2026-11-03 | Dependabot follow-up (§6.1, §15.9, §17.4, §19.3): `dependabot.yml` gives every ecosystem a 7-day cooldown, so proposed versions already satisfy the 7-day rule. New workflow `dependabot-copilot.yml` (every six hours, public repository only) hands each failing or non-routine Dependabot pull request to the Copilot coding agent through one `dependabot-fix` issue with the failed jobs' annotations, using `scripts/dependabot-copilot.sh` (also the routine-update classifier) and the secret `COPILOT_ASSIGN_TOKEN`; `copilot-setup-steps.yml` prepares the agent's environment and `.github/copilot-instructions.md` holds its rules. |
 | 0.34.5 | 2026-11-02 | Web dev dependencies (§17.4, §15.9): an npm `overrides` entry pins `minimatch` 11.0.1 for ESLint and typescript-eslint (GHSA-g3hv-75wg-m249, fixed only in 11.x, development only), so the OSV-Scanner supply-chain gate passes; to be removed once they require minimatch 11. It brings the development-only `@isaacs/nonrecursive-glob-match` 1.0.3 (BlueOak-1.0.0). Taken 6 days after the release of 11.0.1 as an owner-approved security exception to the 7-day rule of §15.9. |
