@@ -103,12 +103,13 @@ type queryResult struct {
 	} `json:"series"`
 }
 
-// itRange covers the fixtures (fixed October 2026 times and ingest-time defaults).
+// itRange covers the fixed October 2026 fixtures and ingest-time defaults.
 type itRange struct{ from, to string }
 
 func newITRange() itRange {
 	now := time.Now().UTC()
-	return itRange{from: now.Add(-30 * 24 * time.Hour).Format(time.RFC3339), to: now.Add(30 * 24 * time.Hour).Format(time.RFC3339)}
+	from := time.Date(2026, time.October, 12, 0, 0, 0, 0, time.UTC)
+	return itRange{from: from.Format(time.RFC3339), to: now.Add(30 * 24 * time.Hour).Format(time.RFC3339)}
 }
 
 func (r itRange) query(a *apiClient, q string, extra map[string]any) queryResult {
@@ -129,7 +130,7 @@ func (r itRange) params(extra string) string {
 }
 
 func TestIntegrationSearchEndToEnd(t *testing.T) {
-	a, _ := startApp(t)
+	a, env := startApp(t)
 	defer func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -140,7 +141,7 @@ func TestIntegrationSearchEndToEnd(t *testing.T) {
 	addrs := a.Addrs()
 	base := "http://" + addrs[ListenerHTTP]
 	admin := loginAdmin(t, base)
-	keepFixtures(t, admin)
+	keepFixtures(t, admin, env)
 	key := admin.createKey("it-all", []string{"seq", "elastic", "otlp", "native"})
 	seqOnly := admin.createKey("it-seq-only", []string{"seq"})
 
